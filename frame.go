@@ -38,6 +38,8 @@ type Cell struct {
 	Text  string
 	Code  string
 	Ticks bool
+	// item says the cell is one of an Items line's, which the draw may leave out.
+	item bool
 }
 
 // C is a Cell.
@@ -60,6 +62,35 @@ func (l Line) Text() string {
 
 func (l Line) width() int { return ansi.StringWidth(l.Text()) }
 
+// Items is a line of a Group's Below that the draw cuts to the items that fit, ending in
+// +N for the rest, rather than letting the screen's edge cut one in half. The width it
+// has moves with the side panel, so only the draw knows it. The filter and the change cue
+// read every item, shown or not.
+func Items(code string, items ...string) Line {
+	line := make(Line, 0, len(items))
+	for i, item := range items {
+		if i < len(items)-1 {
+			item += ", "
+		}
+		line = append(line, Cell{Text: item, Code: code, item: true})
+	}
+	return line
+}
+
+// elided is an Items line within room. Any other line stays whole, for the edge to cut.
+func (l Line) elided(room int) Line {
+	if len(l) == 0 || !l[0].item || l.width() <= room {
+		return l
+	}
+	more := func(kept int) Line { return Line{C("+"+strconv.Itoa(len(l)-kept), l[0].Code)} }
+	for kept := len(l) - 1; kept > 0; kept-- {
+		if l[:kept].width()+more(kept).width() <= room {
+			return append(slices.Clone(l[:kept]), more(kept)...)
+		}
+	}
+	return more(0)
+}
+
 func (l Line) paint(pal gotermstyle.Palette) string {
 	var b strings.Builder
 	for _, c := range l {
@@ -68,11 +99,15 @@ func (l Line) paint(pal gotermstyle.Palette) string {
 	return b.String()
 }
 
+// emboldened is a color in bold. The color leads, because each code opens with a reset
+// that would undo a bold set before it.
+func emboldened(code string) string { return code + Bold }
+
 // emboldened is the line in bold over each cell's own color.
 func (l Line) emboldened() Line {
 	out := slices.Clone(l)
 	for i := range out {
-		out[i].Code = Bold + out[i].Code
+		out[i].Code = emboldened(out[i].Code)
 	}
 	return out
 }
@@ -101,6 +136,9 @@ type Row struct {
 	// Detail is what the side panel shows while the cursor is on the row, and
 	// what enter opens under the row. Each cell is a paragraph that wraps.
 	Detail []Cell
+	// Panel is what the side panel shows in Detail's place, each line wrapping at
+	// spaces with its cells' own colors.
+	Panel []Line
 	// Text is more the filter matches beyond what the row draws.
 	Text string
 	// Marked draws MarkGlyph in the row's indent and its first cell in MarkCode. No
@@ -131,14 +169,31 @@ type Group struct {
 	// Below are lines drawn under the header whether the group is folded or not. The
 	// cursor moves past them as one node.
 	Below []Line
+	// Under is the group's first line, wrapping on a └─ row under Below while those are on.
+	Under Cell
+	// Paragraphs wrap under Below whether the group is folded or not, so a view can open
+	// a group's text in place. The cursor moves past them too.
+	Paragraphs []Cell
 	// Summary is drawn past the title while the group is folded.
 	Summary Line
 	Folded  bool
 	// Gap draws a blank line after the group.
-	Gap    bool
-	Rows   []Row
-	Groups []Group
-	Detail []Cell
+	Gap bool
+	// Still keeps the header open with no fold mark, and the cursor passes over it. At
+	// the top of a frame it stays on screen with the column titles while the table scrolls.
+	Still bool
+	// Heading says the title only labels what sits under it, so the filter looks past it.
+	Heading bool
+	// FilterOnly keeps the group out of the table until a filter is typed, so a search
+	// reaches past what a view shows.
+	FilterOnly bool
+	Rows       []Row
+	Groups     []Group
+	Detail     []Cell
+	// Panel is what the side panel shows in Detail's place, as Row.Panel has it.
+	Panel []Line
+	// Text is more the filter matches beyond what the group draws.
+	Text string
 	// changed is set while the header wears the change cue.
 	changed bool
 }
@@ -152,6 +207,9 @@ type Frame struct {
 	Strip   []Line
 	Columns []Column
 	Groups  []Group
+	// StartAt is the key the cursor starts on, where that key is showing. Without one it
+	// starts on the first line holding cells.
+	StartAt string
 }
 
 // nodeKind is what one laid-out line of the table is.
@@ -174,9 +232,16 @@ type node struct {
 	row   *Row
 	cell  Cell
 	open  bool
+	// wraps says an Under line runs on past the screen's edge, where a row's is cut.
+	wraps bool
 }
 
-func (n node) selectable() bool { return n.kind == nodeGroup || n.kind == nodeRow }
+func (n node) selectable() bool { return (n.kind == nodeGroup && !n.group.Still) || n.kind == nodeRow }
+
+// staysOnScreen says the node can hold its place above a table that scrolls.
+func (n node) staysOnScreen() bool {
+	return n.kind == nodeBlank || (n.kind == nodeGroup && n.group.Still && n.depth == 0)
+}
 
 func (n node) wearsCue() bool {
 	switch n.kind {
@@ -216,7 +281,11 @@ func (d display) matches(r *Row) bool {
 }
 
 func (d display) groupMatches(g *Group) bool {
-	if d.contains(g.Title.Text()) || slices.ContainsFunc(g.Below, func(l Line) bool { return d.contains(l.Text()) }) {
+	own := g.Text + " " + g.Under.Text
+	if !g.Heading {
+		own += " " + g.Title.Text()
+	}
+	if d.contains(own) || slices.ContainsFunc(g.Below, func(l Line) bool { return d.contains(l.Text()) }) {
 		return true
 	}
 	for i := range g.Rows {
@@ -233,7 +302,7 @@ func (d display) groupMatches(g *Group) bool {
 }
 
 func (d display) isOpen(g *Group) bool {
-	if d.filter != "" {
+	if d.filter != "" || g.Still {
 		return true
 	}
 	if folded, set := d.folded[g.Key]; set {
@@ -246,7 +315,7 @@ func (d display) isOpen(g *Group) bool {
 func anyUnder(groups []Group) bool {
 	for i := range groups {
 		hasUnder := func(r Row) bool { return r.Under.Text != "" }
-		if slices.ContainsFunc(groups[i].Rows, hasUnder) || anyUnder(groups[i].Groups) {
+		if groups[i].Under.Text != "" || slices.ContainsFunc(groups[i].Rows, hasUnder) || anyUnder(groups[i].Groups) {
 			return true
 		}
 	}
@@ -256,11 +325,20 @@ func anyUnder(groups []Group) bool {
 func (d display) walk(groups []Group, depth int, out []node) []node {
 	for i := range groups {
 		g := &groups[i]
+		if g.FilterOnly && d.filter == "" {
+			continue
+		}
 		if d.filter != "" && !d.groupMatches(g) {
 			continue
 		}
 		open := d.isOpen(g)
 		out = append(out, node{kind: nodeGroup, key: g.Key, depth: depth, group: g, open: open})
+		if d.under && g.Under.Text != "" {
+			out = append(out, node{kind: nodeUnder, depth: depth + 1, cell: g.Under, wraps: true})
+		}
+		for _, c := range g.Paragraphs {
+			out = append(out, node{kind: nodeDetail, depth: depth + 2, cell: c})
+		}
 		if open {
 			for j := range g.Rows {
 				r := &g.Rows[j]
@@ -383,10 +461,21 @@ func fit(text string, width int, right bool) string {
 	return text + pad
 }
 
-// drawn is one laid-out line and the key the cursor lands on there.
+// drawn is one laid-out line and the key the cursor lands on there. pinned says it stays
+// on screen above the lines that scroll.
 type drawn struct {
-	text string
-	key  string
+	text   string
+	key    string
+	pinned bool
+}
+
+// splitPinned is the leading lines that stay on screen, and those that scroll.
+func splitPinned(lines []drawn) (pinned, scrolling []drawn) {
+	at := slices.IndexFunc(lines, func(l drawn) bool { return !l.pinned })
+	if at < 0 {
+		return lines, nil
+	}
+	return lines[:at], lines[at:]
 }
 
 // draw lays the nodes out to width. The first group holding rows and left open
@@ -399,43 +488,73 @@ func draw(pal gotermstyle.Palette, columns []Column, nodes []node, width int, cu
 	if slices.ContainsFunc(nodes, func(n node) bool { return n.kind == nodeGroup && len(n.group.Cells) > 0 }) {
 		titled = true
 		first := pal.Bold(fit(columns[0].Title, max(widths[0]-1, 0), false))
-		lines = append(lines, drawn{text: ansi.Truncate(" "+first+columnTitles(pal, columns, widths), width, "…")})
+		lines = append(lines, drawn{text: ansi.Truncate(" "+first+columnTitles(pal, columns, widths), width, "…"), pinned: true})
 	}
+	pinning := true
 	for _, n := range nodes {
-		pointer := " "
-		selected := n.selectable() && n.key == cursor
-		switch {
-		case selected:
-			pointer = pal.Bold("›")
-		case n.wearsCue():
-			pointer = pal.Paint(CueCode, CueGlyph)
+		pinning = pinning && n.staysOnScreen()
+		from := len(lines)
+		wantsTitles := n.kind == nodeGroup && n.depth == 0 && n.open && n.group.holdsRows() && !titled
+		titled = titled || wantsTitles
+		lines = append(lines, drawNode(pal, n, columns, widths, width, cursor, wantsTitles)...)
+		for i := from; i < len(lines); i++ {
+			lines[i].pinned = pinning
 		}
-		var text string
-		var wrapped Line
-		switch n.kind {
-		case nodeBlank:
-			text = ""
-		case nodeGroup:
-			wantsTitles := n.depth == 0 && n.open && n.group.holdsRows() && !titled
-			titled = titled || wantsTitles
-			text = pointer + drawGroup(pal, n, columns, widths, wantsTitles, selected)
-			wrapped = n.group.WrapLast
-		case nodeRow:
-			text = pointer + drawRow(pal, n, columns, widths, selected)
-			wrapped = n.row.WrapLast
-		case nodeUnder:
-			text = " " + strings.Repeat(" ", indentOf(n.depth)-1) + "└─ " + pal.Paint(n.cell.Code, n.cell.Text)
-		case nodeDetail:
-			for _, piece := range wrap(n.cell.Text, max(width-indentOf(n.depth), 20)) {
-				lines = append(lines, drawn{text: strings.Repeat(" ", indentOf(n.depth)) + pal.Paint(n.cell.Code, piece)})
-			}
-			continue
+	}
+	return lines
+}
+
+// drawNode is the lines one node takes.
+func drawNode(pal gotermstyle.Palette, n node, columns []Column, widths []int, width int, cursor string, wantsTitles bool) []drawn {
+	pointer := " "
+	selected := n.selectable() && n.key == cursor
+	switch {
+	case selected:
+		pointer = pal.Bold("›")
+	case n.wearsCue():
+		pointer = pal.Paint(CueCode, CueGlyph)
+	}
+	var text string
+	var wrapped Line
+	switch n.kind {
+	case nodeBlank:
+		text = ""
+	case nodeGroup:
+		text = pointer + drawGroup(pal, n, columns, widths, wantsTitles, selected)
+		wrapped = n.group.WrapLast
+	case nodeRow:
+		text = pointer + drawRow(pal, n, columns, widths, selected)
+		wrapped = n.row.WrapLast
+	case nodeUnder:
+		return underLines(pal, n, width)
+	case nodeDetail:
+		var lines []drawn
+		for _, piece := range wrap(n.cell.Text, max(width-indentOf(n.depth), 20)) {
+			lines = append(lines, drawn{text: strings.Repeat(" ", indentOf(n.depth)) + pal.Paint(n.cell.Code, piece)})
 		}
-		lines = append(lines, drawn{text: ansi.Truncate(text, width, "…"), key: selectableKey(n)})
-		lines = append(lines, continuedLines(pal, wrapped, widths)...)
-		if n.kind == nodeGroup {
-			lines = append(lines, belowLines(pal, n, width)...)
+		return lines
+	}
+	lines := []drawn{{text: ansi.Truncate(text, width, "…"), key: selectableKey(n)}}
+	lines = append(lines, continuedLines(pal, wrapped, widths)...)
+	if n.kind == nodeGroup {
+		lines = append(lines, belowLines(pal, n, width)...)
+	}
+	return lines
+}
+
+// underLines is a first line on its └─ row, running on under it where it wraps.
+func underLines(pal gotermstyle.Palette, n node, width int) []drawn {
+	lead := strings.Repeat(" ", indentOf(n.depth)) + "└─ "
+	if !n.wraps {
+		return []drawn{{text: ansi.Truncate(lead+pal.Paint(n.cell.Code, n.cell.Text), width, "…")}}
+	}
+	room := max(width-ansi.StringWidth(lead), 20)
+	var lines []drawn
+	for i, piece := range wrap(n.cell.Text, room) {
+		if i == 1 {
+			lead = strings.Repeat(" ", ansi.StringWidth(lead))
 		}
+		lines = append(lines, drawn{text: lead + pal.Paint(n.cell.Code, piece)})
 	}
 	return lines
 }
@@ -542,14 +661,17 @@ func belowLines(pal gotermstyle.Palette, n node, width int) []drawn {
 	lines := make([]drawn, 0, len(n.group.Below))
 	indent := strings.Repeat(" ", indentOf(n.depth)+2)
 	for _, line := range n.group.Below {
-		lines = append(lines, drawn{text: ansi.Truncate(indent+line.paint(pal), width, "…")})
+		lines = append(lines, drawn{text: ansi.Truncate(indent+line.elided(width-len(indent)).paint(pal), width, "…")})
 	}
 	return lines
 }
 
 func drawGroup(pal gotermstyle.Palette, n node, columns []Column, widths []int, titles, selected bool) string {
 	fold := "▸"
-	if n.open {
+	switch {
+	case n.group.Still:
+		fold = " "
+	case n.open:
 		fold = "▾"
 	}
 	head := strings.Repeat(" ", indentOf(n.depth)-1) + fold + " "
@@ -568,7 +690,7 @@ func drawGroup(pal gotermstyle.Palette, n node, columns []Column, widths []int, 
 	}
 	if n.depth > 0 {
 		out := head + label.paint(pal)
-		if !n.open && len(n.group.Summary) > 0 {
+		if (!n.open || n.group.Still) && len(n.group.Summary) > 0 {
 			out += "  " + n.group.Summary.paint(pal)
 		}
 		return out
@@ -615,7 +737,7 @@ func drawRow(pal gotermstyle.Palette, n node, columns []Column, widths []int, se
 		code = MarkCode
 	}
 	if r.changed {
-		code = Bold + code
+		code = emboldened(code)
 	}
 	if selected {
 		code = Reverse
@@ -632,6 +754,35 @@ func rowSymbol(n node) Cell {
 		return C("▾", "")
 	}
 	return C("▸", "")
+}
+
+// wrapWords breaks a line at spaces to width, each cell keeping its color. A word wider
+// than width is cut.
+func wrapWords(line Line, width int) []Line {
+	if width < 2 || line.width() <= width {
+		return []Line{line}
+	}
+	var out []Line
+	var current Line
+	room := width
+	for _, c := range line {
+		for _, word := range strings.SplitAfter(c.Text, " ") {
+			if ansi.StringWidth(strings.TrimRight(word, " ")) > room && len(current) > 0 {
+				out = append(out, current)
+				current, room = nil, width
+			}
+			for w := ansi.StringWidth(word); w > width; w = ansi.StringWidth(word) {
+				out = append(out, Line{C(ansi.Cut(word, 0, width), c.Code)})
+				word = ansi.Cut(word, width, w)
+			}
+			current = append(current, C(word, c.Code))
+			room = max(room-ansi.StringWidth(word), 0)
+		}
+	}
+	if len(current) > 0 {
+		out = append(out, current)
+	}
+	return out
 }
 
 // wrap breaks text at spaces to width, so every line can be painted on its own.

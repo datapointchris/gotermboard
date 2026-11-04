@@ -80,6 +80,28 @@ drawn under the header whether it is folded or not, which the cursor moves past 
 node. `WrapLast` on a `Row` or a `Group` is the last column as cells of their own colors,
 continuing on further lines at that column, so a bar wider than the row keeps every cell.
 
+`Items` makes a line of `Below` that the draw cuts to the items that fit, ending in `+N`,
+because only the draw knows the width and it moves with the side panel. `Under` is a
+group's first line, wrapping under `Below` while `f` has them on. `Paragraphs` wrap under
+`Below` whether the group is folded or not, for a view that opens a group's text in place.
+
+A `Still` group has no fold mark and the cursor passes over it. At the top of a frame it
+stays on screen with the column titles while the table scrolls, which suits a row of totals.
+
+## A filter can reach past what shows
+
+`FilterOnly` keeps a group out of the table until a filter is typed, so a view that shows
+the first few of something still finds the rest. `Text` is more the filter matches beyond
+what a group draws, and `Heading` says a title only labels what sits under it, so a word in
+it matches nothing.
+
+## The side panel follows the cursor
+
+`Panel` on a row or a group is what the side panel shows in `Detail`'s place, a line at a
+time, wrapping at spaces with each cell's own color. A board implementing `CursorBoard` is
+told each key the cursor lands on, so a read that only one row needs can follow it.
+`Frame.StartAt` names the key the cursor starts on.
+
 ## A board can add keys
 
 A board implementing `Keyed` adds `Action`s, which take precedence over the table's and

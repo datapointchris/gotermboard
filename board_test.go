@@ -3,6 +3,7 @@ package gotermboard
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -330,5 +331,110 @@ func TestGroupCellsShareTheRowsColumnsAndALastCellWraps(t *testing.T) {
 	}
 	if !strings.Contains(lines[4], "the name") {
 		t.Errorf("the line below should follow the header and its bar:\n%s", screen)
+	}
+}
+
+func TestAnItemsLineEndsInTheCountOfWhatDidNotFit(t *testing.T) {
+	frame := Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{
+		Key: "g", Title: Line{C("head", "")}, Below: []Line{Items("", "alpha", "beta", "gamma", "delta")},
+	}}}
+	drawn := func(width int) string { return Once(fixedBoard{frame}, gotermstyle.NewPalette(false), width, 6) }
+	if got := drawn(60); !strings.Contains(got, "alpha, beta, gamma, delta") {
+		t.Errorf("every item should show where they fit:\n%s", got)
+	}
+	if got := drawn(22); !strings.Contains(got, "alpha, beta, +2") {
+		t.Errorf("the items that do not fit should become a count:\n%s", got)
+	}
+	if got := drawn(5); !strings.Contains(got, "+4") {
+		t.Errorf("no room for an item should leave the count alone:\n%s", got)
+	}
+}
+
+func TestAFilterReachesAGroupTheViewDoesNotShow(t *testing.T) {
+	frame := Frame{Columns: []Column{{Title: ""}, {Title: "N"}}, Groups: []Group{
+		{Key: "shown", Title: Line{C("first", "")}, Cells: []Cell{C("1", "")}},
+		{Key: "beyond", Title: Line{C("second", "")}, Cells: []Cell{C("2", "")}, FilterOnly: true, Text: "the long text"},
+		{Key: "labels", Title: Line{C("long text", "")}, Cells: []Cell{C("3", "")}, Heading: true},
+	}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	if got := m.screen(); strings.Contains(got, "second") {
+		t.Errorf("a group past the view should stay out of the table:\n%s", got)
+	}
+	m.setFilter("long text")
+	got := m.screen()
+	if !strings.Contains(got, "second") || strings.Contains(got, "first") {
+		t.Errorf("the filter should find the group past the view and nothing else:\n%s", got)
+	}
+	if strings.Contains(got, "› ▾ long text") {
+		t.Errorf("a heading's own words should match nothing:\n%s", got)
+	}
+}
+
+func TestAStillHeaderTakesNoCursorAndStaysAboveWhatScrolls(t *testing.T) {
+	var rows []Row
+	for i := range 30 {
+		rows = append(rows, Row{Key: "r" + strconv.Itoa(i), Cells: []Cell{C("row "+strconv.Itoa(i), ""), C("x", "")}})
+	}
+	frame := Frame{StartAt: "r3", Columns: []Column{{Title: ""}, {Title: "COUNT"}}, Groups: []Group{
+		{Key: "total", Title: Line{C("TOTAL", "")}, Cells: []Cell{C("9", "")}, Still: true, Gap: true},
+		{Key: "g", Title: Line{C("group", "")}, Cells: []Cell{C("9", "")}, Rows: rows},
+	}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
+	if m.Cursor() != "r3" {
+		t.Errorf("the cursor should start on the key the frame names, not %q", m.Cursor())
+	}
+	m.move(len(rows))
+	got := m.screen()
+	for _, want := range []string{"COUNT", "TOTAL", "row 29"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("scrolled to the bottom, the screen should hold %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "row 3\n") {
+		t.Errorf("the rows should have scrolled:\n%s", got)
+	}
+	m.move(-len(rows) - 5)
+	if m.Cursor() != "g" {
+		t.Errorf("the cursor should stop short of the still header, on %q", m.Cursor())
+	}
+}
+
+type followingBoard struct {
+	fixedBoard
+	heard *[]string
+}
+
+func (b followingBoard) CursorOn(key string) { *b.heard = append(*b.heard, key) }
+
+func TestACursorBoardHearsEachKeyTheCursorLandsOnOnce(t *testing.T) {
+	frame := Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "g", Rows: []Row{
+		{Key: "one", Cells: []Cell{C("one", "")}}, {Key: "two", Cells: []Cell{C("two", "")}},
+	}}}}
+	var heard []string
+	m := NewModel(followingBoard{fixedBoard{frame}, &heard}, gotermstyle.NewPalette(false))
+	m.Update(refreshedMsg{})
+	m.Update(downKey)
+	m.Update(refreshedMsg{})
+	if want := "one,two"; strings.Join(heard, ",") != want {
+		t.Errorf("heard %v, want %s", heard, want)
+	}
+}
+
+func TestAPanelLineWrapsAtSpacesKeepingEachCellsColor(t *testing.T) {
+	line := Line{C("green words here ", Green), C("red words", Red)}
+	pieces := wrapWords(line, 12)
+	joined := ""
+	for _, piece := range pieces {
+		if piece.width() > 12+1 {
+			t.Errorf("%q is wider than the panel", piece.Text())
+		}
+		joined += piece.Text()
+	}
+	if joined != line.Text() {
+		t.Errorf("wrapping should keep every word in order, got %q", joined)
+	}
+	if last := pieces[len(pieces)-1]; last[len(last)-1].Code != Red {
+		t.Errorf("the last word should keep its cell's color: %+v", last)
 	}
 }

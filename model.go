@@ -34,6 +34,11 @@ type TailBoard interface {
 	Tails() bool
 }
 
+// CursorBoard is a Board told which key the cursor is on, for a read that follows it.
+type CursorBoard interface {
+	CursorOn(key string)
+}
+
 // PanelFrom is the narrowest screen that gets the side panel.
 const PanelFrom = 160
 
@@ -69,6 +74,8 @@ type Model struct {
 	// hosted are the keys of whatever holds this model, ahead of the table's.
 	hosted []Action
 	cue    changeCue
+	// toldCursor is the key a CursorBoard last heard.
+	toldCursor string
 }
 
 // NewModel is a model reading board, sized until the terminal says otherwise.
@@ -93,6 +100,7 @@ func Once(board Board, pal gotermstyle.Palette, width, height int) string {
 	m := newModel(board, pal, ctx, cancel)
 	m.width, m.height = width, height
 	m.rebuild(time.Now())
+	m.tellCursor()
 	return m.screen()
 }
 
@@ -152,6 +160,22 @@ func (m *Model) dueReads(now time.Time) tea.Cmd {
 
 // Update is Bubble Tea's.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cmd := m.update(msg)
+	m.tellCursor()
+	return m, cmd
+}
+
+// tellCursor says where the cursor is to a board that follows it, once per move.
+func (m *Model) tellCursor() {
+	board, ok := m.board.(CursorBoard)
+	if !ok || m.cursor == m.toldCursor {
+		return
+	}
+	m.toldCursor = m.cursor
+	board.CursorOn(m.cursor)
+}
+
+func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -159,7 +183,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		now := time.Time(msg)
 		m.rebuild(now)
-		return m, tea.Batch(tick(), m.dueReads(now))
+		return tea.Batch(tick(), m.dueReads(now))
 	case refreshedMsg:
 		m.rebuild(time.Now())
 	case tea.PasteMsg:
@@ -167,10 +191,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setFilter(m.display.filter + strings.Join(strings.Fields(msg.Content), " "))
 		}
 	case tea.KeyPressMsg:
-		cmd := m.pressed(msg)
-		return m, cmd
+		return m.pressed(msg)
 	}
-	return m, nil
+	return nil
 }
 
 // Action is one row of the key table the handler, the footer and the ? overlay
@@ -292,6 +315,10 @@ func (m *Model) Cursor() string { return m.cursor }
 // that takes enter and acts only on some rows.
 func (m *Model) Toggle() tea.Cmd { return m.toggle() }
 
+// Reveal scrolls the cursor's row and what opens under it into view, for a board's key
+// that opens text under a row.
+func (m *Model) Reveal() { m.revealDetail() }
+
 // Say puts text where the footer says what the last key did.
 func (m *Model) Say(text string) { m.said = text }
 
@@ -409,7 +436,7 @@ func (m *Model) toggle() tea.Cmd {
 // revealDetail scrolls the cursor's row and what opens under it into view, so a row
 // opened near the screen's foot shows its text, stopping with the row at the top.
 func (m *Model) revealDetail() {
-	lines := draw(m.pal, m.frame.Columns, m.nodes(), m.tableWidth(), m.cursor)
+	pinned, lines := m.table()
 	at := slices.IndexFunc(lines, func(l drawn) bool { return l.key != "" && l.key == m.cursor })
 	if at < 0 {
 		return
@@ -418,7 +445,7 @@ func (m *Model) revealDetail() {
 	for end+1 < len(lines) && lines[end+1].key == "" {
 		end++
 	}
-	if h := m.bodyHeight(); end >= m.top+h {
+	if h := m.scrollHeight(pinned); end >= m.top+h {
 		m.top = min(at, end-h+1)
 	}
 }
@@ -493,6 +520,10 @@ func (m *Model) place() {
 		return
 	}
 	if !m.placed {
+		if i := slices.IndexFunc(rows, func(n node) bool { return n.key != "" && n.key == m.frame.StartAt }); i >= 0 {
+			m.cursor, m.cursorAt, m.placed = rows[i].key, i, true
+			return
+		}
 		holdsCells := func(n node) bool {
 			return (n.kind == nodeRow && len(n.row.Cells) > 0) || (n.kind == nodeGroup && len(n.group.Cells) > 0)
 		}
@@ -556,9 +587,17 @@ func (m *Model) bodyHeight() int {
 	return max(1, m.height-len(m.frame.Strip)-len(m.footer()))
 }
 
+// table is the laid-out table: the lines that stay on screen, and those that scroll.
+func (m *Model) table() (pinned, scrolling []drawn) {
+	return splitPinned(draw(m.pal, m.frame.Columns, m.nodes(), m.tableWidth(), m.cursor))
+}
+
+// scrollHeight is what the lines that stay on screen leave for those that scroll.
+func (m *Model) scrollHeight(pinned []drawn) int { return max(1, m.bodyHeight()-len(pinned)) }
+
 func (m *Model) follow() {
-	lines := draw(m.pal, m.frame.Columns, m.nodes(), m.tableWidth(), m.cursor)
-	h := m.bodyHeight()
+	pinned, lines := m.table()
+	h := m.scrollHeight(pinned)
 	at := slices.IndexFunc(lines, func(l drawn) bool { return l.key != "" && l.key == m.cursor })
 	if at >= 0 && !m.scrolled {
 		if at < m.top {
@@ -608,7 +647,11 @@ func (m *Model) screen() string {
 		out = append(out, m.keysOverlay(h)...)
 		return strings.Join(append(out, m.footer()...), "\n")
 	}
-	lines := draw(m.pal, m.frame.Columns, m.nodes(), m.tableWidth(), m.cursor)
+	pinned, lines := m.table()
+	for _, line := range pinned {
+		out = append(out, line.text)
+	}
+	h = m.scrollHeight(pinned)
 	shown := lines[min(m.top, len(lines)):min(m.top+h, len(lines))]
 	panel := m.panelLines(h)
 	tw := m.tableWidth()
@@ -640,24 +683,39 @@ func (m *Model) panelLines(height int) []string {
 	if !ok {
 		return nil
 	}
+	lines := m.panelText(n, width)
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	return lines
+}
+
+// panelText is a node's Panel where it has one, and otherwise its Detail.
+func (m *Model) panelText(n node, width int) []string {
+	var authored []Line
 	var cells []Cell
 	switch n.kind {
 	case nodeGroup:
-		cells = n.group.Detail
+		authored, cells = n.group.Panel, n.group.Detail
 		if len(cells) == 0 {
 			cells = []Cell{C(groupLabel(n.group).Text(), Bold), C(n.group.Summary.Text(), "")}
 		}
 	case nodeRow:
-		cells = n.row.Detail
+		authored, cells = n.row.Panel, n.row.Detail
 	}
 	var lines []string
+	for _, line := range authored {
+		for _, piece := range wrapWords(line, width) {
+			lines = append(lines, piece.paint(m.pal))
+		}
+	}
+	if len(authored) > 0 {
+		return lines
+	}
 	for _, c := range cells {
 		for _, piece := range wrap(c.Text, width) {
 			lines = append(lines, m.pal.Paint(c.Code, piece))
 		}
-	}
-	if len(lines) > height {
-		lines = lines[:height]
 	}
 	return lines
 }
