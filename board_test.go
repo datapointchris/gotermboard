@@ -422,18 +422,22 @@ func TestACursorBoardHearsEachKeyTheCursorLandsOnOnce(t *testing.T) {
 }
 
 func TestAPanelLineWrapsAtSpacesKeepingEachCellsColor(t *testing.T) {
-	line := Line{C("green words here ", Green), C("red words", Red)}
-	pieces := wrapWords(line, 12)
-	joined := ""
+	line := Line{C("green words here ", Green), C("red words", Red), C(" longerthanthepanel", "")}
+	pieces := wrapWords(line, 11)
+	var joined []string
 	for _, piece := range pieces {
-		if piece.width() > 12+1 {
+		if piece.width() > 11 {
 			t.Errorf("%q is wider than the panel", piece.Text())
 		}
-		joined += piece.Text()
+		joined = append(joined, piece.Text())
 	}
-	if joined != line.Text() {
+	if got := strings.Join(joined, ""); strings.ReplaceAll(got, " ", "") != strings.ReplaceAll(line.Text(), " ", "") {
 		t.Errorf("wrapping should keep every word in order, got %q", joined)
 	}
+	if pieces[0].Text() != "green words" {
+		t.Errorf("a word ending on the panel's last column should stay on its line, with no space past it: %q", joined)
+	}
+	pieces = wrapWords(line[:2], 12)
 	if last := pieces[len(pieces)-1]; last[len(last)-1].Code != Red {
 		t.Errorf("the last word should keep its cell's color: %+v", last)
 	}

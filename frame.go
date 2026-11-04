@@ -765,22 +765,31 @@ func wrapWords(line Line, width int) []Line {
 	var out []Line
 	var current Line
 	room := width
+	finish := func() {
+		current[len(current)-1].Text = strings.TrimRight(current[len(current)-1].Text, " ")
+		out = append(out, current)
+		current, room = nil, width
+	}
 	for _, c := range line {
 		for _, word := range strings.SplitAfter(c.Text, " ") {
-			if ansi.StringWidth(strings.TrimRight(word, " ")) > room && len(current) > 0 {
-				out = append(out, current)
-				current, room = nil, width
+			if word == "" {
+				continue
 			}
-			for w := ansi.StringWidth(word); w > width; w = ansi.StringWidth(word) {
-				out = append(out, Line{C(ansi.Cut(word, 0, width), c.Code)})
-				word = ansi.Cut(word, width, w)
+			text := strings.TrimRight(word, " ")
+			if ansi.StringWidth(text) > room && len(current) > 0 {
+				finish()
 			}
-			current = append(current, C(word, c.Code))
-			room = max(room-ansi.StringWidth(word), 0)
+			spaces := word[len(text):]
+			for w := ansi.StringWidth(text); w > width; w = ansi.StringWidth(text) {
+				out = append(out, Line{C(ansi.Cut(text, 0, width), c.Code)})
+				text = ansi.Cut(text, width, w)
+			}
+			current = append(current, C(text+spaces, c.Code))
+			room = max(room-ansi.StringWidth(text+spaces), 0)
 		}
 	}
 	if len(current) > 0 {
-		out = append(out, current)
+		finish()
 	}
 	return out
 }
