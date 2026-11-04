@@ -1,0 +1,334 @@
+package gotermboard
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/datapointchris/gotermstyle"
+)
+
+func TestAFailedReadKeepsTheLastGoodValueAndSaysHowOldItIs(t *testing.T) {
+	fail := false
+	source := NewSource("queue", time.Second, func(context.Context) (string, string, error) {
+		if fail {
+			return "", "", errors.New("the backend is restarting")
+		}
+		return "good", "", nil
+	})
+	source.Refresh(context.Background())
+	fail = true
+	source.Refresh(context.Background())
+	if got := source.Value(); got != "good" {
+		t.Fatalf("value = %q after a failed read, want the last good one", got)
+	}
+	line := ReadStatus([]Status{source.Status(), source.Status()}, time.Now().Add(time.Minute))
+	if got := strings.Count(line.Text(), "the backend is restarting"); got != 1 {
+		t.Errorf("the strip says the reason %d times: %q", got, line.Text())
+	}
+	if !strings.Contains(line.Text(), "queue, queue 1m old: ") {
+		t.Errorf("the strip does not name the failed reads and their age: %q", line.Text())
+	}
+}
+
+func TestTheStripSaysOneThingWhileEveryReadIsOnSchedule(t *testing.T) {
+	now := time.Now()
+	on := Status{Name: "one", ReadAt: now.Add(-3 * time.Second), every: time.Minute}
+	older := Status{Name: "two", ReadAt: now.Add(-30 * time.Second), every: time.Minute}
+	if got := ReadStatus([]Status{on, older}, now).Text(); got != "read 3s ago" {
+		t.Errorf("on schedule: %q", got)
+	}
+	late := Status{Name: "late", ReadAt: now.Add(-5 * time.Minute), every: time.Minute, Reading: true}
+	asleep := Status{Name: "hosts", ReadAt: now, every: time.Minute, Note: "one did not answer"}
+	line := ReadStatus([]Status{on, late, asleep}, now)
+	if got := line.Text(); got != "read 0s ago · late 5m old, still reading · hosts: one did not answer" {
+		t.Errorf("late and a note: %q", got)
+	}
+	if line[2].Code != Yellow || line[4].Code != "" {
+		t.Errorf("a late read should be yellow and a note plain: %+v", line)
+	}
+}
+
+type fixedBoard struct{ frame Frame }
+
+func (b fixedBoard) Sources() []Refresher          { return nil }
+func (b fixedBoard) Groupings() []string           { return nil }
+func (b fixedBoard) Frame(time.Time, string) Frame { return b.frame }
+
+type groupedBoard struct{ fixedBoard }
+
+func (b groupedBoard) Groupings() []string { return []string{"one", "two"} }
+
+func TestTheFooterListsOnlyTheKeysThisViewCanUse(t *testing.T) {
+	plain := fixedBoard{Frame{Columns: []Column{{Title: "NAME"}}, Groups: []Group{{Key: "g", Rows: []Row{{Key: "r", Cells: []Cell{C("x", "")}}}}}}}
+	withLines := fixedBoard{Frame{Columns: plain.frame.Columns, Groups: []Group{{Key: "g", Groups: []Group{{Key: "inner", Rows: []Row{{Key: "r", Under: C("the first line", "")}}}}}}}}
+	for _, test := range []struct {
+		name         string
+		board        Board
+		width        int
+		shown, unset []string
+	}{
+		{"nothing to offer", plain, 120, []string{"j/k move", "? keys"}, []string{"v group", "f first lines", "p panel"}},
+		{"every key has a use", groupedBoard{withLines}, PanelFrom, []string{"v group", "f first lines", "p panel"}, nil},
+	} {
+		screen := Once(test.board, gotermstyle.NewPalette(true), test.width, 10)
+		for _, want := range test.shown {
+			if !strings.Contains(screen, want) {
+				t.Errorf("%s: no %q in %q", test.name, want, screen)
+			}
+		}
+		for _, unwanted := range test.unset {
+			if strings.Contains(screen, unwanted) {
+				t.Errorf("%s: %q is listed in %q", test.name, unwanted, screen)
+			}
+		}
+	}
+}
+
+func TestNoLineOfAFrameIsWiderThanItsScreen(t *testing.T) {
+	long := strings.Repeat("a long value that would wrap ", 12)
+	frame := Frame{
+		Strip:   []Line{{C(long, Bold)}},
+		Columns: []Column{{Title: "", Max: 30}, {Title: "KIND", Max: 12}, {Title: "DOING"}},
+		Groups: []Group{{
+			Key: "working", Title: Line{C("WORKING", BoldYellow)}, Count: 1, Counted: true, Summary: Line{C(long, "")},
+			Rows: []Row{
+				{Key: "span", Span: Line{C(long, "")}, Detail: []Cell{C(long, "")}},
+				{Key: "cells", Symbol: C("●", Yellow), Cells: []Cell{C(long, ""), C(long, Cyan), C(long, "")}, Detail: []Cell{C(long, "")}},
+				{Key: "wraps", Cells: []Cell{C("short", ""), C("kind", "")}, WrapLast: Line{C(long, Green)}},
+			},
+			Groups: []Group{{
+				Key: "totals", Title: Line{C(long, Bold)}, Cells: []Cell{C(long, "")}, WrapLast: Line{C(long, Green), C(long, Yellow)},
+				Below: []Line{{C(long, ""), C(long, Blue)}},
+			}},
+		}},
+	}
+	for _, size := range []struct{ width, height int }{{188, 88}, {120, 40}, {PanelFrom, 20}, {60, 10}} {
+		screen := Once(fixedBoard{frame}, gotermstyle.NewPalette(true), size.width, size.height)
+		lines := strings.Split(screen, "\n")
+		if len(lines) > size.height {
+			t.Errorf("%dx%d: %d lines", size.width, size.height, len(lines))
+		}
+		for _, line := range lines {
+			if w := ansi.StringWidth(line); w > size.width {
+				t.Errorf("%dx%d: a line %d wide: %q", size.width, size.height, w, ansi.Strip(line))
+			}
+		}
+	}
+}
+
+// countedBoard draws what its one source last read, and counts every read it makes.
+type countedBoard struct {
+	source *Source[string]
+	reads  *atomic.Int64
+}
+
+func newCountedBoard(answer *atomic.Value) countedBoard {
+	reads := &atomic.Int64{}
+	return countedBoard{reads: reads, source: NewSource("answer", 0, func(context.Context) (string, string, error) {
+		reads.Add(1)
+		return answer.Load().(string), "", nil
+	})}
+}
+
+func (b countedBoard) Sources() []Refresher { return []Refresher{b.source} }
+func (b countedBoard) Groupings() []string  { return nil }
+func (b countedBoard) Frame(time.Time, string) Frame {
+	return Frame{Columns: []Column{{Title: "NAME"}, {Title: "VALUE"}}, Groups: []Group{{
+		Key: "g", Title: Line{C("GROUP", Bold)},
+		Rows: []Row{{Key: "first", Cells: []Cell{C("first", ""), C(b.source.Value(), "")}}, {Key: "second", Cells: []Cell{C("second", ""), C("still", "")}}},
+	}}}
+}
+
+// runReads runs what a key or a reveal returned, leaving out the clock, which waits.
+func runReads(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if batch, ok := cmd().(tea.BatchMsg); ok {
+		for _, each := range batch {
+			runReads(each)
+		}
+	}
+}
+
+func press(t *Tabs, key tea.KeyPressMsg) tea.Cmd {
+	_, cmd := t.Update(key)
+	return cmd
+}
+
+var (
+	tabKey   = tea.KeyPressMsg{Code: tea.KeyTab}
+	downKey  = tea.KeyPressMsg{Code: 'j', Text: "j"}
+	upKey    = tea.KeyPressMsg{Code: 'k', Text: "k"}
+	enterKey = tea.KeyPressMsg{Code: tea.KeyEnter}
+)
+
+func twoTabs(t *testing.T, answer *atomic.Value) (*Tabs, countedBoard, countedBoard) {
+	t.Helper()
+	one, two := newCountedBoard(answer), newCountedBoard(answer)
+	tabs, err := NewTabs([]Tab{{Name: "one", Board: one}, {Name: "two", Board: two}}, gotermstyle.NewPalette(false), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tabs, one, two
+}
+
+func TestAHiddenTabStartsNoReadAndAReturningTabDrawsItsLastReadThenReads(t *testing.T) {
+	answer := &atomic.Value{}
+	answer.Store("before")
+	tabs, one, two := twoTabs(t, answer)
+	// A tick's reads are in a batch with the clock, which waits, so the showing tab's
+	// claim is settled here by reading by hand.
+	tickShowing := func(showing countedBoard) {
+		tabs.Update(tickMsg(time.Now().Add(time.Hour)))
+		showing.source.Refresh(context.Background())
+	}
+	runReads(tabs.active().reveal(time.Now()))
+	tickShowing(one)
+	if got := two.reads.Load(); got != 0 {
+		t.Fatalf("the hidden tab read %d times", got)
+	}
+
+	runReads(press(tabs, tabKey))
+	settled := one.reads.Load()
+	tickShowing(two)
+	if got := one.reads.Load(); got != settled {
+		t.Errorf("the tab that went hidden read again: %d then %d", settled, got)
+	}
+
+	answer.Store("after")
+	returned := press(tabs, tabKey)
+	if got := tabs.View().Content; !strings.Contains(got, "before") {
+		t.Errorf("a returning tab should draw its last read first:\n%s", got)
+	}
+	runReads(returned)
+	tabs.Update(refreshedMsg{})
+	if got := tabs.View().Content; !strings.Contains(got, "after") {
+		t.Errorf("a returning tab should read at once:\n%s", got)
+	}
+}
+
+func TestEachTabKeepsItsCursorAndFolds(t *testing.T) {
+	answer := &atomic.Value{}
+	answer.Store("value")
+	tabs, _, _ := twoTabs(t, answer)
+	tabs.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	runReads(tabs.active().reveal(time.Now()))
+	press(tabs, downKey)
+	press(tabs, tabKey)
+	press(tabs, upKey)
+	press(tabs, enterKey)
+	if got := tabs.View().Content; !strings.Contains(got, "[two]") || !strings.Contains(got, "▸ GROUP") {
+		t.Errorf("the second tab should have folded its group:\n%s", got)
+	}
+	press(tabs, tabKey)
+	got := tabs.View().Content
+	if !strings.Contains(got, "[one]") || !strings.Contains(got, "▾ GROUP") {
+		t.Errorf("the first tab should keep its group open:\n%s", got)
+	}
+	if !strings.Contains(got, "›  second") {
+		t.Errorf("the first tab should keep its cursor on the second row:\n%s", got)
+	}
+}
+
+func TestOneTabDrawsNoTabLineAndAnUnknownTabIsAnError(t *testing.T) {
+	answer := &atomic.Value{}
+	answer.Store("value")
+	single, err := NewTabs([]Tab{{Name: "only", Board: newCountedBoard(answer)}}, gotermstyle.NewPalette(false), "only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := single.View().Content; strings.Contains(got, "only") || strings.Contains(got, "tab next view") {
+		t.Errorf("one tab should have no line and no key:\n%s", got)
+	}
+	_, err = NewTabs([]Tab{{Name: "only", Board: newCountedBoard(answer)}}, gotermstyle.NewPalette(false), "other")
+	if err == nil || !strings.Contains(err.Error(), "only") {
+		t.Errorf("an unknown tab should name the tabs: %v", err)
+	}
+}
+
+// changingBoard holds a row whose state and age the test moves.
+type changingBoard struct{ state, age string }
+
+func (b *changingBoard) Sources() []Refresher { return nil }
+func (b *changingBoard) Groupings() []string  { return nil }
+func (b *changingBoard) Frame(time.Time, string) Frame {
+	group := Group{Key: "g", Rows: []Row{{Key: "row", Cells: []Cell{C("row", ""), C(b.state, ""), Ticking(b.age, "")}}}}
+	return Frame{Columns: []Column{{Title: "NAME"}, {Title: "STATE"}, {Title: "AGE"}}, Groups: []Group{group}}
+}
+
+func TestARowThatChangedWearsTheCueForAWhileAndAnAgeNeverLightsIt(t *testing.T) {
+	board := &changingBoard{state: "running", age: "1s"}
+	now := time.Now()
+	m := newModel(board, gotermstyle.NewPalette(false), context.Background(), func() {})
+	m.width, m.height = 100, 20
+	m.reveal(now)
+	m.cursor, m.placed = "g", true
+	worn := func() bool { return strings.Contains(m.screen(), CueGlyph) }
+	if worn() {
+		t.Fatalf("a first frame marks nothing:\n%s", m.screen())
+	}
+	board.state = "filled in by a second pass"
+	m.rebuild(now.Add(settleFor))
+	if worn() {
+		t.Errorf("a frame while the first reads settle marks nothing:\n%s", m.screen())
+	}
+	board.age = "2s"
+	m.rebuild(now.Add(settleFor + time.Second))
+	if worn() {
+		t.Errorf("an age moving marks nothing:\n%s", m.screen())
+	}
+	changed := now.Add(settleFor + 2*time.Second)
+	board.state = "failed"
+	m.rebuild(changed)
+	if !worn() {
+		t.Errorf("a state moving should wear the cue:\n%s", m.screen())
+	}
+	m.rebuild(changed.Add(CueFor - time.Second))
+	if !worn() {
+		t.Errorf("the cue should last:\n%s", m.screen())
+	}
+	m.rebuild(changed.Add(CueFor))
+	if worn() {
+		t.Errorf("the cue should end:\n%s", m.screen())
+	}
+	board.state = "running"
+	m.reveal(now.Add(3 * time.Minute))
+	if worn() {
+		t.Errorf("a return marks nothing, whatever moved while it was hidden:\n%s", m.screen())
+	}
+}
+
+func TestGroupCellsShareTheRowsColumnsAndALastCellWraps(t *testing.T) {
+	bar := Line{C(strings.Repeat("▰", 30), Green), C(strings.Repeat("▱", 30), "")}
+	frame := Frame{
+		Columns: []Column{{Title: ""}, {Title: "DONE", Right: true}, {Title: "BAR"}},
+		Groups: []Group{{
+			Key: "g", Title: Line{C("TOTAL", Bold)}, Cells: []Cell{C("12", "")}, WrapLast: bar,
+			Below: []Line{{C("the name", "")}},
+			Rows:  []Row{{Key: "r", Cells: []Cell{C("a row", ""), C("3", "")}, WrapLast: Line{C("▰▰", Green)}}},
+		}},
+	}
+	screen := Once(fixedBoard{frame}, gotermstyle.NewPalette(false), 40, 12)
+	lines := strings.Split(screen, "\n")
+	column := func(line, text string) int {
+		before, _, _ := strings.Cut(line, text)
+		return ansi.StringWidth(before)
+	}
+	titles, total, continued := lines[0], lines[1], lines[2]
+	if at := column(titles, "BAR"); at != column(total, "▰") || at != column(continued, "▰") {
+		t.Errorf("the bar should start at its column on every line:\n%s", screen)
+	}
+	if done, rest := strings.Count(screen, "▰"), strings.Count(screen, "▱"); done != 32 || rest != 30 {
+		t.Errorf("the bars should keep every cell, kept %d and %d:\n%s", done, rest, screen)
+	}
+	if !strings.Contains(lines[4], "the name") {
+		t.Errorf("the line below should follow the header and its bar:\n%s", screen)
+	}
+}
