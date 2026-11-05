@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -57,20 +58,42 @@ func TestATableKeepsItsShortColumnWholeAndFitsTheWidth(t *testing.T) {
 	}
 }
 
-func TestCodeIsBoxedCutAndHighlightedOnlyInALanguageItNames(t *testing.T) {
-	lines := New(nil).Lines("```go\nfunc read() string { return \"a very long string that runs past the box\" }\n```\n\n```\nfunc plain\n```\n", 30)
+func TestCodeWrapsAndHighlightsInALanguageItNamesAndAnyOtherFenceStaysPlainAndCut(t *testing.T) {
+	code := "  func read() string { return \"a very long string that runs past the box\" }"
+	lines := New(nil).Lines("```go\n"+code+"\n```\n\n```\nfunc plain with a long line that runs past the box\n```\n", 30)
 	if got := lines[0].Text(); got != "╭─ go" {
 		t.Errorf("the box should name its language: %q", got)
 	}
-	if got := lines[1].Text(); !strings.HasSuffix(got, "…") || ansi.StringWidth(got) != 30 {
-		t.Errorf("a long code line should be cut at the box: %q", got)
+	var codeRows []gotermboard.Line
+	for _, line := range lines[1:] {
+		if line.Text() == "╰─" {
+			break
+		}
+		codeRows = append(codeRows, line)
 	}
-	if !strings.Contains(lines[1][1].Code+lines[1][2].Code, gotermboard.Magenta) {
-		t.Errorf("a keyword should wear a color: %+v", lines[1])
+	var rejoined strings.Builder
+	for at, row := range codeRows {
+		if width := ansi.StringWidth(row.Text()); width > 30 {
+			t.Errorf("row %q is %d wide, past the box", row.Text(), width)
+		}
+		body := strings.TrimPrefix(row.Text(), "│ ")
+		if at > 0 {
+			if !strings.HasPrefix(body, "  "+continuedMark) {
+				t.Errorf("a continued row should keep the indent behind the mark: %q", row.Text())
+			}
+			body = strings.TrimPrefix(body, "  "+continuedMark)
+		}
+		rejoined.WriteString(body)
+	}
+	if len(codeRows) < 2 || rejoined.String() != code {
+		t.Errorf("wrapping should keep all of the code, got %d rows of %q", len(codeRows), rejoined.String())
+	}
+	if !slices.ContainsFunc(codeRows[0], func(c gotermboard.Cell) bool { return c.Code == gotermboard.Magenta }) {
+		t.Errorf("a keyword should wear a color: %+v", codeRows[0])
 	}
 	plain := lines[len(lines)-2]
-	if plain.Text() != "│ func plain" || plain[1].Code != "" {
-		t.Errorf("a fence naming no language stays plain: %+v", plain)
+	if got := plain.Text(); !strings.HasSuffix(got, "…") || ansi.StringWidth(got) != 30 || plain[1].Code != "" {
+		t.Errorf("a fence naming no language stays plain and is cut at the box: %+v", plain)
 	}
 }
 

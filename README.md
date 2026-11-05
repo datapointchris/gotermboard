@@ -100,6 +100,10 @@ renderer := markdown.New(nil)
 row.Document = func(width int) []gotermboard.Line { return renderer.Lines(description, min(width, 100)) }
 ```
 
+A fence naming a language wraps a line wider than its box, marking each continued row with
+`↪`, as `bat` and `delta` do. A `text` or bare fence cuts that line instead, so a diagram or a
+table of output stays lined up.
+
 Its argument colors what a caller recognizes in prose, such as a number that names a record.
 
 A `Still` group has no fold mark and the cursor passes over it. At the top of a frame it
