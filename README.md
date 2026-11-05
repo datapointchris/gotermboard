@@ -92,7 +92,8 @@ ahead of them in the first column. `Column.Min` holds that column wide enough to
 
 `Document` on a `Row` or a `Group` is a function of width, because hanging bullets, tables
 and boxes of code cannot be wrapped after they are drawn. A row's opens under it on `enter`,
-and a group's draws under `Below` whether the group is folded or not. The `markdown` package
+or on the full-screen reader where it runs past the screen. A group's draws under `Below`
+whether the group is folded or not. The `markdown` package
 makes one from markdown, in ANSI 0-15 so it follows the theme:
 
 ```go
@@ -123,6 +124,25 @@ the panel's width whose lines wrap at spaces with each cell's own color. A row w
 shows its `Document`. A board implementing `CursorBoard` is
 told each key the cursor lands on, so a read that only one row needs can follow it.
 `Frame.StartAt` names the key the cursor starts on.
+
+## A tall document reads on a full screen
+
+`Reader` is a full screen over one `Document`. It lays the text out at up to 100 columns,
+centers it on a wider screen, and keeps the same words at the top through a resize. `j` and
+`k`, `ctrl+d` and `ctrl+u`, `g` and `G` move through it, `[` and `]` jump between sections,
+and `/` searches with `n` and `N`. A query with no capital in it ignores case.
+
+`Model.Read` opens one over the board from a board's own key, and `esc` returns to the board.
+`Model.Tall` says whether a document runs past the screen. `NewReader` runs as a program of its
+own, which is all `cmd/read-markdown` does with a file or a pipe:
+
+```bash
+go install github.com/datapointchris/gotermboard/cmd/read-markdown@latest
+read-markdown README.md
+```
+
+A `Cell` with `Section` set marks its line as a section. The `markdown` package sets it on each
+heading.
 
 ## A board can add keys
 

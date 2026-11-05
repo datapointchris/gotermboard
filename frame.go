@@ -38,6 +38,8 @@ type Cell struct {
 	Text  string
 	Code  string
 	Ticks bool
+	// Section says the line it is on opens a section, where a Reader's [ and ] land.
+	Section bool
 	// item says the cell is one of an Items line's, which the draw may leave out.
 	item bool
 }

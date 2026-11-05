@@ -1,7 +1,7 @@
 # gotermboard — Claude Code instructions
 
-A Go library, not a CLI. No `main` package, nothing to install. It ships as git tags,
-and Go command-line tools import it.
+A Go library that Go command-line tools import, shipped as git tags. Its one `main` package,
+`cmd/read-markdown`, puts a file on the reader and holds no logic the library lacks.
 
 ## Constraints that must not regress
 

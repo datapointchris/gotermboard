@@ -170,7 +170,11 @@ func (l *layout) heading(v *ast.Heading, first, rest gotermboard.Line, width int
 		mark = gotermboard.Line{gotermboard.C("▎ ", gotermboard.Cyan)}
 	}
 	markWidth := len([]rune(mark.Text()))
+	opensAt := len(l.out)
 	l.emit(slices.Concat(first, mark), slices.Concat(rest, spaces(markWidth)), wrapped(l.inline(v, s), width-markWidth))
+	if opensAt < len(l.out) && len(l.out[opensAt]) > 0 {
+		l.out[opensAt][0].Section = true
+	}
 }
 
 // bullets are a list's marks by how deep it sits, the deepest repeating.

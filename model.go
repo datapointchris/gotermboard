@@ -76,6 +76,8 @@ type Model struct {
 	cue    changeCue
 	// toldCursor is the key a CursorBoard last heard.
 	toldCursor string
+	// reading is the full-screen Reader over the board, while one is open.
+	reading *Reader
 }
 
 // NewModel is a model reading board, sized until the terminal says otherwise.
@@ -180,6 +182,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.follow()
+		if m.reading != nil {
+			m.reading.resize(m.width, m.height)
+		}
 	case tickMsg:
 		now := time.Time(msg)
 		m.rebuild(now)
@@ -187,7 +192,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case refreshedMsg:
 		m.rebuild(time.Now())
 	case tea.PasteMsg:
-		if m.filtering {
+		switch {
+		case m.reading != nil:
+			m.reading.paste(msg.Content)
+		case m.filtering:
 			m.setFilter(m.display.filter + strings.Join(strings.Fields(msg.Content), " "))
 		}
 	case tea.KeyPressMsg:
@@ -394,7 +402,26 @@ func (m *Model) ScrollBy(lines int) {
 // HalfScreen is half the table's height in lines.
 func (m *Model) HalfScreen() int { return max(1, m.bodyHeight()/2) }
 
+// Read opens document on a full-screen Reader over the board, until esc closes it.
+func (m *Model) Read(title string, document Document) {
+	m.reading = NewReader(title, document, m.pal)
+	m.reading.back = func() { m.reading = nil }
+	m.reading.quit = func() tea.Cmd {
+		m.cancel()
+		return tea.Quit
+	}
+	m.reading.resize(m.width, m.height)
+}
+
+// Tall says document runs past the screen, so it reads on a Reader rather than in place.
+func (m *Model) Tall(document Document) bool {
+	return len(document(m.tableWidth())) >= m.bodyHeight()
+}
+
 func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
+	if m.reading != nil {
+		return m.reading.pressed(key)
+	}
 	name := key.String()
 	if m.overlay {
 		m.overlay = false
@@ -452,11 +479,27 @@ func (m *Model) toggle() tea.Cmd {
 	case nodeGroup:
 		m.display.folded[n.key] = n.open
 	case nodeRow:
+		if !m.display.opened[n.key] && n.row.Document != nil && m.Tall(n.row.Document) {
+			m.Read(n.row.title(), n.row.Document)
+			return nil
+		}
 		m.display.opened[n.key] = !m.display.opened[n.key]
 	}
 	m.follow()
 	m.revealDetail()
 	return nil
+}
+
+// title is the row's words, for a Reader to name what it holds.
+func (r Row) title() string {
+	if len(r.Span) > 0 {
+		return r.Span.Text()
+	}
+	texts := make([]string, 0, len(r.Cells))
+	for _, cell := range r.Cells {
+		texts = append(texts, cell.Text)
+	}
+	return strings.Join(texts, "  ")
 }
 
 // revealDetail scrolls the cursor's row and what opens under it into view, so a row
@@ -700,6 +743,9 @@ func (m *Model) View() tea.View {
 }
 
 func (m *Model) screen() string {
+	if m.reading != nil {
+		return m.reading.screen()
+	}
 	var out []string
 	for _, line := range m.frame.Strip {
 		out = append(out, ansi.Truncate(line.paint(m.pal), m.width, "…"))
