@@ -227,7 +227,7 @@ func actionTable() []Action {
 			Applies: func(m *Model) bool { return len(m.board.Groupings()) > 1 },
 		},
 		{
-			Keys: []string{"f"}, Label: "show each row's first line under it", Footer: "f first lines",
+			Keys: []string{"f"}, Label: "show each row's summary under it", Footer: "f summaries",
 			Run: func(m *Model) tea.Cmd {
 				m.display.under = !m.display.under
 				m.follow()
@@ -345,7 +345,7 @@ func (m *Model) ToggleEveryRow() tea.Cmd {
 	var rows []string
 	allOpen := true
 	for _, n := range m.nodes() {
-		if n.kind == nodeRow && len(n.row.Detail) > 0 {
+		if n.kind == nodeRow && (len(n.row.Detail) > 0 || n.row.Document != nil) {
 			rows = append(rows, n.key)
 			allOpen = allOpen && n.open
 		}
@@ -690,9 +690,9 @@ func (m *Model) panelLines(height int) []string {
 	return lines
 }
 
-// panelText is a node's Panel where it has one, and otherwise its Detail.
+// panelText is a node's Panel where it has one, then its Document, and otherwise its Detail.
 func (m *Model) panelText(n node, width int) []string {
-	var authored []Line
+	var authored Document
 	var cells []Cell
 	switch n.kind {
 	case nodeGroup:
@@ -702,14 +702,17 @@ func (m *Model) panelText(n node, width int) []string {
 		}
 	case nodeRow:
 		authored, cells = n.row.Panel, n.row.Detail
-	}
-	var lines []string
-	for _, line := range authored {
-		for _, piece := range wrapWords(line, width) {
-			lines = append(lines, piece.paint(m.pal))
+		if authored == nil {
+			authored = n.row.Document
 		}
 	}
-	if len(authored) > 0 {
+	var lines []string
+	if authored != nil {
+		for _, line := range authored(width) {
+			for _, piece := range wrapWords(line, width) {
+				lines = append(lines, piece.paint(m.pal))
+			}
+		}
 		return lines
 	}
 	for _, c := range cells {

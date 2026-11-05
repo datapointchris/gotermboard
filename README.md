@@ -80,10 +80,27 @@ drawn under the header whether it is folded or not, which the cursor moves past 
 node. `WrapLast` on a `Row` or a `Group` is the last column as cells of their own colors,
 continuing on further lines at that column, so a bar wider than the row keeps every cell.
 
-`Items` makes a line of `Below` that the draw cuts to the items that fit, ending in `+N`,
-because only the draw knows the width and it moves with the side panel. `Under` is a
-group's first line, wrapping under `Below` while `f` has them on. `Paragraphs` wrap under
-`Below` whether the group is folded or not, for a view that opens a group's text in place.
+`Items` makes a line of `Below` or `Beside` that the draw cuts to the items that fit,
+ending in `+N`, because only the draw knows the width and it moves with the side panel.
+`Under` is a group's summary, wrapping under `Below` while `f` has them on.
+
+`Span` draws a long value whole past a group's title, wrapping under itself, so it never
+sets the first column's width. The group's cells then take the next line, with `Beside`
+ahead of them in the first column. `Column.Min` holds that column wide enough to be useful.
+
+## A row can open a document laid out at its width
+
+`Document` on a `Row` or a `Group` is a function of width, because hanging bullets, tables
+and boxes of code cannot be wrapped after they are drawn. A row's opens under it on `enter`,
+and a group's draws under `Below` whether the group is folded or not. The `markdown` package
+makes one from markdown, in ANSI 0-15 so it follows the theme:
+
+```go
+renderer := markdown.New(nil)
+row.Document = func(width int) []gotermboard.Line { return renderer.Lines(description, min(width, 100)) }
+```
+
+Its argument colors what a caller recognizes in prose, such as a number that names a record.
 
 A `Still` group has no fold mark and the cursor passes over it. At the top of a frame it
 stays on screen with the column titles while the table scrolls, which suits a row of totals.
@@ -97,8 +114,9 @@ it matches nothing.
 
 ## The side panel follows the cursor
 
-`Panel` on a row or a group is what the side panel shows in `Detail`'s place, a line at a
-time, wrapping at spaces with each cell's own color. A board implementing `CursorBoard` is
+`Panel` on a row or a group is what the side panel shows in `Detail`'s place, a function of
+the panel's width whose lines wrap at spaces with each cell's own color. A row with no `Panel`
+shows its `Document`. A board implementing `CursorBoard` is
 told each key the cursor lands on, so a read that only one row needs can follow it.
 `Frame.StartAt` names the key the cursor starts on.
 

@@ -74,8 +74,8 @@ func TestTheFooterListsOnlyTheKeysThisViewCanUse(t *testing.T) {
 		width        int
 		shown, unset []string
 	}{
-		{"nothing to offer", plain, 120, []string{"j/k move", "? keys"}, []string{"v group", "f first lines", "p panel"}},
-		{"every key has a use", groupedBoard{withLines}, PanelFrom, []string{"v group", "f first lines", "p panel"}, nil},
+		{"nothing to offer", plain, 120, []string{"j/k move", "? keys"}, []string{"v group", "f summaries", "p panel"}},
+		{"every key has a use", groupedBoard{withLines}, PanelFrom, []string{"v group", "f summaries", "p panel"}, nil},
 	} {
 		screen := Once(test.board, gotermstyle.NewPalette(true), test.width, 10)
 		for _, want := range test.shown {
@@ -106,6 +106,10 @@ func TestNoLineOfAFrameIsWiderThanItsScreen(t *testing.T) {
 			Groups: []Group{{
 				Key: "totals", Title: Line{C(long, Bold)}, Cells: []Cell{C(long, "")}, WrapLast: Line{C(long, Green), C(long, Yellow)},
 				Below: []Line{{C(long, ""), C(long, Blue)}},
+			}, {
+				Key: "spanning", Title: Line{C("1544", Cyan)}, Span: Line{C(long, Bold)}, Beside: Items("", "alpha", "beta", "gamma"),
+				Cells: []Cell{C("kind", "")}, WrapLast: Line{C(long, Green)}, Under: C(long, ""),
+				Document: func(width int) []Line { return []Line{{C(strings.Repeat("x", width), "")}} },
 			}},
 		}},
 	}
@@ -440,5 +444,30 @@ func TestAPanelLineWrapsAtSpacesKeepingEachCellsColor(t *testing.T) {
 	pieces = wrapWords(line[:2], 12)
 	if last := pieces[len(pieces)-1]; last[len(last)-1].Code != Red {
 		t.Errorf("the last word should keep its cell's color: %+v", last)
+	}
+}
+
+func TestASpanGroupDrawsItsSpanWholeWithItsCellsAndBesideOnTheLineBelow(t *testing.T) {
+	title := strings.Repeat("title ", 10) + "end"
+	frame := Frame{
+		Columns: []Column{{Title: "", Min: 28}, {Title: "DONE", Right: true}, {Title: "BAR"}},
+		Groups: []Group{{Key: "tier", Title: Line{C("high", Bold)}, Cells: []Cell{C("9/9", "")}, Groups: []Group{{
+			Key: "one", Title: Line{C("1544", Cyan)}, Span: Line{C(title, Bold)}, Beside: Items("", "alpha", "beta", "gamma", "delta"),
+			Cells: []Cell{C("5/7", "")}, WrapLast: Line{C("▰▰▱", Green)},
+			Document: func(width int) []Line { return []Line{{C("read at "+strconv.Itoa(width), "")}} },
+		}}}},
+	}
+	lines := strings.Split(Once(fixedBoard{frame}, gotermstyle.NewPalette(false), 70, 12), "\n")
+	want := []string{
+		"   ▾ 1544  " + strings.TrimSpace(strings.Repeat("title ", 10)),
+		"           end",
+		"           alpha, beta, +2     5/7  ▰▰▱",
+		"           read at 59",
+	}
+	if got := lines[2:6]; strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if done, cells := strings.Index(lines[0], "DONE")+len("DONE"), strings.Index(want[2], "5/7")+len("5/7"); done != cells {
+		t.Errorf("the cells should stay on the shared columns: %q over %q", lines[0], want[2])
 	}
 }

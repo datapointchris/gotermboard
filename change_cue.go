@@ -90,6 +90,8 @@ func (c *changeCue) groupPrint(g *Group) uint64 {
 	if g.Counted {
 		b.WriteString(strconv.Itoa(g.Count))
 	}
+	printCells(&b, g.Span)
+	printCells(&b, g.Beside)
 	printCells(&b, g.Cells)
 	printCells(&b, g.WrapLast)
 	printCells(&b, g.Summary)

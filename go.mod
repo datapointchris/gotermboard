@@ -6,8 +6,10 @@ toolchain go1.26.10
 
 require (
 	charm.land/bubbletea/v2 v2.1.0
+	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/datapointchris/gotermstyle v0.1.0
+	github.com/yuin/goldmark v1.8.7
 	golang.org/x/term v0.47.0
 )
 
@@ -19,6 +21,7 @@ require (
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
+	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-runewidth v0.0.30 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
