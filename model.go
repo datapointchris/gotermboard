@@ -214,13 +214,39 @@ func actionTable() []Action {
 			return nil
 		}
 	}
+	halfScreen := func(direction int) func(*Model) tea.Cmd {
+		return func(m *Model) tea.Cmd {
+			if m.onOpenText() {
+				m.ScrollBy(direction * m.HalfScreen())
+			} else {
+				m.move(direction * m.HalfScreen())
+			}
+			return nil
+		}
+	}
+	scrolled := func(lines int) func(*Model) tea.Cmd {
+		return func(m *Model) tea.Cmd {
+			m.ScrollBy(lines)
+			return nil
+		}
+	}
+	jumped := func(direction int) func(*Model) tea.Cmd {
+		return func(m *Model) tea.Cmd {
+			m.jump(direction)
+			return nil
+		}
+	}
 	return []Action{
 		{Keys: []string{"j", "down"}, Label: "move down", Footer: "j/k move", Run: moved(func(*Model) int { return 1 })},
 		{Keys: []string{"k", "up"}, Label: "move up", Run: moved(func(*Model) int { return -1 })},
+		{Keys: []string{"]"}, Label: "jump to the next group", Footer: "[/] jump", Run: jumped(1), Applies: (*Model).hasGroups},
+		{Keys: []string{"["}, Label: "jump to the previous group", Run: jumped(-1), Applies: (*Model).hasGroups},
 		{Keys: []string{"g", "home"}, Label: "go to the top", Run: moved(func(m *Model) int { return -len(m.nodes()) })},
 		{Keys: []string{"G", "end"}, Label: "go to the bottom", Run: moved(func(m *Model) int { return len(m.nodes()) })},
-		{Keys: []string{"ctrl+d", "pgdown"}, Label: "half a screen down", Run: moved(func(m *Model) int { return m.bodyHeight() / 2 })},
-		{Keys: []string{"ctrl+u", "pgup"}, Label: "half a screen up", Run: moved(func(m *Model) int { return -m.bodyHeight() / 2 })},
+		{Keys: []string{"ctrl+d", "pgdown"}, Label: "half a screen down the open text, or down the rows", Run: halfScreen(1)},
+		{Keys: []string{"ctrl+u", "pgup"}, Label: "half a screen up the open text, or up the rows", Run: halfScreen(-1)},
+		{Keys: []string{"J"}, Label: "scroll the open text down a line", Footer: "J/K scroll", Run: scrolled(1), Applies: (*Model).onOpenText},
+		{Keys: []string{"K"}, Label: "scroll the open text up a line", Run: scrolled(-1), Applies: (*Model).onOpenText},
 		{Keys: []string{"enter", "space"}, Label: "fold a group, or open a row's detail in place", Footer: "enter fold", Run: (*Model).toggle},
 		{
 			Keys: []string{"v"}, Label: "cycle the grouping", Footer: "v group", Run: (*Model).nextGrouping,
@@ -247,7 +273,7 @@ func actionTable() []Action {
 			m.filtering = true
 			return nil
 		}},
-		{Keys: []string{"r"}, Label: "read every source again now", Footer: "r read", Run: func(m *Model) tea.Cmd {
+		{Keys: []string{"R"}, Label: "read every source again now", Footer: "R read", Run: func(m *Model) tea.Cmd {
 			for _, source := range m.board.Sources() {
 				source.Force()
 			}
@@ -567,6 +593,42 @@ func (m *Model) move(by int) {
 	m.placed = true
 	m.scrolled = false
 	m.follow()
+}
+
+// jump moves to the next or previous group at the cursor's depth or shallower. Going
+// back from inside a group lands on its own heading first, as Vim's [[ does.
+func (m *Model) jump(direction int) {
+	rows := selectableOf(m.nodes())
+	if m.cursorAt < 0 || m.cursorAt >= len(rows) {
+		return
+	}
+	level := rows[m.cursorAt].depth
+	if rows[m.cursorAt].kind == nodeRow {
+		level--
+	}
+	for at := m.cursorAt + direction; at >= 0 && at < len(rows); at += direction {
+		if rows[at].kind == nodeGroup && rows[at].depth <= level {
+			m.move(at - m.cursorAt)
+			return
+		}
+	}
+}
+
+func (m *Model) hasGroups() bool {
+	return slices.ContainsFunc(m.nodes(), func(n node) bool { return n.kind == nodeGroup && n.selectable() })
+}
+
+// onOpenText says the cursor's row or group shows text under it, which the half-screen
+// keys and J and K then read through.
+func (m *Model) onOpenText() bool {
+	n, ok := m.selected()
+	if !ok {
+		return false
+	}
+	if n.kind == nodeGroup {
+		return n.group.Document != nil
+	}
+	return n.open && (len(n.row.Detail) > 0 || n.row.Document != nil)
 }
 
 func (m *Model) panelWidth() int {

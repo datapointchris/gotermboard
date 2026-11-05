@@ -471,3 +471,57 @@ func TestASpanGroupDrawsItsSpanWholeWithItsCellsAndBesideOnTheLineBelow(t *testi
 		t.Errorf("the cells should stay on the shared columns: %q over %q", lines[0], want[2])
 	}
 }
+
+func TestBracketsJumpGroupsAtTheCursorsDepthOrShallower(t *testing.T) {
+	heading := func(key string, groups ...Group) Group {
+		return Group{Key: key, Title: Line{C(key, "")}, Groups: groups}
+	}
+	inner := heading("a1")
+	inner.Rows = []Row{{Key: "row", Cells: []Cell{C("row", "")}}}
+	frame := Frame{StartAt: "row", Columns: []Column{{Title: "NAME"}}, Groups: []Group{heading("a", inner, heading("a2")), heading("b")}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	for _, step := range []struct {
+		key  rune
+		want string
+	}{{'[', "a1"}, {']', "a2"}, {']', "b"}, {'[', "a"}, {']', "b"}, {']', "b"}} {
+		m.Update(tea.KeyPressMsg{Code: step.key, Text: string(step.key)})
+		if m.Cursor() != step.want {
+			t.Fatalf("%c should land on %q, not %q", step.key, step.want, m.Cursor())
+		}
+	}
+}
+
+func TestTheHalfScreenKeysReadOpenTextOtherwiseMoveTheRows(t *testing.T) {
+	var rows []Row
+	var detail []Cell
+	for i := range 40 {
+		rows = append(rows, Row{Key: "r" + strconv.Itoa(i), Cells: []Cell{C("row "+strconv.Itoa(i), "")}})
+		detail = append(detail, C("line "+strconv.Itoa(i), ""))
+	}
+	rows[0].Detail = detail
+	frame := Frame{StartAt: "r0", Columns: []Column{{Title: "NAME"}}, Groups: []Group{{Key: "g", Title: Line{C("g", "")}, Rows: rows}}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+
+	m.Update(tea.KeyPressMsg{Code: 'J', Text: "J"})
+	if m.top != 0 {
+		t.Errorf("J should do nothing with no text open, but the screen moved to line %d", m.top)
+	}
+	m.Update(enterKey)
+	top := m.top
+	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	if m.Cursor() != "r0" || m.top <= top {
+		t.Errorf("ctrl+d should read down the open text, leaving the cursor: cursor %q, top %d", m.Cursor(), m.top)
+	}
+	top = m.top
+	m.Update(tea.KeyPressMsg{Code: 'J', Text: "J"})
+	if m.top != top+1 {
+		t.Errorf("J should scroll the open text one line, from %d to %d", top, m.top)
+	}
+	m.Update(enterKey)
+	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	if m.Cursor() == "r0" {
+		t.Error("ctrl+d should move the rows with no text open")
+	}
+}
