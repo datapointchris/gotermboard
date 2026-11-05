@@ -130,7 +130,9 @@ told each key the cursor lands on, so a read that only one row needs can follow 
 `Reader` is a full screen over one `Document`. It lays the text out at up to 100 columns,
 centers it on a wider screen, and keeps the same words at the top through a resize. `j` and
 `k`, `ctrl+d` and `ctrl+u`, `g` and `G` move through it, `[` and `]` jump between sections,
-and `/` searches with `n` and `N`. A query with no capital in it ignores case.
+and `/` searches with `n` and `N`. A query with no capital in it ignores case. `y` copies
+`CopyText`, or the text as drawn, over OSC 52. `e` opens `EditFile` in `$VISUAL` or `$EDITOR`
+and lays the text out again after.
 
 `Model.Read` opens one over the board from a board's own key, and `esc` returns to the board.
 `Model.Tall` says whether a document runs past the screen. `NewReader` runs as a program of its

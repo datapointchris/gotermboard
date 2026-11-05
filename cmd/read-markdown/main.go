@@ -37,6 +37,8 @@ Keys:
   g G                 top, bottom
   [ ]                 previous, next heading
   / n N               search, next match, previous match
+  y                   copy the markdown
+  e                   edit the file in $EDITOR, and draw what you saved
   ?                   every key
   q                   quit
 `
@@ -76,9 +78,17 @@ func run(path string, width int) error {
 		return err
 	}
 	renderer := markdown.New(nil)
+	isFile := path != "" && path != "-"
 	reader := gotermboard.NewReader(title, func(width int) []gotermboard.Line {
+		if saved, err := os.ReadFile(path); isFile && err == nil {
+			source = string(saved)
+		}
 		return renderer.Lines(source, width)
 	}, gotermstyle.PaletteFor(os.Stdout))
+	reader.CopyText = func() string { return source }
+	if isFile {
+		reader.EditFile = path
+	}
 	if !term.IsTerminal(int(os.Stdout.Fd())) {
 		_, err := fmt.Print(reader.Once(width))
 		return err

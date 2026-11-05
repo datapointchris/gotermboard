@@ -2,6 +2,8 @@ package gotermboard
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"unicode"
@@ -22,6 +24,12 @@ const hitContext = 2
 // the window that fits, because Bubble Tea keeps only the last lines of a taller view.
 // It runs as a program of its own, or a Model opens one with Read.
 type Reader struct {
+	// CopyText is what y copies. Nil copies the text as drawn.
+	CopyText func() string
+	// EditFile is the file e opens in the editor, after which the text is laid out again.
+	// Empty leaves e unbound.
+	EditFile string
+
 	title    string
 	document Document
 	pal      gotermstyle.Palette
@@ -34,6 +42,7 @@ type Reader struct {
 	sections      []int
 	top           int
 	overlay       bool
+	said          string
 
 	searching    bool
 	searchedFrom int
@@ -72,8 +81,44 @@ func (r *Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		cmd := r.pressed(msg)
 		return r, cmd
+	case editedMsg:
+		if msg.err != nil {
+			r.said = "the editor failed: " + msg.err.Error()
+		}
+		r.resize(r.width, r.height)
 	}
 	return r, nil
+}
+
+type editedMsg struct{ err error }
+
+// edit hands the terminal to the editor, split as a shell would split it, so
+// EDITOR="code --wait" works.
+func (r *Reader) edit() tea.Cmd {
+	command := []string{"vi"}
+	for _, variable := range []string{"VISUAL", "EDITOR"} {
+		if configured := strings.Fields(os.Getenv(variable)); len(configured) > 0 {
+			command = configured
+			break
+		}
+	}
+	editor := exec.Command(command[0], append(command[1:], r.EditFile)...)
+	return tea.ExecProcess(editor, func(err error) tea.Msg { return editedMsg{err} })
+}
+
+func (r *Reader) copyToClipboard() tea.Cmd {
+	var text string
+	if r.CopyText != nil {
+		text = r.CopyText()
+	} else {
+		lines := make([]string, 0, len(r.rows))
+		for _, row := range r.rows {
+			lines = append(lines, row.Text())
+		}
+		text = strings.Join(lines, "\n")
+	}
+	r.said = "copied"
+	return tea.SetClipboard(text)
 }
 
 // View is Bubble Tea's.
@@ -187,6 +232,10 @@ func readerActions() []readerAction {
 			r.landOnHit(r.hit - 1)
 			return nil
 		}, applies: hasHits},
+		{keys: []string{"y"}, label: "copy the text", footer: "y copy", run: (*Reader).copyToClipboard},
+		{keys: []string{"e"}, label: "edit the file in $EDITOR", footer: "e edit", run: (*Reader).edit, applies: func(r *Reader) bool {
+			return r.EditFile != ""
+		}},
 		{keys: []string{"?"}, label: "show these keys", footer: "? keys", run: func(r *Reader) tea.Cmd {
 			r.overlay = true
 			return nil
@@ -218,6 +267,7 @@ func (r *Reader) pressed(key tea.KeyPressMsg) tea.Cmd {
 		r.typed(key)
 		return nil
 	}
+	r.said = ""
 	name := key.String()
 	for _, action := range r.actions() {
 		if slices.Contains(action.keys, name) {
@@ -376,6 +426,8 @@ func (r *Reader) footer() string {
 		parts = append(parts, "/"+r.query+"█", r.hitsSaid())
 	case r.query != "":
 		parts = append(parts, "/"+r.query, r.hitsSaid(), "n/N match", "esc clears")
+	case r.said != "":
+		parts = append(parts, r.said)
 	default:
 		for _, action := range r.actions() {
 			if action.footer != "" {
