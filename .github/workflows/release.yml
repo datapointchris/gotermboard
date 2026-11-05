@@ -13,7 +13,6 @@ permissions:
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
-  queue: max
 
 jobs:
   # A library ships as a git tag, so the tagged commit must be green first.
