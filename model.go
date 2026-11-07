@@ -258,7 +258,8 @@ func actionTable() []Action {
 		{Keys: []string{"ctrl+u", "pgup"}, Label: "half a screen up the open text, or up the rows", Run: halfScreen(-1)},
 		{Keys: []string{"J"}, Label: "scroll the open text down a line", Footer: "J/K scroll", Run: scrolled(1), Applies: (*Model).onOpenText},
 		{Keys: []string{"K"}, Label: "scroll the open text up a line", Run: scrolled(-1), Applies: (*Model).onOpenText},
-		{Keys: []string{"enter", "space"}, Label: "fold a group, or open a row's detail in place", Footer: "enter fold", Run: (*Model).toggle},
+		{Keys: []string{"enter"}, Label: "fold a group, or open a row's text, full screen where it runs past the screen", Footer: "enter open", Run: (*Model).toggle},
+		{Keys: []string{"space"}, Label: "fold a group, or open or close a row's text in place, however tall", Footer: "space fold", Run: (*Model).toggleInPlace},
 		{
 			Keys: []string{"v"}, Label: "cycle the grouping", Footer: "v group", Run: (*Model).nextGrouping,
 			Applies: func(m *Model) bool { return len(m.board.Groupings()) > 1 },
@@ -348,8 +349,10 @@ func (m *Model) boardThenTableActions() []Action {
 // Cursor is the key of the group or row the cursor is on, for a board's own keys.
 func (m *Model) Cursor() string { return m.cursor }
 
-// Toggle folds the group under the cursor or opens its row's detail, for a board's key
-// that takes enter and acts only on some rows.
+// Toggle is what enter does, for a board's key that takes enter and acts only on some
+// rows: a row's Document that runs past the screen opens on a Reader, open in place or
+// not, and anything else folds or opens in place. Space stays the table's, which folds
+// in place however tall the text.
 func (m *Model) Toggle() tea.Cmd { return m.toggle() }
 
 // Reveal scrolls the cursor's row and what opens under it into view, for a board's key
@@ -390,6 +393,7 @@ func (m *Model) ToggleEveryRow() tea.Cmd {
 	for _, key := range rows {
 		m.display.opened[key] = !allOpen
 	}
+	m.scrolled = false
 	m.follow()
 	return nil
 }
@@ -405,7 +409,7 @@ func (m *Model) ScrollBy(lines int) {
 // HalfScreen is half the table's height in lines.
 func (m *Model) HalfScreen() int { return max(1, m.bodyHeight()/2) }
 
-// Read opens document on a full-screen Reader over the board, until esc closes it.
+// Read opens document on a full-screen Reader over the board, until esc or space closes it.
 func (m *Model) Read(title string, document Document) {
 	m.reading = NewReader(title, document, m.pal)
 	m.reading.back = func() { m.reading = nil }
@@ -416,7 +420,7 @@ func (m *Model) Read(title string, document Document) {
 	m.reading.resize(m.width, m.height)
 }
 
-// Tall says document runs past the screen, so it reads on a Reader rather than in place.
+// Tall says document runs past the screen, so enter reads it on a Reader.
 func (m *Model) Tall(document Document) bool {
 	return len(document(m.tableWidth())) >= m.bodyHeight()
 }
@@ -473,7 +477,19 @@ func (m *Model) setFilter(filter string) {
 	m.follow()
 }
 
+// toggle is enter: a row's Document that runs past the screen opens on a Reader, open in
+// place or not, and anything else folds or opens in place.
 func (m *Model) toggle() tea.Cmd {
+	if n, ok := m.selected(); ok && n.kind == nodeRow && n.row.Document != nil && m.Tall(n.row.Document) {
+		m.Read(n.row.title(), n.row.Document)
+		return nil
+	}
+	return m.toggleInPlace()
+}
+
+// toggleInPlace is space: it folds the group or opens the row under the cursor, however
+// tall its text, and does nothing where that would change nothing.
+func (m *Model) toggleInPlace() tea.Cmd {
 	n, ok := m.selected()
 	if !ok || !n.toggles {
 		return nil
@@ -482,13 +498,8 @@ func (m *Model) toggle() tea.Cmd {
 	case nodeGroup:
 		m.display.folded[n.key] = n.open
 	case nodeRow:
-		if !n.open && n.row.Document != nil && m.Tall(n.row.Document) {
-			m.Read(n.row.title(), n.row.Document)
-			return nil
-		}
 		m.display.opened[n.key] = !n.open
 	}
-	m.follow()
 	m.revealDetail()
 	return nil
 }
@@ -506,8 +517,11 @@ func (r Row) title() string {
 }
 
 // revealDetail scrolls the cursor's row and what opens under it into view, so a row
-// opened near the screen's foot shows its text, stopping with the row at the top.
+// opened near the screen's foot shows its text, stopping with the row at the top. It ends
+// any scroll through the text, which a row closing would otherwise leave the cursor above.
 func (m *Model) revealDetail() {
+	m.scrolled = false
+	m.follow()
 	pinned, lines := m.table()
 	at := slices.IndexFunc(lines, func(l drawn) bool { return l.key != "" && l.key == m.cursor })
 	if at < 0 {

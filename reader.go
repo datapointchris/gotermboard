@@ -241,7 +241,11 @@ func readerActions() []readerAction {
 			r.overlay = true
 			return nil
 		}},
-		{keys: []string{"esc"}, label: "clear the search, or go back", footer: "esc back", run: func(r *Reader) tea.Cmd {
+		{keys: []string{"space"}, label: "go back", run: func(r *Reader) tea.Cmd {
+			r.back()
+			return nil
+		}, applies: func(r *Reader) bool { return r.back != nil }},
+		{keys: []string{"esc"}, label: "clear the search, or go back", footer: "esc/space back", run: func(r *Reader) tea.Cmd {
 			if r.query != "" {
 				r.setQuery("")
 			} else if r.back != nil {

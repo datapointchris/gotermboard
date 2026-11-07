@@ -91,9 +91,11 @@ ahead of them in the first column. `Column.Min` holds that column wide enough to
 ## A row can open a document laid out at its width
 
 `Document` on a `Row` or a `Group` is a function of width, because hanging bullets, tables
-and boxes of code cannot be wrapped after they are drawn. A row's opens under it on `enter`,
-or on the full-screen reader where it runs past the screen. A group's draws under `Below`
-whether the group is folded or not. The `markdown` package
+and boxes of code cannot be wrapped after they are drawn. A row's opens under it on `space`,
+however tall it is. `enter` opens it the same way, or on the full-screen reader where it runs
+past the screen, whether or not it already shows in place. `StartsOpen` on a row shows its text
+from the first frame, so a view can draw its newest entry whole and still fold it to its first
+line. A group's draws under `Below` whether the group is folded or not. The `markdown` package
 makes one from markdown, in ANSI 0-15 so it follows the theme:
 
 ```go
@@ -152,8 +154,8 @@ and `/` searches with `n` and `N`. A query with no capital in it ignores case. `
 `CopyText`, or the text as drawn, over OSC 52. `e` opens `EditFile` in `$VISUAL` or `$EDITOR`
 and lays the text out again after.
 
-`Model.Read` opens one over the board from a board's own key, and `esc` returns to the board.
-`Model.Tall` says whether a document runs past the screen. `NewReader` runs as a program of its
+`Model.Read` opens one over the board from a board's own key, and `esc` or `space` returns to the
+board. `Model.Tall` says whether a document runs past the screen. `NewReader` runs as a program of its
 own, which is all `cmd/read-markdown` does with a file or a pipe:
 
 ```bash
@@ -169,3 +171,7 @@ heading.
 A board implementing `Keyed` adds `Action`s, which take precedence over the table's and
 appear in the footer and the `?` overlay. A board implementing `TailBoard` reads from its
 newest row, as a log does.
+
+`enter` and `space` are separate keys in the table, so a board that takes `enter` leaves `space`
+folding in place. `Model.Toggle` is what the table's `enter` does, for a board's `enter` that acts
+only on some rows.

@@ -64,7 +64,7 @@ func TestReaderJumpsSearchesAndKeepsItsPlaceOnAResize(t *testing.T) {
 	}
 }
 
-func TestEnterReadsATallDocumentFullScreenAndEscReturnsToTheRow(t *testing.T) {
+func TestEnterReadsTallTextFullScreenAndSpaceFoldsItInPlace(t *testing.T) {
 	short := func(int) []Line { return []Line{{C("short text", "")}} }
 	frame := Frame{Columns: []Column{{Title: "ROW"}}, Groups: []Group{{Rows: []Row{
 		{Key: "tall", Cells: []Cell{C("the tall row", "")}, Document: wrappedDocument},
@@ -81,10 +81,49 @@ func TestEnterReadsATallDocumentFullScreenAndEscReturnsToTheRow(t *testing.T) {
 	if m.reading != nil {
 		t.Fatal("esc left the reader open")
 	}
+	m.Update(enterKey)
+	m.Update(spaceKey)
+	if m.reading != nil {
+		t.Fatal("space left the reader open")
+	}
+
+	m.Update(spaceKey)
+	if m.reading != nil || !strings.Contains(m.screen(), "section 0") {
+		t.Fatalf("space on a tall row should open it in place:\n%s", m.screen())
+	}
+	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	if strings.Contains(m.screen(), "›") {
+		t.Fatalf("ctrl+d should have scrolled the row off the screen:\n%s", m.screen())
+	}
+	m.Update(spaceKey)
+	if got := m.screen(); strings.Contains(got, "section 0") || !strings.Contains(got, "› ▸") {
+		t.Fatalf("closing a row after scrolling should leave the cursor on screen:\n%s", got)
+	}
 
 	m.Update(downKey)
 	m.Update(enterKey)
 	if m.reading != nil {
 		t.Fatal("a short row opened the reader rather than in place")
+	}
+}
+
+func TestARowThatStartsOpenFoldsToItsLineOnSpaceAndReadsFullScreenOnEnter(t *testing.T) {
+	frame := Frame{Columns: []Column{{Title: "ROW"}}, Groups: []Group{{Rows: []Row{
+		{Key: "newest", Cells: []Cell{C("the first line", "")}, Document: wrappedDocument, StartsOpen: true},
+	}}}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	if got := m.screen(); !strings.Contains(got, "▾the first line") || !strings.Contains(got, "section 0") {
+		t.Fatalf("the row should start open:\n%s", got)
+	}
+	m.Update(enterKey)
+	if m.reading == nil {
+		t.Fatal("enter on an open tall row should read it full screen")
+	}
+	m.Update(spaceKey)
+	m.Update(spaceKey)
+	if got := m.screen(); !strings.Contains(got, "▸the first line") || strings.Contains(got, "section 0") {
+		t.Fatalf("space should fold the row to its first line:\n%s", got)
 	}
 }
