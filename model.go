@@ -57,15 +57,18 @@ type Model struct {
 	height   int
 	grouping int
 
-	display   display
-	cursor    string
-	cursorAt  int
-	top       int
-	placed    bool
-	panelOff  bool
-	filtering bool
-	overlay   bool
-	said      string
+	display  display
+	cursor   string
+	cursorAt int
+	top      int
+	placed   bool
+	panelOff bool
+	// panelHasText says this frame holds text for the side panel. It is the frame's answer
+	// rather than the cursor's line's, so the table never jumps as the cursor moves.
+	panelHasText bool
+	filtering    bool
+	overlay      bool
+	said         string
 	// scrolled holds top where ScrollBy put it, until the cursor next moves, so a
 	// row's detail taller than the screen can be read through.
 	scrolled bool
@@ -275,7 +278,7 @@ func actionTable() []Action {
 				m.panelOff = !m.panelOff
 				return nil
 			},
-			Applies: func(m *Model) bool { return m.width >= PanelFrom },
+			Applies: func(m *Model) bool { return m.width >= PanelFrom && m.panelHasText },
 		},
 		{Keys: []string{"/"}, Label: "filter the rows, matching their detail too", Footer: "/ filter", Run: func(m *Model) tea.Cmd {
 			m.filtering = true
@@ -538,6 +541,7 @@ func (m *Model) currentGrouping() string {
 func (m *Model) rebuild(now time.Time) {
 	wasLast := m.tails() && m.placed && m.onLastRow()
 	m.frame = m.board.Frame(now, m.currentGrouping())
+	m.panelHasText = anyPanelText(m.frame.Groups)
 	m.cue.mark(m.frame.Groups, now)
 	if settled := m.cue.quietFrom.Add(settleFor); m.cue.quiet && !now.Before(settled) && !m.readsUnderWayFrom(settled) {
 		m.cue.quiet = false
@@ -580,8 +584,8 @@ func selectableOf(nodes []node) []node {
 	return slices.DeleteFunc(slices.Clone(nodes), func(n node) bool { return !n.selectable() })
 }
 
-// place puts the cursor on its key, or on the first line holding cells the first time
-// there is one, or on the line it was on where its row is gone.
+// place puts the cursor on its key, or on where it starts the first time there is such a
+// line, or on the line it was on where its row is gone.
 func (m *Model) place() {
 	rows := selectableOf(m.nodes())
 	if len(rows) == 0 {
@@ -593,19 +597,7 @@ func (m *Model) place() {
 			m.cursor, m.cursorAt, m.placed = rows[i].key, i, true
 			return
 		}
-		holdsCells := func(n node) bool {
-			return (n.kind == nodeRow && len(n.row.Cells) > 0) || (n.kind == nodeGroup && len(n.group.Cells) > 0)
-		}
-		i := slices.IndexFunc(rows, holdsCells)
-		if m.tails() {
-			for at := len(rows) - 1; at >= 0; at-- {
-				if holdsCells(rows[at]) {
-					i = at
-					break
-				}
-			}
-		}
-		if i >= 0 {
+		if i := m.startingLine(rows); i >= 0 {
 			m.cursor, m.cursorAt, m.placed = rows[i].key, i, true
 			return
 		}
@@ -616,6 +608,30 @@ func (m *Model) place() {
 	}
 	m.cursorAt = max(0, min(m.cursorAt, len(rows)-1))
 	m.cursor = rows[m.cursorAt].key
+}
+
+// startingLine is the first line holding cells, or the last on a board read from its
+// newest, and otherwise the first with anything to read. A group with no panel text only
+// labels what sits under it, so the cursor starts past it.
+func (m *Model) startingLine(rows []node) int {
+	holdsCells := func(n node) bool {
+		if n.kind == nodeGroup {
+			return len(n.group.Cells) > 0 && n.group.hasPanelText()
+		}
+		return len(n.row.Cells) > 0
+	}
+	i := slices.IndexFunc(rows, holdsCells)
+	if m.tails() {
+		for at := len(rows) - 1; at >= 0; at-- {
+			if holdsCells(rows[at]) {
+				return at
+			}
+		}
+	}
+	if i >= 0 {
+		return i
+	}
+	return slices.IndexFunc(rows, func(n node) bool { return n.kind == nodeRow || n.group.hasPanelText() })
 }
 
 func (m *Model) selected() (node, bool) {
@@ -674,11 +690,13 @@ func (m *Model) onOpenText() bool {
 	return n.open && (len(n.row.Detail) > 0 || n.row.Document != nil)
 }
 
+// panelWidth grows with the screen up to ReadingWidth, the longest line this package lays
+// text out at. A frame with nothing for the panel to say gives the table its width.
 func (m *Model) panelWidth() int {
-	if m.panelOff || m.width < PanelFrom {
+	if m.panelOff || m.width < PanelFrom || !m.panelHasText {
 		return 0
 	}
-	return min(64, m.width*3/10)
+	return min(ReadingWidth, m.width*3/10)
 }
 
 func (m *Model) tableWidth() int {

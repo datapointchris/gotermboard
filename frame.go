@@ -158,6 +158,12 @@ type Row struct {
 	changed bool
 }
 
+// opens says the row holds text the toggle shows under it.
+func (r *Row) opens() bool { return len(r.Detail) > 0 || r.Document != nil }
+
+// hasPanelText says the side panel has something of the row's own to show.
+func (r *Row) hasPanelText() bool { return r.Panel != nil || r.opens() }
+
 // The mark a Marked row draws.
 const (
 	MarkGlyph = "◆"
@@ -227,13 +233,29 @@ func (g *Group) holdsRows() bool {
 	return len(g.Rows) > 0 || slices.ContainsFunc(g.Groups, func(child Group) bool { return child.holdsRows() })
 }
 
+// hasPanelText says the side panel has something of the group's own to show. The label and
+// summary the panel falls back on repeat what the table already draws, so they do not count.
+func (g *Group) hasPanelText() bool { return g.Panel != nil || len(g.Detail) > 0 }
+
+// anyPanelText says a line the cursor can land on has text of its own for the side panel.
+func anyPanelText(groups []Group) bool {
+	for i := range groups {
+		g := &groups[i]
+		rowSays := func(r Row) bool { return r.hasPanelText() }
+		if (!g.Still && g.hasPanelText()) || slices.ContainsFunc(g.Rows, rowSays) || anyPanelText(g.Groups) {
+			return true
+		}
+	}
+	return false
+}
+
 // Frame is one screen of a view, before it is laid out to a size.
 type Frame struct {
 	Strip   []Line
 	Columns []Column
 	Groups  []Group
 	// StartAt is the key the cursor starts on, where that key is showing. Without one it
-	// starts on the first line holding cells.
+	// starts on the first line holding cells, passing any group with no panel text.
 	StartAt string
 }
 

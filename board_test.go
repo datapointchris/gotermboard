@@ -68,7 +68,7 @@ func (b groupedBoard) Groupings() []string { return []string{"one", "two"} }
 
 func TestTheFooterListsOnlyTheKeysThisViewCanUse(t *testing.T) {
 	plain := fixedBoard{Frame{Columns: []Column{{Title: "NAME"}}, Groups: []Group{{Key: "g", Rows: []Row{{Key: "r", Cells: []Cell{C("x", "")}}}}}}}
-	withLines := fixedBoard{Frame{Columns: plain.frame.Columns, Groups: []Group{{Key: "g", Groups: []Group{{Key: "inner", Rows: []Row{{Key: "r", Under: C("the first line", "")}}}}}}}}
+	withLines := fixedBoard{Frame{Columns: plain.frame.Columns, Groups: []Group{{Key: "g", Groups: []Group{{Key: "inner", Rows: []Row{{Key: "r", Under: C("the first line", ""), Detail: []Cell{C("more", "")}}}}}}}}}
 	for _, test := range []struct {
 		name         string
 		board        Board
@@ -540,5 +540,33 @@ func TestAGroupDrawsItsLinesAboveAndBelowItsHeaderAndARuleAfterIt(t *testing.T) 
 	}
 	if !strings.HasPrefix(lines[at-1], "══") || !strings.HasPrefix(lines[at+1], "──") || !strings.HasPrefix(lines[at+2], "──") {
 		t.Errorf("want a double line above, then a thin line under and a rule after:\n%s", m.screen())
+	}
+}
+
+func TestThePanelGrowsToAReadingWidthWhereAFrameHasTextForItAndTheCursorStartsPastABareHeader(t *testing.T) {
+	frame := func(detail []Cell) Frame {
+		return Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "top", Title: Line{C("TOP", "")}, Groups: []Group{
+			{Key: "first", Title: Line{C("first", "")}, Detail: detail, Folded: true, Rows: []Row{{Key: "r", Cells: []Cell{C("r", "")}}}},
+		}}}}
+	}
+	m := NewModel(fixedBoard{frame([]Cell{C("what it says", "")})}, gotermstyle.NewPalette(false))
+	if m.Cursor() != "first" {
+		t.Errorf("the cursor should start past a header with nothing to say, on %q", m.Cursor())
+	}
+	for _, size := range []struct{ width, panel int }{{188, 56}, {240, 72}, {334, 100}, {378, 100}} {
+		m.Update(tea.WindowSizeMsg{Width: size.width, Height: 20})
+		if got := m.panelWidth(); got != size.panel {
+			t.Errorf("at %d columns the panel is %d wide, want %d", size.width, got, size.panel)
+		}
+	}
+	m.Update(upKey)
+	if got := m.panelWidth(); got != 100 {
+		t.Errorf("the panel should stay put on a line with nothing to say, so the table does not jump: %d", got)
+	}
+
+	silent := NewModel(fixedBoard{frame(nil)}, gotermstyle.NewPalette(false))
+	silent.Update(tea.WindowSizeMsg{Width: 378, Height: 20})
+	if got := silent.screen(); strings.Contains(got, "│") || strings.Contains(got, "p panel") {
+		t.Errorf("a frame with nothing for the panel should give the table its width:\n%s", got)
 	}
 }

@@ -120,11 +120,17 @@ it matches nothing.
 
 ## The side panel follows the cursor
 
+From `PanelFrom` columns the panel takes three tenths of the screen, up to `ReadingWidth`. A frame
+with no `Panel`, `Document` or `Detail` on any line the cursor can land on draws no panel, and the
+table takes the width. The frame decides rather than the cursor's line, so the table never jumps
+as the cursor moves.
+
 `Panel` on a row or a group is what the side panel shows in `Detail`'s place, a function of
 the panel's width whose lines wrap at spaces with each cell's own color. A row with no `Panel`
 shows its `Document`. A board implementing `CursorBoard` is
 told each key the cursor lands on, so a read that only one row needs can follow it.
-`Frame.StartAt` names the key the cursor starts on.
+`Frame.StartAt` names the key the cursor starts on. Without one it starts on the first line
+holding cells, past any group with no panel text.
 
 ## A tall document reads on a full screen
 
