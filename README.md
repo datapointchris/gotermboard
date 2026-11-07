@@ -84,7 +84,8 @@ drawn under the header whether it is folded or not, which the cursor moves past 
 node. `WrapLast` on a `Row` or a `Group` is the last column as cells of their own colors,
 continuing on further lines at that column, so a bar wider than the row keeps every cell.
 `TallyBar` is such a bar, one cell per unit, because a fixed width rounds one blocked unit
-in sixty away.
+in sixty away. Each kind has its own glyph as well as its color, so a frame printed without
+color still shows which units are done and which are blocked.
 
 `Items` makes a line of `Below` or `Beside` that the draw cuts to the items that fit,
 ending in `+N`, because only the draw knows the width and it moves with the side panel.
