@@ -14,3 +14,5 @@ A Go library that Go command-line tools import, shipped as git tags. Its one `ma
   read first, then reads what is due.
 - **No cue or mark moves a column.** A change cue sits in the pointer's column, and a mark
   and a chevron each in a cell of a row's indent, so a table never shifts under the eye.
+- **The sticky band covers lines and never moves them,** so the text under it holds still as
+  it grows and shrinks.

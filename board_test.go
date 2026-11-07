@@ -591,6 +591,53 @@ func TestAChevronDrawsOnlyOnWhatOpensAndLeavesABulletItsCell(t *testing.T) {
 	}
 }
 
+func TestAnOpenRowAndItsGroupsHoldTheTopWhileItsTextScrollsUnderThem(t *testing.T) {
+	text := func(name string) Document {
+		return func(int) []Line {
+			lines := make([]Line, 0, 30)
+			for i := range 30 {
+				lines = append(lines, Line{C(name+" line "+strconv.Itoa(i), "")})
+			}
+			return lines
+		}
+	}
+	row := func(key, words string) Row {
+		return Row{Key: key, Cells: []Cell{C(words, "")}, Document: text(words), StartsOpen: true}
+	}
+	frame := Frame{StartAt: "one", Columns: []Column{{Title: ""}}, Groups: []Group{{
+		Key: "outer", Title: Line{C("OUTER", "")},
+		Groups: []Group{{Key: "inner", Title: Line{C("INNER", "")}, Rows: []Row{row("one", "first"), row("two", "second")}}},
+	}}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	top := func(lines int) []string { return strings.Split(m.screen(), "\n")[:lines] }
+
+	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	got := top(4)
+	if !strings.Contains(got[0], "OUTER") || !strings.Contains(got[1], "INNER") || !strings.Contains(got[2], "› ") || !strings.Contains(got[2], "first") {
+		t.Errorf("the groups and the cursor's row should hold the top:\n%s", strings.Join(got, "\n"))
+	}
+	if !strings.Contains(got[3], "first line 9") {
+		t.Errorf("the band should cover lines rather than push them down, so line 9 shows under it:\n%s", strings.Join(got, "\n"))
+	}
+
+	m.ScrollBy(22)
+	if got := top(3); !strings.Contains(got[2], "second") || strings.Contains(got[2], "›") {
+		t.Errorf("the next row's text under the band should put that row in its place:\n%s", strings.Join(got, "\n"))
+	}
+
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 8})
+	m.ScrollBy(9)
+	if got := top(2); !strings.Contains(got[0], "INNER") || !strings.Contains(got[1], "second") {
+		t.Errorf("a short screen should drop the outermost line first:\n%s", strings.Join(got, "\n"))
+	}
+
+	m.Update(downKey)
+	if got := top(3); !strings.Contains(got[2], "› ") || !strings.Contains(got[2], "second") {
+		t.Errorf("a cursor moved under the band should bring its row out below it:\n%s", m.screen())
+	}
+}
+
 func TestThePanelGrowsToAReadingWidthWhereAFrameHasTextForItAndTheCursorStartsPastABareHeader(t *testing.T) {
 	frame := func(detail []Cell) Frame {
 		return Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "top", Title: Line{C("TOP", "")}, Groups: []Group{

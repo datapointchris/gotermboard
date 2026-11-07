@@ -18,7 +18,7 @@ func wrappedDocument(width int) []Line {
 	var rows []Line
 	for i := range 60 {
 		if i%10 == 0 {
-			rows = append(rows, Line{Cell{Text: "section " + strconv.Itoa(i), Section: true}})
+			rows = append(rows, Line{Cell{Text: "section " + strconv.Itoa(i), Section: 1}})
 		}
 		sentence := "sentence number " + strconv.Itoa(i) + " has words"
 		for len(sentence) > width {
@@ -103,6 +103,28 @@ func TestEnterReadsTallTextFullScreenAndSpaceFoldsItInPlace(t *testing.T) {
 	}
 }
 
+func TestTheReadersTopLineNamesWhatHeldTheRowThenTheSectionScrolledInto(t *testing.T) {
+	frame := Frame{Columns: []Column{{Title: "ROW"}}, Groups: []Group{{Key: "outer", Title: Line{C("OUTER", "")}, Rows: []Row{
+		{Key: "tall", Cells: []Cell{C("the tall row", "")}, Document: wrappedDocument},
+	}}}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	m.Update(downKey)
+	m.Update(enterKey)
+	topLine := func() string { return strings.Split(m.screen(), "\n")[0] }
+	if got := topLine(); !strings.Contains(got, "OUTER › the tall row") || strings.Contains(got, "section") {
+		t.Fatalf("the top line should name the group and the row, and no section yet: %q", got)
+	}
+	m.Update(typedKey("]"))
+	if got := topLine(); strings.Contains(got, "section") {
+		t.Errorf("a heading on the top row should close the one before it and stay off the top line: %q", got)
+	}
+	m.Update(downKey)
+	if got := topLine(); !strings.HasSuffix(strings.TrimSpace(got), "› section 10") {
+		t.Errorf("the top line should name the section scrolled into: %q", got)
+	}
+}
+
 func TestClosingATallRowScrolledThroughWithThirtyRowsBelowItLeavesTheCursorOnScreen(t *testing.T) {
 	rows := []Row{{Key: "tall", Cells: []Cell{C("the tall row", "")}, Document: wrappedDocument}}
 	for range 30 {
@@ -113,8 +135,8 @@ func TestClosingATallRowScrolledThroughWithThirtyRowsBelowItLeavesTheCursorOnScr
 	m.Update(spaceKey)
 	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	if strings.Contains(m.screen(), "›") {
-		t.Fatalf("ctrl+d should have scrolled the row off the screen:\n%s", m.screen())
+	if strings.Contains(m.screen(), "section 0") {
+		t.Fatalf("ctrl+d should have scrolled through the row's text:\n%s", m.screen())
 	}
 	m.Update(spaceKey)
 	if got := m.screen(); !strings.Contains(got, "› ▸") {

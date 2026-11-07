@@ -418,8 +418,10 @@ func (m *Model) ScrollBy(lines int) {
 func (m *Model) HalfScreen() int { return max(1, m.bodyHeight()/2) }
 
 // Read opens document on a full-screen Reader over the board, until esc or space closes it.
+// The reader's top line names the groups holding the cursor's line, then title.
 func (m *Model) Read(title string, document Document) {
 	m.reading = NewReader(title, document, m.pal)
+	m.reading.path = m.cursorPath()
 	m.reading.back = func() { m.reading = nil }
 	m.reading.quit = func() tea.Cmd {
 		m.cancel()
@@ -545,9 +547,31 @@ func (m *Model) revealDetail() {
 	for end+1 < len(lines) && lines[end+1].key == "" {
 		end++
 	}
-	if h := m.scrollHeight(pinned); end >= m.top+h {
+	h := m.scrollHeight(pinned)
+	if end >= m.top+h {
 		m.top = min(at, end-h+1)
 	}
+	m.clearOfBand(lines, at, h)
+}
+
+// cursorPath is what holds the cursor's line, outermost first, leaving out what stays on
+// screen above the table and any group with no words of its own.
+func (m *Model) cursorPath() []Line {
+	n, ok := m.selected()
+	if !ok {
+		return nil
+	}
+	nodes := m.nodes()
+	var path []Line
+	for at := n.parent; at >= 0; at = nodes[at].parent {
+		if owner := nodes[at]; !owner.staysOnScreen() {
+			if words := groupWords(owner.group); len(words) > 0 {
+				path = append(path, words)
+			}
+		}
+	}
+	slices.Reverse(path)
+	return path
 }
 
 func (m *Model) nextGrouping() tea.Cmd {
@@ -607,7 +631,7 @@ func (m *Model) moveToLastRow() {
 	}
 }
 
-func (m *Model) nodes() []node { return m.display.walk(m.frame.Groups, 0, nil) }
+func (m *Model) nodes() []node { return m.display.walk(m.frame.Groups, 0, -1, nil) }
 
 func selectableOf(nodes []node) []node {
 	return slices.DeleteFunc(slices.Clone(nodes), func(n node) bool { return !n.selectable() })
@@ -763,6 +787,16 @@ func (m *Model) follow() {
 		}
 	}
 	m.top = max(0, min(m.top, len(lines)-h))
+	if at >= 0 && !m.scrolled {
+		m.clearOfBand(lines, at, h)
+	}
+}
+
+// clearOfBand moves the screen up until the line at sits below the band, which is no cursor stop.
+func (m *Model) clearOfBand(lines []drawn, at, height int) {
+	for m.top > 0 && at < m.top+len(stickyBand(lines, m.top, height)) {
+		m.top--
+	}
 }
 
 // footer is what the last key did or the filter being typed, then the keys.
@@ -811,11 +845,15 @@ func (m *Model) screen() string {
 	}
 	h = m.scrollHeight(pinned)
 	shown := lines[min(m.top, len(lines)):min(m.top+h, len(lines))]
+	band := stickyBand(lines, m.top, h)
 	panel := m.panelLines(h)
 	tw := m.tableWidth()
 	for i := range h {
 		left := ""
-		if i < len(shown) {
+		switch {
+		case i < len(band):
+			left = band[i]
+		case i < len(shown):
 			left = shown[i].text
 		}
 		if m.panelWidth() == 0 {

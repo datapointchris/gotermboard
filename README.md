@@ -110,6 +110,23 @@ every word has to reach the reader.
 
 Its argument colors what a caller recognizes in prose, such as a number that names a record.
 
+## What holds the text stays at the top while it scrolls
+
+Reading down an open row's text keeps the row and the groups above it on the band at the top of
+the table, as VS Code's sticky scroll and nvim-treesitter-context do. The band shows the first line
+of each node holding the first line it leaves showing, so the cursor's row carries its pointer there.
+A node joins once its own line has scrolled off, and a sibling arriving under the band takes its
+predecessor's place.
+
+- **The band covers lines rather than pushing them down,** so nothing under it moves as it grows.
+- **It holds at most 5 lines and never more than a third of the table,** and drops the outermost first.
+- **A band line is no cursor stop.** A cursor moved under the band brings its row out below it.
+- **A row or group holding nothing under it never joins,** so a folded group and a closed row
+  never take a line of the band. A `Still` group at the top of the frame stays above the table
+  already, so it never joins either.
+
+Every board gets the band with no field to set, because the board owns the draw.
+
 A `Still` group has no fold mark and the cursor passes over it. At the top of a frame it
 stays on screen with the column titles while the table scrolls, which suits a row of totals.
 
@@ -155,6 +172,11 @@ and `/` searches with `n` and `N`. A query with no capital in it ignores case. `
 `CopyText`, or the text as drawn, over OSC 52. `e` opens `EditFile` in `$VISUAL` or `$EDITOR`
 and lays the text out again after.
 
+Its top line names where the text sits: the groups holding the row that opened it, its title, then
+each heading still open above the top row. A heading joins once its own row scrolls off, as the
+table's band does. Where the line runs long, the longest name is cut first, and the outermost
+leaves once every name is down to a few words.
+
 `Model.Read` opens one over the board from a board's own key, and `esc` or `space` returns to the
 board. `Model.Tall` says whether a document runs past the screen. `NewReader` runs as a program of its
 own, which is all `cmd/read-markdown` does with a file or a pipe:
@@ -164,8 +186,9 @@ go install github.com/datapointchris/gotermboard/cmd/read-markdown@latest
 read-markdown README.md
 ```
 
-A `Cell` with `Section` set marks its line as a section. The `markdown` package sets it on each
-heading.
+A `Cell` with `Section` set starts the words of a heading, and its value is the heading's depth, 1
+outermost. A heading closes every open one at its depth or deeper. The `markdown` package sets it
+on each heading's first word, past the bar that marks it.
 
 ## A board can add keys
 
