@@ -177,8 +177,8 @@ func (l *layout) heading(v *ast.Heading, first, rest gotermboard.Line, width int
 	markWidth := len([]rune(mark.Text()))
 	opensAt := len(l.out)
 	l.emit(slices.Concat(first, mark), slices.Concat(rest, spaces(markWidth)), wrapped(l.inline(v, s), width-markWidth))
-	if opensAt < len(l.out) && len(l.out[opensAt]) > 0 {
-		l.out[opensAt][0].Section = true
+	if words := len(first) + len(mark); opensAt < len(l.out) && words < len(l.out[opensAt]) {
+		l.out[opensAt][words].Section = v.Level
 	}
 }
 

@@ -38,8 +38,10 @@ type Cell struct {
 	Text  string
 	Code  string
 	Ticks bool
-	// Section says the line it is on opens a section, where a Reader's [ and ] land.
-	Section bool
+	// Section says this cell starts the words of a heading, where a Reader's [ and ] land, and
+	// how deep the heading sits: 1 is outermost, and 0 is no heading. A heading closes every
+	// open one at its depth or deeper, which is the path a Reader's top line draws.
+	Section int
 	// item says the cell is one of an Items line's, which the draw may leave out.
 	item bool
 }
@@ -312,6 +314,14 @@ type node struct {
 	document Document
 	// column is where an Under line's text or a document starts, where that is not its depth's.
 	column int
+	// parent is the index of the node this one sits inside, and -1 at the top. A node's Under
+	// line and its rule or gap are its own lines, so they sit where it sits.
+	parent int
+	// pinned says the node and every one before it stay on screen above the table that scrolls.
+	pinned bool
+	// names says the node scrolls and has words to name what sits inside it, so the sticky band
+	// and a reader's path both name it.
+	names bool
 }
 
 func (n node) selectable() bool {
@@ -449,23 +459,50 @@ func anyUnder(groups []Group) bool {
 	return false
 }
 
-func (d display) walk(groups []Group, depth int, out []node) []node {
+// nodes is what shows of groups, each marked with whether it stays on screen and whether it
+// names what sits inside it.
+func (d display) nodes(groups []Group) []node {
+	nodes := d.walk(groups, 0, -1, nil)
+	pinned := true
+	for i := range nodes {
+		n := &nodes[i]
+		pinned = pinned && n.staysOnScreen()
+		n.pinned = pinned
+		n.names = !pinned && n.holdsNamedLines()
+	}
+	return nodes
+}
+
+// holdsNamedLines says lines can sit inside the node and it has words to name them by. A group
+// with none would spend a line of the band on a chevron.
+func (n node) holdsNamedLines() bool {
+	switch n.kind {
+	case nodeGroup:
+		return len(groupWords(n.group)) > 0
+	case nodeRow:
+		return n.open
+	}
+	return false
+}
+
+func (d display) walk(groups []Group, depth, parent int, out []node) []node {
 	for i := range groups {
 		g := &groups[i]
 		if !d.shows(g) {
 			continue
 		}
 		open := d.isOpen(g)
-		out = append(out, node{kind: nodeGroup, key: g.Key, depth: depth, group: g, open: open, toggles: d.folds(g), drawsRows: d.drawsRows(g)})
+		self := len(out)
+		out = append(out, node{kind: nodeGroup, key: g.Key, depth: depth, group: g, open: open, toggles: d.folds(g), drawsRows: d.drawsRows(g), parent: parent})
 		if d.under && g.Under.Text != "" {
-			out = append(out, node{kind: nodeUnder, depth: depth + 1, cell: g.Under, wraps: true, column: spanColumn(depth, g)})
+			out = append(out, node{kind: nodeUnder, depth: depth + 1, cell: g.Under, wraps: true, column: spanColumn(depth, g), parent: parent})
 		}
 		if g.Document != nil {
 			column := spanColumn(depth, g)
 			if column == 0 {
 				column = indentOf(depth + 2)
 			}
-			out = append(out, node{kind: nodeDocument, depth: depth + 2, document: g.Document, column: column})
+			out = append(out, node{kind: nodeDocument, depth: depth + 2, document: g.Document, column: column, parent: self})
 		}
 		if open {
 			for j := range g.Rows {
@@ -474,27 +511,28 @@ func (d display) walk(groups []Group, depth int, out []node) []node {
 					continue
 				}
 				rowOpen := d.isRowOpen(r)
-				out = append(out, node{kind: nodeRow, key: r.Key, depth: depth + 1, row: r, open: rowOpen, toggles: r.opens()})
+				row := len(out)
+				out = append(out, node{kind: nodeRow, key: r.Key, depth: depth + 1, row: r, open: rowOpen, toggles: r.opens(), parent: self})
 				if d.under && r.Under.Text != "" {
-					out = append(out, node{kind: nodeUnder, depth: depth + 1, cell: r.Under})
+					out = append(out, node{kind: nodeUnder, depth: depth + 1, cell: r.Under, parent: self})
 				}
 				if rowOpen {
 					if r.Document != nil {
-						out = append(out, node{kind: nodeDocument, depth: depth + 2, document: r.Document, column: indentOf(depth + 2)})
+						out = append(out, node{kind: nodeDocument, depth: depth + 2, document: r.Document, column: indentOf(depth + 2), parent: row})
 						continue
 					}
 					for _, c := range r.Detail {
-						out = append(out, node{kind: nodeDetail, depth: depth + 2, cell: c})
+						out = append(out, node{kind: nodeDetail, depth: depth + 2, cell: c, parent: row})
 					}
 				}
 			}
-			out = d.walk(g.Groups, depth+1, out)
+			out = d.walk(g.Groups, depth+1, self, out)
 		}
 		switch {
 		case g.Rule:
-			out = append(out, node{kind: nodeRule, depth: depth})
+			out = append(out, node{kind: nodeRule, depth: depth, parent: parent})
 		case g.Gap:
-			out = append(out, node{kind: nodeBlank})
+			out = append(out, node{kind: nodeBlank, parent: parent})
 		}
 	}
 	return out
@@ -596,6 +634,15 @@ func groupLabel(g *Group) Line {
 	return label
 }
 
+// groupWords is the group's label and its Span, for a path to name it by.
+func groupWords(g *Group) Line {
+	words := groupLabel(g)
+	if len(g.Span) > 0 {
+		words = append(append(words, C(columnGap, "")), g.Span...)
+	}
+	return words
+}
+
 // fit is text cut to width with an ellipsis, then padded to it.
 func fit(text string, width int, right bool) string {
 	text = ansi.Truncate(text, width, "…")
@@ -612,6 +659,11 @@ type drawn struct {
 	text   string
 	key    string
 	pinned bool
+	// whole is a Span group's first line with nothing wrapped away, for the band.
+	whole string
+	// owners are the first lines of what this line sits inside, outermost first. A node's own
+	// lines sit in its parent, so a node holding nothing under it never joins a band.
+	owners []string
 }
 
 // splitPinned is the leading lines that stay on screen, and those that scroll.
@@ -621,6 +673,33 @@ func splitPinned(lines []drawn) (pinned, scrolling []drawn) {
 		return lines, nil
 	}
 	return lines[:at], lines[at:]
+}
+
+// The band holds at most this many lines, and at most this share of what scrolls.
+const (
+	bandMost     = 5
+	bandPerLines = 3
+)
+
+// stickyBand is the lines covering the top of those that scroll: the owners of the first line
+// the band leaves showing, the innermost where they do not all fit. Each owner the band adds
+// covers one more line, so this looks again until the lines it covers need no more. It can
+// end short of what it covers, where a sibling arrives under the band, because a line named
+// by the wrong owner reads worse than a line named by none.
+func stickyBand(lines []drawn, top, height int) []string {
+	room := min(bandMost, height/bandPerLines)
+	covered := 0
+	for {
+		var band []string
+		if at := top + covered; at < len(lines) {
+			band = lines[at].owners
+			band = band[max(len(band)-room, 0):]
+		}
+		if len(band) <= covered {
+			return band
+		}
+		covered = len(band)
+	}
 }
 
 // draw lays the nodes out to width. The first group holding rows and left open
@@ -635,18 +714,38 @@ func draw(pal gotermstyle.Palette, columns []Column, nodes []node, width int, cu
 		first := pal.Bold(fit(columns[0].Title, max(widths[0]-1, 0), false))
 		lines = append(lines, drawn{text: ansi.Truncate(" "+first+columnTitles(pal, columns, widths), width, "…"), pinned: true})
 	}
-	pinning := true
-	for _, n := range nodes {
-		pinning = pinning && n.staysOnScreen()
+	inside := make([][]string, len(nodes))
+	for i, n := range nodes {
 		from := len(lines)
 		wantsTitles := n.kind == nodeGroup && n.depth == 0 && n.open && n.drawsRows && !titled
 		titled = titled || wantsTitles
 		lines = append(lines, drawNode(pal, n, columns, widths, width, cursor, wantsTitles)...)
-		for i := from; i < len(lines); i++ {
-			lines[i].pinned = pinning
+		var owners []string
+		if n.parent >= 0 {
+			owners = inside[n.parent]
+		}
+		for j := from; j < len(lines); j++ {
+			lines[j].pinned = n.pinned
+			lines[j].owners = owners
+		}
+		inside[i] = owners
+		if n.names {
+			inside[i] = append(slices.Clip(owners), firstLine(lines[from:], n))
 		}
 	}
 	return lines
+}
+
+// firstLine is the line a node shows in the band, past a group's overline.
+func firstLine(lines []drawn, n node) string {
+	line := lines[0]
+	if n.kind == nodeGroup && n.group.Overline != RuleNone {
+		line = lines[1]
+	}
+	if line.whole != "" {
+		return line.whole
+	}
+	return line.text
 }
 
 // drawNode is the lines one node takes.
@@ -877,10 +976,13 @@ func spanLines(pal gotermstyle.Palette, n node, pointer string, columns []Column
 	column := spanColumn(n.depth, n.group)
 	indent := strings.Repeat(" ", column)
 	var lines []drawn
+	opening := pointer + head + label.paint(pal) + columnGap
 	for i, piece := range wrapWords(n.group.Span, max(width-column, 20)) {
 		if i == 0 {
-			text := pointer + head + label.paint(pal) + columnGap + piece.paint(pal)
-			lines = append(lines, drawn{text: ansi.Truncate(text, width, "…"), key: selectableKey(n)})
+			lines = append(lines, drawn{
+				text: ansi.Truncate(opening+piece.paint(pal), width, "…"), key: selectableKey(n),
+				whole: ansi.Truncate(opening+n.group.Span.paint(pal), width, "…"),
+			})
 			continue
 		}
 		lines = append(lines, drawn{text: ansi.Truncate(indent+piece.paint(pal), width, "…")})

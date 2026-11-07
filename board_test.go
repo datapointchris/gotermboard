@@ -591,6 +591,110 @@ func TestAChevronDrawsOnlyOnWhatOpensAndLeavesABulletItsCell(t *testing.T) {
 	}
 }
 
+func TestAnOpenRowAndItsGroupsHoldTheTopWhileItsTextScrollsUnderThem(t *testing.T) {
+	text := func(name string) Document {
+		return func(int) []Line {
+			lines := make([]Line, 0, 30)
+			for i := range 30 {
+				lines = append(lines, Line{C(name+" line "+strconv.Itoa(i), "")})
+			}
+			return lines
+		}
+	}
+	row := func(key, words string) Row {
+		return Row{Key: key, Cells: []Cell{C(words, "")}, Document: text(words), StartsOpen: true}
+	}
+	frame := Frame{StartAt: "one", Columns: []Column{{Title: ""}}, Groups: []Group{{
+		Key: "outer", Title: Line{C("OUTER", "")},
+		Groups: []Group{{Key: "inner", Title: Line{C("INNER", "")}, Rows: []Row{row("one", "first"), row("two", "second")}}},
+	}}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	top := func(lines int) []string { return strings.Split(m.screen(), "\n")[:lines] }
+
+	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	got := top(4)
+	if !strings.Contains(got[0], "OUTER") || !strings.Contains(got[1], "INNER") || !strings.Contains(got[2], "› ") || !strings.Contains(got[2], "first") {
+		t.Errorf("the groups and the cursor's row should hold the top:\n%s", strings.Join(got, "\n"))
+	}
+	if !strings.Contains(got[3], "first line 9") {
+		t.Errorf("the band should cover lines rather than push them down, so line 9 shows under it:\n%s", strings.Join(got, "\n"))
+	}
+
+	m.ScrollBy(22)
+	if got := top(3); !strings.Contains(got[2], "second") || strings.Contains(got[2], "›") {
+		t.Errorf("the next row's text under the band should put that row in its place:\n%s", strings.Join(got, "\n"))
+	}
+
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 8})
+	m.ScrollBy(9)
+	if got := top(2); !strings.Contains(got[0], "INNER") || !strings.Contains(got[1], "second") {
+		t.Errorf("a short screen should drop the outermost line first:\n%s", strings.Join(got, "\n"))
+	}
+
+	m.Update(downKey)
+	if got := top(3); !strings.Contains(got[2], "› ") || !strings.Contains(got[2], "second") {
+		t.Errorf("a cursor moved under the band should bring its row out below it:\n%s", m.screen())
+	}
+}
+
+// movingBoard counts what each beat of its strip draws.
+type movingBoard struct{ frames, documents, beats int }
+
+func (b *movingBoard) Sources() []Refresher     { return nil }
+func (b *movingBoard) Groupings() []string      { return nil }
+func (b *movingBoard) MoveEvery() time.Duration { return 100 * time.Millisecond }
+func (b *movingBoard) StripAt(time.Time) []Line {
+	b.beats++
+	return []Line{{C("beat "+strconv.Itoa(b.beats), "")}}
+}
+
+func (b *movingBoard) Frame(time.Time, string) Frame {
+	b.frames++
+	document := func(int) []Line {
+		b.documents++
+		return []Line{{C("text", "")}}
+	}
+	return Frame{Columns: []Column{{Title: "NAME"}}, Groups: []Group{{Key: "g", Rows: []Row{
+		{Key: "r", Cells: []Cell{C("row", "")}, Document: document, StartsOpen: true},
+	}}}}
+}
+
+func TestAMovingStripRedrawsAloneAndOnlyWhileItsTabShows(t *testing.T) {
+	moving := &movingBoard{}
+	still := fixedBoard{Frame{Columns: []Column{{Title: "NAME"}}}}
+	tabs, err := NewTabs([]Tab{{Name: "moving", Board: moving}, {Name: "still", Board: still}}, gotermstyle.NewPalette(false), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabs.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	shown := tabs.models[0]
+	if shown.reveal(time.Now()) == nil {
+		t.Fatal("a moving board's tab should start its strip's clock when it shows")
+	}
+	tabs.View()
+	frames, documents := moving.frames, moving.documents
+	beat := moveMsg{model: shown, clock: shown.moveClock, at: time.Now()}
+	if _, next := tabs.Update(beat); next == nil {
+		t.Error("a beat should wait out the next")
+	}
+	if got := tabs.View().Content; !strings.Contains(got, "beat "+strconv.Itoa(moving.beats)) {
+		t.Errorf("a beat should redraw the strip:\n%s", got)
+	}
+	if moving.frames != frames || moving.documents != documents {
+		t.Errorf("a beat built %d frames and drew the table's text %d times", moving.frames-frames, moving.documents-documents)
+	}
+
+	press(tabs, tabKey)
+	beats := moving.beats
+	tabs.Update(beat)
+	tabs.Update(moveMsg{model: shown, clock: shown.moveClock, at: time.Now()})
+	tabs.View()
+	if moving.beats != beats || shown.moving {
+		t.Errorf("a hidden tab's strip moved %d times", moving.beats-beats)
+	}
+}
+
 func TestThePanelGrowsToAReadingWidthWhereAFrameHasTextForItAndTheCursorStartsPastABareHeader(t *testing.T) {
 	frame := func(detail []Cell) Frame {
 		return Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "top", Title: Line{C("TOP", "")}, Groups: []Group{

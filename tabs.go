@@ -21,7 +21,7 @@ type Tab struct {
 
 // Tabs is the Bubble Tea program of one Model per tab, the Elm Architecture's
 // composition. Each tab keeps its own cursor, folds and filter. A hidden tab starts no
-// read and builds no frame. On its return it draws its last good read with that read's
+// read, builds no frame and moves no strip. On its return it draws its last good read with that read's
 // age, and whatever is due reads at once.
 type Tabs struct {
 	names  []string
@@ -80,7 +80,7 @@ func (t *Tabs) cycleActions() []Action {
 }
 
 func (t *Tabs) show(at int) tea.Cmd {
-	t.active().hidden = true
+	t.active().hide()
 	t.at = (at + len(t.models)) % len(t.models)
 	return t.active().reveal(time.Now())
 }

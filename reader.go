@@ -34,6 +34,8 @@ type Reader struct {
 	title    string
 	document Document
 	pal      gotermstyle.Palette
+	// path is what holds the row that opened this reader, outermost first.
+	path []Line
 	// back is what esc does once nothing is left to clear. Nil means esc stays put.
 	back func()
 	quit func() tea.Cmd
@@ -136,13 +138,86 @@ func (r *Reader) resize(width, height int) {
 	r.rows = r.document(min(max(width-2, 1), ReadingWidth))
 	r.sections = r.sections[:0]
 	for i, row := range r.rows {
-		if slices.ContainsFunc(row, func(c Cell) bool { return c.Section }) {
+		if slices.ContainsFunc(row, opensSection) {
 			r.sections = append(r.sections, i)
 		}
 	}
 	r.scrollTo(rowAfterLetters(r.rows, above))
 	r.findHits()
 	r.hit = max(slices.IndexFunc(r.hits, func(row int) bool { return row >= r.top }), 0)
+}
+
+func opensSection(c Cell) bool { return c.Section > 0 }
+
+// headingsInView is the words of each heading still open at the top row, outermost first.
+// A heading on the top row closes those it ends and is not named, as a table's band names
+// only what has scrolled off, so the top line never repeats the row under it.
+func (r *Reader) headingsInView() []Line {
+	var open []Line
+	var depths []int
+	for _, at := range r.sections {
+		if at > r.top {
+			break
+		}
+		row := r.rows[at]
+		from := slices.IndexFunc(row, opensSection)
+		depth := row[from].Section
+		for len(depths) > 0 && depths[len(depths)-1] >= depth {
+			depths, open = depths[:len(depths)-1], open[:len(open)-1]
+		}
+		if at < r.top {
+			depths, open = append(depths, depth), append(open, row[from:])
+		}
+	}
+	return open
+}
+
+// topLine is the path of what opened the reader, its title, then the section in view.
+func (r *Reader) topLine() string {
+	segments := slices.Clone(r.path)
+	if r.title != "" {
+		segments = append(segments, Line{C(r.title, Bold)})
+	}
+	margin := r.margin()
+	return margin + r.pathLine(append(segments, r.headingsInView()...), r.width-len(margin))
+}
+
+// pathSegmentFloor is how narrow the widest segment of a path is cut before the outermost
+// goes altogether.
+const pathSegmentFloor = 12
+
+// pathLine draws segments on one line within room. The longest is cut first, so a long title
+// keeps its first words and every short segment stays whole, and the outermost goes after that.
+func (r *Reader) pathLine(segments []Line, room int) string {
+	separator := r.pal.Paint(RuleCode, " › ")
+	gap := ansi.StringWidth(" › ")
+	widths := make([]int, len(segments))
+	total := 0
+	for i, segment := range segments {
+		widths[i] = segment.width()
+		total += widths[i] + gap
+	}
+	total -= gap
+	for total > room && len(segments) > 1 {
+		widest := 0
+		for i, w := range widths {
+			if w > widths[widest] {
+				widest = i
+			}
+		}
+		if widths[widest] > pathSegmentFloor {
+			widths[widest]--
+			total--
+			continue
+		}
+		total -= widths[0] + gap
+		segments, widths = segments[1:], widths[1:]
+	}
+	painted := make([]string, 0, len(segments))
+	for i, segment := range segments {
+		painted = append(painted, ansi.Truncate(segment.paint(r.pal), widths[i], "…"))
+	}
+	return ansi.Truncate(strings.Join(painted, separator), max(room, 0), "…")
 }
 
 func lettersIn(rows []Line) int {
@@ -167,7 +242,10 @@ func rowAfterLetters(rows []Line, letters int) int {
 	return len(rows)
 }
 
-func (r *Reader) bodyHeight() int { return max(r.height-1, 1) }
+// bodyHeight is what the top line and the footer leave for the text.
+func (r *Reader) bodyHeight() int { return max(r.height-2, 1) }
+
+func (r *Reader) margin() string { return strings.Repeat(" ", max((r.width-ReadingWidth)/2, 1)) }
 
 func (r *Reader) scrollTo(top int) {
 	r.top = max(min(top, len(r.rows)-r.bodyHeight()), 0)
@@ -404,26 +482,26 @@ func (r *Reader) marked(row Line) Line {
 
 func (r *Reader) screen() string {
 	body := r.bodyHeight()
-	lines := make([]string, 0, body+1)
+	lines := make([]string, 0, body+2)
+	lines = append(lines, r.topLine())
 	if r.overlay {
 		lines = append(lines, r.pal.Bold("Keys, any key closes this"))
 		for _, action := range r.actions() {
 			lines = append(lines, "  "+fit(strings.Join(action.keys, " "), 16, false)+"  "+action.label)
 		}
-		lines = lines[:min(len(lines), body)]
+		lines = lines[:min(len(lines), body+1)]
 	} else {
-		margin := strings.Repeat(" ", max((r.width-ReadingWidth)/2, 1))
+		margin := r.margin()
 		for _, row := range r.rows[r.top:min(r.top+body, len(r.rows))] {
 			lines = append(lines, ansi.Truncate(margin+r.marked(row).paint(r.pal), r.width, "…"))
 		}
 	}
-	for len(lines) < body {
+	for len(lines) < body+1 {
 		lines = append(lines, "")
 	}
 	return strings.Join(append(lines, ansi.Truncate(r.footer(), r.width, "…")), "\n")
 }
 
-// footer ends in the title, because it is the part a narrow screen can lose.
 func (r *Reader) footer() string {
 	parts := []string{fmt.Sprintf("%d/%d", min(r.top+r.bodyHeight(), len(r.rows)), len(r.rows))}
 	switch {
@@ -440,7 +518,7 @@ func (r *Reader) footer() string {
 			}
 		}
 	}
-	return strings.Join(append(parts, r.title), "  ")
+	return strings.Join(parts, "  ")
 }
 
 func (r *Reader) hitsSaid() string {
