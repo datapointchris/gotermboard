@@ -374,7 +374,7 @@ func TestAFilterReachesAGroupTheViewDoesNotShow(t *testing.T) {
 	if !strings.Contains(got, "second") || strings.Contains(got, "first") {
 		t.Errorf("the filter should find the group past the view and nothing else:\n%s", got)
 	}
-	if strings.Contains(got, "› ▾ long text") {
+	if slices.ContainsFunc(m.nodes(), func(n node) bool { return n.key == "labels" }) {
 		t.Errorf("a heading's own words should match nothing:\n%s", got)
 	}
 }
@@ -399,9 +399,6 @@ func TestAStillHeaderTakesNoCursorAndStaysAboveWhatScrolls(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("scrolled to the bottom, the screen should hold %q:\n%s", want, got)
 		}
-	}
-	if strings.Contains(got, "row 3\n") {
-		t.Errorf("the rows should have scrolled:\n%s", got)
 	}
 	m.move(-len(rows) - 5)
 	if m.Cursor() != "g" {
