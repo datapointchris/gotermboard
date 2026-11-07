@@ -54,6 +54,10 @@ every source past its interval reads at once. A source inside its interval keeps
 pace, so cycling the tabs quickly starts nothing extra. A program with one tab draws no
 tab line, and Tab does nothing in it.
 
+The tab line marks the current tab by color and weight rather than a box, as a tmux status
+line marks its window: bold bright yellow, with the rest in bright black, each padded by a
+space and two spaces apart. Both are ANSI slots, so the terminal's theme sets them.
+
 `Once` draws one frame from what a board's sources already hold, and `OnceSize` picks
 its size: `COLUMNS` by `LINES`, then the terminal, then a fallback you pass.
 
@@ -79,10 +83,17 @@ and the column titles then take a line of their own at the top. `Below` holds li
 drawn under the header whether it is folded or not, which the cursor moves past as one
 node. `WrapLast` on a `Row` or a `Group` is the last column as cells of their own colors,
 continuing on further lines at that column, so a bar wider than the row keeps every cell.
+`TallyBar` is such a bar, one cell per unit, because a fixed width rounds one blocked unit
+in sixty away. Each kind has its own glyph as well as its color, so a frame printed without
+color still shows which units are done and which are blocked.
 
 `Items` makes a line of `Below` or `Beside` that the draw cuts to the items that fit,
 ending in `+N`, because only the draw knows the width and it moves with the side panel.
-`Under` is a group's summary, wrapping under `Below` while `f` has them on.
+`Under` is a summary on a `└─` line while `f` has them on: a row's under the row, and a
+group's wrapping under `Below`.
+`UnderWhereCut` on a row draws its `Under` only where the last column is too narrow for the
+row's cell there, for a summary that repeats that cell. `f` leaves the footer while no group
+or row has a summary to draw.
 
 `Span` draws a long value whole past a group's title, wrapping under itself, so it never
 sets the first column's width. The group's cells then take the next line, with `Beside`

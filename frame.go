@@ -141,6 +141,9 @@ type Row struct {
 	WrapLast Line
 	// Under is the row's summary, drawn on a └─ row while those are on.
 	Under Cell
+	// UnderWhereCut draws Under only where the last column is too narrow for the row's cell
+	// there, for a summary that repeats that cell. Only the draw knows the column's width.
+	UnderWhereCut bool
 	// Detail is what the side panel shows while the cursor is on the row, and what opens
 	// under the row. Each cell is a paragraph that wraps. A row holding Detail or a
 	// Document draws a chevron in its indent.
@@ -164,6 +167,37 @@ type Row struct {
 
 // opens says the row holds text the toggle shows under it.
 func (r *Row) opens() bool { return len(r.Detail) > 0 || r.Document != nil }
+
+// lead is what the row takes of the first column ahead of its first cell: the indent at its
+// depth, and its Symbol and a space.
+func (r *Row) lead(depth int) int {
+	lead := indentOf(depth)
+	if r.Symbol.Text != "" {
+		lead += ansi.StringWidth(r.Symbol.Text) + 1
+	}
+	return lead
+}
+
+// cellRoom is the width the draw gives the row's cell in column at.
+func (r *Row) cellRoom(depth, at int, widths []int) int {
+	if at > 0 {
+		return widths[at]
+	}
+	return max(widths[0]-r.lead(depth), 1)
+}
+
+// showsUnder says the row at depth has a summary to draw at these column widths.
+func (r *Row) showsUnder(depth int, widths []int) bool {
+	if r.Under.Text == "" {
+		return false
+	}
+	if !r.UnderWhereCut {
+		return true
+	}
+	last := len(widths) - 1
+	return last >= 0 && len(r.WrapLast) == 0 && len(r.Cells) > last &&
+		ansi.StringWidth(r.Cells[last].Text) > r.cellRoom(depth, last, widths)
+}
 
 // panelSource is the row's own text for the side panel: its Panel or else its Document, and
 // the Detail that shows where it holds neither.
@@ -450,21 +484,24 @@ func (d display) isRowOpen(r *Row) bool {
 	return r.StartsOpen
 }
 
-// anyUnder says whether any row, folded or not, has a summary to show.
-func anyUnder(groups []Group) bool {
+// anyUnder says whether any group or row, folded or not, has a summary to draw at these column
+// widths. A folded row has no node, so this reads the groups rather than the nodes.
+func anyUnder(groups []Group, widths []int, depth int) bool {
 	for i := range groups {
-		hasUnder := func(r Row) bool { return r.Under.Text != "" }
-		if groups[i].Under.Text != "" || slices.ContainsFunc(groups[i].Rows, hasUnder) || anyUnder(groups[i].Groups) {
+		hasUnder := func(r Row) bool { return r.showsUnder(depth+1, widths) }
+		if groups[i].Under.Text != "" || slices.ContainsFunc(groups[i].Rows, hasUnder) || anyUnder(groups[i].Groups, widths, depth+1) {
 			return true
 		}
 	}
 	return false
 }
 
-// nodes is what shows of groups, each marked with whether it stays on screen and whether it
-// names what sits inside it.
-func (d display) nodes(groups []Group) []node {
+// nodes is what shows of groups on a table this wide, and the width each column takes for it.
+// Each node is marked with whether it stays on screen and whether it names what sits inside it.
+func (d display) nodes(groups []Group, columns []Column, width int) ([]node, []int) {
 	nodes := d.walk(groups, 0, -1, nil)
+	widths := layout(columns, nodes, width)
+	nodes = withoutHiddenUnders(nodes, widths)
 	pinned := true
 	for i := range nodes {
 		n := &nodes[i]
@@ -472,7 +509,25 @@ func (d display) nodes(groups []Group) []node {
 		n.pinned = pinned
 		n.names = !pinned && n.holdsNamedLines()
 	}
-	return nodes
+	return nodes, widths
+}
+
+// withoutHiddenUnders drops each row's Under line that has no summary to draw at these widths.
+// No node sits inside an Under line, so a parent never drops, and the nodes after one move up.
+func withoutHiddenUnders(nodes []node, widths []int) []node {
+	kept := make([]node, 0, len(nodes))
+	at := make([]int, len(nodes))
+	for i, n := range nodes {
+		at[i] = len(kept)
+		if n.kind == nodeUnder && n.row != nil && !n.row.showsUnder(n.depth, widths) {
+			continue
+		}
+		if n.parent >= 0 {
+			n.parent = at[n.parent]
+		}
+		kept = append(kept, n)
+	}
+	return kept
 }
 
 // holdsNamedLines says lines can sit inside the node and it has words to name them by. A group
@@ -516,7 +571,7 @@ func (d display) walk(groups []Group, depth, parent int, out []node) []node {
 				row := len(out)
 				out = append(out, node{kind: nodeRow, key: r.Key, depth: depth + 1, row: r, open: rowOpen, toggles: r.opens(), parent: self})
 				if d.under && r.Under.Text != "" {
-					out = append(out, node{kind: nodeUnder, depth: depth + 1, cell: r.Under, parent: self})
+					out = append(out, node{kind: nodeUnder, depth: depth + 1, row: r, cell: r.Under, parent: self})
 				}
 				if rowOpen {
 					if r.Document != nil {
@@ -576,10 +631,7 @@ func layout(columns []Column, nodes []node, width int) []int {
 			for i, c := range n.row.Cells {
 				w := ansi.StringWidth(c.Text)
 				if i == 0 {
-					w += indentOf(n.depth)
-					if symbol := n.row.Symbol; symbol.Text != "" {
-						w += ansi.StringWidth(symbol.Text) + 1
-					}
+					w += n.row.lead(n.depth)
 				}
 				widths[i] = max(widths[i], w)
 			}
@@ -710,8 +762,7 @@ func stickyBand(lines []drawn, top, height int) []string {
 // draw lays the nodes out to width. The first group holding rows and left open
 // carries the one header row, so every group shares its columns. A group with cells
 // of its own has no room for the titles, so they take a line of their own at the top.
-func draw(pal gotermstyle.Palette, columns []Column, nodes []node, width int, cursor string) []drawn {
-	widths := layout(columns, nodes, width)
+func draw(pal gotermstyle.Palette, columns []Column, nodes []node, widths []int, width int, cursor string) []drawn {
 	titled := false
 	lines := make([]drawn, 0, len(nodes))
 	if slices.ContainsFunc(nodes, func(n node) bool { return n.kind == nodeGroup && len(n.group.Cells) > 0 }) {
@@ -1057,13 +1108,11 @@ func drawRow(pal gotermstyle.Palette, n node, columns []Column, widths []int, se
 		return indent + span.paint(pal)
 	}
 	symbol := ""
-	used := indentOf(n.depth)
 	if cell := r.Symbol; cell.Text != "" {
 		symbol = pal.Paint(cell.Code, cell.Text) + " "
-		used += ansi.StringWidth(cell.Text) + 1
 	}
 	first := r.Cells[0]
-	text := fit(first.Text, max(widths[0]-used, 1), false)
+	text := fit(first.Text, r.cellRoom(n.depth, 0, widths), false)
 	code := first.Code
 	if r.Marked {
 		code = MarkCode
@@ -1124,32 +1173,19 @@ func wrap(text string, width int) []string {
 	return out
 }
 
-// Bar is a progress bar: done in green, the work under way in yellow, and the rest
-// plain.
-func Bar(done, underWay, open, cells int) Line {
-	filled := barFilled(done, open, cells)
-	empty := cells - filled
-	way := 0
-	if open > 0 && underWay > 0 {
-		way = min(max((underWay*empty+open/2)/open, 1), empty)
-	}
+// TallyBar is one cell per unit counted: done ▰ in green, under way ▱ in yellow, blocked ✕ in
+// red and the rest ▱ plain. Its length shows how many there are, and one blocked unit among
+// sixty still shows, where a fixed width would round it away. Without color only done is
+// filled and blocked is crossed, so no unfinished unit reads as done. In a WrapLast it keeps
+// every cell however narrow the row.
+func TallyBar(done, underWay, blocked, rest int) Line {
+	cells := func(glyph string, n int) string { return strings.Repeat(glyph, max(n, 0)) }
 	return Line{
-		C(strings.Repeat("▰", filled), Green),
-		C(strings.Repeat("▱", way), Yellow),
-		C(strings.Repeat("▱", empty-way), ""),
+		C(cells("▰", done), Green),
+		C(cells("▱", underWay), Yellow),
+		C(cells("✕", blocked), Red),
+		C(cells("▱", rest), ""),
 	}
-}
-
-func barFilled(done, open, cells int) int {
-	total := done + open
-	if done == 0 || total == 0 {
-		return 0
-	}
-	ceiling := cells
-	if open > 0 {
-		ceiling--
-	}
-	return min(max((done*cells+total/2)/total, 1), ceiling)
 }
 
 // RuleCode is the gray a rule draws in, which the terminal palette's theme sets.
