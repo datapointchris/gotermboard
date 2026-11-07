@@ -83,6 +83,8 @@ and the column titles then take a line of their own at the top. `Below` holds li
 drawn under the header whether it is folded or not, which the cursor moves past as one
 node. `WrapLast` on a `Row` or a `Group` is the last column as cells of their own colors,
 continuing on further lines at that column, so a bar wider than the row keeps every cell.
+`TallyBar` is such a bar, one cell per unit, because a fixed width rounds one blocked unit
+in sixty away.
 
 `Items` makes a line of `Below` or `Beside` that the draw cuts to the items that fit,
 ending in `+N`, because only the draw knows the width and it moves with the side panel.

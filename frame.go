@@ -1137,32 +1137,18 @@ func wrap(text string, width int) []string {
 	return out
 }
 
-// Bar is a progress bar: done in green, the work under way in yellow, and the rest
-// plain.
-func Bar(done, underWay, open, cells int) Line {
-	filled := barFilled(done, open, cells)
-	empty := cells - filled
-	way := 0
-	if open > 0 && underWay > 0 {
-		way = min(max((underWay*empty+open/2)/open, 1), empty)
-	}
+// TallyBar is one cell per unit counted: done in green, under way in yellow, blocked in red
+// and the rest plain. Its length shows how many there are, and one blocked unit among
+// sixty still shows, where a fixed width would round it away. In a WrapLast it keeps every
+// cell however narrow the row.
+func TallyBar(done, underWay, blocked, rest int) Line {
+	cells := func(glyph string, n int) string { return strings.Repeat(glyph, max(n, 0)) }
 	return Line{
-		C(strings.Repeat("▰", filled), Green),
-		C(strings.Repeat("▱", way), Yellow),
-		C(strings.Repeat("▱", empty-way), ""),
+		C(cells("▰", done), Green),
+		C(cells("▰", underWay), Yellow),
+		C(cells("▱", blocked), Red),
+		C(cells("▱", rest), ""),
 	}
-}
-
-func barFilled(done, open, cells int) int {
-	total := done + open
-	if done == 0 || total == 0 {
-		return 0
-	}
-	ceiling := cells
-	if open > 0 {
-		ceiling--
-	}
-	return min(max((done*cells+total/2)/total, 1), ceiling)
 }
 
 // RuleCode is the gray a rule draws in, which the terminal palette's theme sets.
