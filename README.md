@@ -119,13 +119,13 @@ A node joins once its own line has scrolled off, and a sibling arriving under th
 predecessor's place.
 
 - **The band covers lines rather than pushing them down,** so nothing under it moves as it grows.
-- **It holds at most 5 lines and never more than a third of the table,** and drops the outermost first.
+- **It holds a few lines, never a large share of the table,** and drops the outermost first.
 - **A band line is no cursor stop.** A cursor moved under the band brings its row out below it.
 - **Only a row or group with lines under it and words to name them by joins,** so a folded
   group, a closed row and a group with no title never take a line of the band. A `Still` group
   at the top of the frame stays above the table already, so it never joins either.
 
-Every board gets the band with no field to set, because the board owns the draw.
+Every board gets the band with no field to set, because gotermboard draws the table.
 
 A `Still` group has no fold mark and the cursor passes over it. At the top of a frame it
 stays on screen with the column titles while the table scrolls, which suits a row of totals.
@@ -196,7 +196,7 @@ A board implementing `MovingBoard` gets its strip from `StripAt(now)`, redrawn e
 for a diagram of work in motion between its reads. Only the strip redraws at that pace, so the table,
 its change cue and the side panel wait for the next frame. Only the tab showing runs the clock, and a
 reader over the board holds it until the key that closes the reader. A `MoveEvery` of zero holds the
-strip still until the next once-a-second tick asks again, so a board with nothing moving spends nothing.
+strip still until the board's next tick asks again, so a board with nothing moving spends nothing.
 
 ```go
 func (b *board) MoveEvery() time.Duration { return 100 * time.Millisecond }
@@ -209,9 +209,9 @@ func (b *board) StripAt(now time.Time) []gotermboard.Line {
 `StripAt` replaces `Frame.Strip` on every draw, so it returns the lines that hold still as well. A
 strip changing its height between beats redraws the table, because the table's height moves with it.
 
-At 378 by 89, a five-line strip moving ten times a second costs about 5% of a core, against 1.4% for
-the same board held still and 9 to 10% for rebuilding the whole frame at that pace. Most of what is
-left is Bubble Tea's renderer, which parses and compares the whole screen on every frame that changed.
+A beat builds no frame and draws no table, so a moving strip costs a fraction of rebuilding the whole
+frame at the same pace. What a beat does cost is mostly Bubble Tea's renderer, which compares the
+whole screen on every frame that changed.
 
 ## A board can add keys
 
