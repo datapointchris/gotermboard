@@ -218,8 +218,10 @@ type Group struct {
 	Folded  bool
 	// Gap draws a blank line after the group.
 	Gap bool
-	// Rule draws a blank line and then a thin line after the group, in place of Gap's blank one.
+	// Rule draws a thin line after the group, in place of Gap's blank one.
 	Rule bool
+	// BlankAboveRule draws a blank line between the group's last line and its Rule.
+	BlankAboveRule bool
 	// Tone is the code the group's overline and underline draw in, where not the rule gray.
 	Tone string
 	// Overline draws a line across the table above the header.
@@ -530,7 +532,10 @@ func (d display) walk(groups []Group, depth, parent int, out []node) []node {
 		}
 		switch {
 		case g.Rule:
-			out = append(out, node{kind: nodeBlank, parent: parent}, node{kind: nodeRule, depth: depth, parent: parent})
+			if g.BlankAboveRule {
+				out = append(out, node{kind: nodeBlank, parent: parent})
+			}
+			out = append(out, node{kind: nodeRule, depth: depth, parent: parent})
 		case g.Gap:
 			out = append(out, node{kind: nodeBlank, parent: parent})
 		}

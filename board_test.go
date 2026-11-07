@@ -530,7 +530,7 @@ func TestTheHalfScreenKeysReadOpenTextOtherwiseMoveTheRows(t *testing.T) {
 
 func TestAGroupDrawsItsLinesAboveAndBelowItsHeaderAndARuleAfterIt(t *testing.T) {
 	frame := Frame{Columns: []Column{{Title: ""}, {Title: "N"}}, Groups: []Group{
-		{Key: "a", Title: Line{C("first", "")}, Cells: []Cell{C("1", "")}, Overline: RuleDouble, Underline: RuleThin, Rule: true},
+		{Key: "a", Title: Line{C("first", "")}, Cells: []Cell{C("1", "")}, Overline: RuleDouble, Underline: RuleThin, Rule: true, BlankAboveRule: true},
 		{Key: "b", Title: Line{C("second", "")}, Cells: []Cell{C("2", "")}},
 	}}
 	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
