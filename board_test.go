@@ -536,11 +536,11 @@ func TestAGroupDrawsItsLinesAboveAndBelowItsHeaderAndARuleAfterIt(t *testing.T) 
 	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
 	lines := strings.Split(m.screen(), "\n")
 	at := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "first") })
-	if at < 1 || at+2 >= len(lines) {
+	if at < 1 || at+3 >= len(lines) {
 		t.Fatalf("the header sits where no lines can surround it:\n%s", m.screen())
 	}
-	if !strings.HasPrefix(lines[at-1], "══") || !strings.HasPrefix(lines[at+1], "──") || !strings.HasPrefix(lines[at+2], "──") {
-		t.Errorf("want a double line above, then a thin line under and a rule after:\n%s", m.screen())
+	if !strings.HasPrefix(lines[at-1], "══") || !strings.HasPrefix(lines[at+1], "──") || strings.TrimSpace(lines[at+2]) != "" || !strings.HasPrefix(lines[at+3], "──") {
+		t.Errorf("want a double line above, a thin line under, then a blank line and a rule after:\n%s", m.screen())
 	}
 }
 
