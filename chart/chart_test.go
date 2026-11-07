@@ -52,10 +52,11 @@ func TestEachChartFillsTheScreensWidthUnderTheStripAndTheTableFollows(t *testing
 	}
 	for _, width := range []int{60, 140} {
 		lines := strings.Split(gotermboard.Once(chartBoard{charts}, gotermstyle.NewPalette(false), width, 40), "\n")
-		if lines[0] != "STRIP" || !strings.Contains(lines[1+6*len(charts)], "TABLE") {
+		drawn := 6 * len(charts)
+		if len(lines) <= 1+drawn || lines[0] != "STRIP" || !strings.Contains(lines[1+drawn], "TABLE") {
 			t.Fatalf("the charts should sit between the strip and the table at %d:\n%s", width, strings.Join(lines, "\n"))
 		}
-		for _, line := range lines[1 : 1+6*len(charts)] {
+		for _, line := range lines[1 : 1+drawn] {
 			if got := ansi.StringWidth(line); got != width {
 				t.Errorf("a chart line should fill the %d columns, filled %d: %q", width, got, line)
 			}
