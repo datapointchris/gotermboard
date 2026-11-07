@@ -225,10 +225,15 @@ func (m *Model) layOutCharts() {
 	}
 }
 
-// chartLines is the laid-out charts, cut to leave the table a line.
-func (m *Model) chartLines() []string {
-	room := max(0, m.height-len(m.frame.Strip)-len(m.footer())-1)
-	return m.charts[:min(len(m.charts), room)]
+type screenHeights struct{ strip, charts, body, footer int }
+
+// heights shares the screen's lines out in the order they draw. The table keeps a line, so the
+// charts give theirs up first.
+func (m *Model) heights() screenHeights {
+	h := screenHeights{strip: len(m.frame.Strip), footer: len(m.footer())}
+	h.charts = min(len(m.charts), max(0, m.height-h.strip-h.footer-1))
+	h.body = max(1, m.height-h.strip-h.charts-h.footer)
+	return h
 }
 
 // drawStrip puts a moving board's strip in place of its frame's.
@@ -871,9 +876,7 @@ func (m *Model) tableWidth() int {
 	return m.width
 }
 
-func (m *Model) bodyHeight() int {
-	return max(1, m.height-len(m.frame.Strip)-len(m.chartLines())-len(m.footer()))
-}
+func (m *Model) bodyHeight() int { return m.heights().body }
 
 // table is the laid-out table: the lines that stay on screen, and those that scroll.
 func (m *Model) table() (pinned, scrolling []drawn) {
@@ -944,7 +947,7 @@ func (m *Model) screen() string {
 		m.underStrip = m.drawUnderStrip()
 	}
 	m.stripOnly = false
-	charts := m.chartLines()
+	charts := m.charts[:m.heights().charts]
 	out := make([]string, 0, len(m.frame.Strip)+len(charts)+len(m.underStrip))
 	for _, line := range m.frame.Strip {
 		out = append(out, ansi.Truncate(line.paint(m.pal), m.width, "…"))
