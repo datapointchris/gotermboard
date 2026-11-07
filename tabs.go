@@ -120,11 +120,11 @@ func (t *Tabs) View() tea.View {
 	return v
 }
 
-// The tab line draws as a tmux status line draws its windows: the current tab bold in an
-// accent and the rest in the theme's dim foreground, which bright black carries.
+// The tab line marks the current tab by color and weight rather than a box, as a tmux status
+// line marks its window: bold in an accent, and the rest in the rules' gray.
 const (
 	currentTabCode = BoldYellow
-	otherTabCode   = "\033[0;90m"
+	otherTabCode   = RuleCode
 )
 
 // tabLine names the tabs, each padded by a space and two spaces apart. Where there is no
