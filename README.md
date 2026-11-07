@@ -91,8 +91,8 @@ ending in `+N`, because only the draw knows the width and it moves with the side
 `Under` is a summary on a `└─` line while `f` has them on: a row's under the row, and a
 group's wrapping under `Below`.
 `UnderWhereCut` on a row draws its `Under` only where the last column is too narrow for the
-row's cell there, for a summary that repeats that cell. `f` leaves the footer while no row
-has a summary to draw.
+row's cell there, for a summary that repeats that cell. `f` leaves the footer while no group
+or row has a summary to draw.
 
 `Span` draws a long value whole past a group's title, wrapping under itself, so it never
 sets the first column's width. The group's cells then take the next line, with `Beside`

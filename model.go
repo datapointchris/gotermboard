@@ -350,14 +350,15 @@ func actionTable() []Action {
 			Applies: func(m *Model) bool { return len(m.board.Groupings()) > 1 },
 		},
 		{
-			Keys: []string{"f"}, Label: "show each row's summary under it", Footer: "f summaries",
+			Keys: []string{"f"}, Label: "show or hide the summaries under rows and groups", Footer: "f summaries",
 			Run: func(m *Model) tea.Cmd {
 				m.display.under = !m.display.under
 				m.displayChanged()
 				return nil
 			},
 			Applies: func(m *Model) bool {
-				return anyUnder(m.frame.Groups, layout(m.frame.Columns, m.nodes(), m.tableWidth()))
+				_, widths := m.laidOut()
+				return anyUnder(m.frame.Groups, widths, 0)
 			},
 		},
 		{
@@ -708,7 +709,15 @@ func (m *Model) moveToLastRow() {
 	}
 }
 
-func (m *Model) nodes() []node { return m.display.nodes(m.frame.Groups) }
+func (m *Model) nodes() []node {
+	nodes, _ := m.laidOut()
+	return nodes
+}
+
+// laidOut is what shows of the frame at the table's width, and the width each column takes.
+func (m *Model) laidOut() ([]node, []int) {
+	return m.display.nodes(m.frame.Groups, m.frame.Columns, m.tableWidth())
+}
 
 func selectableOf(nodes []node) []node {
 	return slices.DeleteFunc(slices.Clone(nodes), func(n node) bool { return !n.selectable() })
@@ -845,7 +854,8 @@ func (m *Model) bodyHeight() int {
 
 // table is the laid-out table: the lines that stay on screen, and those that scroll.
 func (m *Model) table() (pinned, scrolling []drawn) {
-	return splitPinned(draw(m.pal, m.frame.Columns, m.nodes(), m.tableWidth(), m.cursor))
+	nodes, widths := m.laidOut()
+	return splitPinned(draw(m.pal, m.frame.Columns, nodes, widths, m.tableWidth(), m.cursor))
 }
 
 // scrollHeight is what the lines that stay on screen leave for those that scroll.

@@ -70,10 +70,9 @@ func TestTheFooterListsOnlyTheKeysThisViewCanUse(t *testing.T) {
 	plain := fixedBoard{Frame{Columns: []Column{{Title: "NAME"}}, Groups: []Group{{Key: "g", Rows: []Row{{Key: "r", Cells: []Cell{C("x", "")}}}}}}}
 	withLines := fixedBoard{Frame{Columns: plain.frame.Columns, Groups: []Group{{Key: "g", Groups: []Group{{Key: "inner", Rows: []Row{{Key: "r", Under: C("the first line", ""), Detail: []Cell{C("more", "")}}}}}}}}}
 	openRow := fixedBoard{Frame{Columns: plain.frame.Columns, Groups: []Group{{Key: "g", Rows: []Row{{Key: "r", Cells: []Cell{C("x", "")}, Detail: []Cell{C("more", "")}, StartsOpen: true}}}}}}
-	underWhereCut := func(doing string) Board {
-		row := Row{Key: "r", Cells: []Cell{C("x", ""), C(doing, "")}, Under: C(doing, ""), UnderWhereCut: true}
-		return fixedBoard{Frame{Columns: []Column{{Title: "NAME"}, {Title: "DOING"}}, Groups: []Group{{Key: "g", Rows: []Row{row}}}}}
-	}
+	fitsWhole := fixedBoard{Frame{Columns: []Column{{Title: "NAME"}, {Title: "DOING"}}, Groups: []Group{{Key: "g", Rows: []Row{
+		{Key: "r", Cells: []Cell{C("x", ""), C("fits", "")}, Under: C("fits", ""), UnderWhereCut: true},
+	}}}}}
 	for _, test := range []struct {
 		name         string
 		board        Board
@@ -84,8 +83,7 @@ func TestTheFooterListsOnlyTheKeysThisViewCanUse(t *testing.T) {
 		{"the cursor on a row holding neither Detail nor Document", plain, 120, nil, []string{"enter open", "space fold"}},
 		{"every key has a use", groupedBoard{withLines}, PanelFrom, []string{"enter open", "space fold", "v group", "f summaries", "p panel"}, nil},
 		{"a 60-column terminal with the cursor on an open row", openRow, 60, []string{"? keys", "q quit"}, nil},
-		{"a first line the last column shows whole", underWhereCut("fits"), 120, nil, []string{"f summaries"}},
-		{"a first line the last column cuts", underWhereCut(strings.Repeat("cut ", 40)), 120, []string{"f summaries"}, nil},
+		{"a summary only where cut, on a row the last column shows whole", fitsWhole, 120, nil, []string{"f summaries"}},
 	} {
 		screen := Once(test.board, gotermstyle.NewPalette(true), test.width, 10)
 		for _, want := range test.shown {
@@ -98,6 +96,29 @@ func TestTheFooterListsOnlyTheKeysThisViewCanUse(t *testing.T) {
 				t.Errorf("%s: %q is listed in %q", test.name, unwanted, screen)
 			}
 		}
+	}
+}
+
+// A view repeating its last column's text in Under, as a live table of agents repeats what each
+// is doing, asks for the summary only where that column cut the text.
+func TestASummaryAskedForOnlyWhereCutDrawsUnderTheCutRowAlone(t *testing.T) {
+	cut := strings.Repeat("cut ", 40)
+	frame := Frame{Columns: []Column{{Title: "NAME"}, {Title: "DOING"}}, Groups: []Group{{Key: "g", Rows: []Row{
+		{Key: "fits", Cells: []Cell{C("fits", ""), C("whole", "")}, Under: C("whole", ""), UnderWhereCut: true},
+		{Key: "cut", Cells: []Cell{C("cut", ""), C(cut, "")}, Under: C(cut, ""), UnderWhereCut: true},
+	}}}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	m.Update(typedKey("f"))
+	lines := strings.Split(m.screen(), "\n")
+	var under []int
+	for i, line := range lines {
+		if strings.Contains(line, "└─") {
+			under = append(under, i)
+		}
+	}
+	if len(under) != 1 || under[0] == 0 || !strings.Contains(lines[under[0]-1], "cut cut") {
+		t.Fatalf("want one └─ line, under the row the column cut:\n%s", strings.Join(lines, "\n"))
 	}
 }
 
