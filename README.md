@@ -54,6 +54,10 @@ every source past its interval reads at once. A source inside its interval keeps
 pace, so cycling the tabs quickly starts nothing extra. A program with one tab draws no
 tab line, and Tab does nothing in it.
 
+The tab line draws as a tmux status line draws its windows: the current tab bold in bright
+yellow, the rest in bright black, each padded by a space and two spaces apart. Both are
+palette colors, so the theme sets them.
+
 `Once` draws one frame from what a board's sources already hold, and `OnceSize` picks
 its size: `COLUMNS` by `LINES`, then the terminal, then a fallback you pass.
 

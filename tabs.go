@@ -120,15 +120,26 @@ func (t *Tabs) View() tea.View {
 	return v
 }
 
-// tabLine names the tabs. The active one's brackets mark it where there is no color.
+// The tab line draws as a tmux status line draws its windows: the current tab bold in an
+// accent and the rest in the theme's dim foreground, which bright black carries.
+const (
+	currentTabCode = BoldYellow
+	otherTabCode   = "\033[0;90m"
+)
+
+// tabLine names the tabs, each padded by a space and two spaces apart. Where there is no
+// color, brackets take the current tab's padding, so no name moves.
 func (t *Tabs) tabLine() string {
 	parts := make([]string, 0, len(t.names))
 	for i, name := range t.names {
-		if i == t.at {
-			parts = append(parts, t.pal.Paint(Reverse, "["+name+"]"))
-			continue
+		switch {
+		case i != t.at:
+			parts = append(parts, t.pal.Paint(otherTabCode, " "+name+" "))
+		case t.pal.On():
+			parts = append(parts, t.pal.Paint(currentTabCode, " "+name+" "))
+		default:
+			parts = append(parts, "["+name+"]")
 		}
-		parts = append(parts, " "+name+" ")
 	}
-	return ansi.Truncate(strings.Join(parts, " "), t.active().width, "…")
+	return ansi.Truncate(strings.Join(parts, "  "), t.active().width, "…")
 }
