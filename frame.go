@@ -317,6 +317,11 @@ type node struct {
 	// parent is the index of the node this one sits inside, and -1 at the top. A node's Under
 	// line and its rule or gap are its own lines, so they sit where it sits.
 	parent int
+	// pinned says the node and every one before it stay on screen above the table that scrolls.
+	pinned bool
+	// names says the node scrolls and has words to name what sits inside it, so the sticky band
+	// and a reader's path both name it.
+	names bool
 }
 
 func (n node) selectable() bool {
@@ -450,6 +455,32 @@ func anyUnder(groups []Group) bool {
 		if groups[i].Under.Text != "" || slices.ContainsFunc(groups[i].Rows, hasUnder) || anyUnder(groups[i].Groups) {
 			return true
 		}
+	}
+	return false
+}
+
+// nodes is what shows of groups, each marked with whether it stays on screen and whether it
+// names what sits inside it.
+func (d display) nodes(groups []Group) []node {
+	nodes := d.walk(groups, 0, -1, nil)
+	pinned := true
+	for i := range nodes {
+		n := &nodes[i]
+		pinned = pinned && n.staysOnScreen()
+		n.pinned = pinned
+		n.names = !pinned && n.holdsNamedLines()
+	}
+	return nodes
+}
+
+// holdsNamedLines says lines can sit inside the node and it has words to name them by. A group
+// with none would spend a line of the band on a chevron.
+func (n node) holdsNamedLines() bool {
+	switch n.kind {
+	case nodeGroup:
+		return len(groupWords(n.group)) > 0
+	case nodeRow:
+		return n.open
 	}
 	return false
 }
@@ -683,10 +714,8 @@ func draw(pal gotermstyle.Palette, columns []Column, nodes []node, width int, cu
 		first := pal.Bold(fit(columns[0].Title, max(widths[0]-1, 0), false))
 		lines = append(lines, drawn{text: ansi.Truncate(" "+first+columnTitles(pal, columns, widths), width, "…"), pinned: true})
 	}
-	pinning := true
 	inside := make([][]string, len(nodes))
 	for i, n := range nodes {
-		pinning = pinning && n.staysOnScreen()
 		from := len(lines)
 		wantsTitles := n.kind == nodeGroup && n.depth == 0 && n.open && n.drawsRows && !titled
 		titled = titled || wantsTitles
@@ -696,27 +725,15 @@ func draw(pal gotermstyle.Palette, columns []Column, nodes []node, width int, cu
 			owners = inside[n.parent]
 		}
 		for j := from; j < len(lines); j++ {
-			lines[j].pinned = pinning
+			lines[j].pinned = n.pinned
 			lines[j].owners = owners
 		}
 		inside[i] = owners
-		if n.namesWhatItHolds() && !pinning {
+		if n.names {
 			inside[i] = append(slices.Clip(owners), firstLine(lines[from:], n))
 		}
 	}
 	return lines
-}
-
-// namesWhatItHolds says lines can sit inside the node and its first line says something
-// about them. A group with no words would spend a line of the band on a chevron.
-func (n node) namesWhatItHolds() bool {
-	switch n.kind {
-	case nodeGroup:
-		return len(groupWords(n.group)) > 0 || len(n.group.Cells) > 0 || len(n.group.WrapLast) > 0
-	case nodeRow:
-		return n.open
-	}
-	return false
 }
 
 // firstLine is the line a node shows in the band, past a group's overline.

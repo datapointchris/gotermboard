@@ -121,9 +121,9 @@ predecessor's place.
 - **The band covers lines rather than pushing them down,** so nothing under it moves as it grows.
 - **It holds at most 5 lines and never more than a third of the table,** and drops the outermost first.
 - **A band line is no cursor stop.** A cursor moved under the band brings its row out below it.
-- **A row or group holding nothing under it never joins,** so a folded group and a closed row
-  never take a line of the band. A `Still` group at the top of the frame stays above the table
-  already, so it never joins either.
+- **Only a row or group with lines under it and words to name them by joins,** so a folded
+  group, a closed row and a group with no title never take a line of the band. A `Still` group
+  at the top of the frame stays above the table already, so it never joins either.
 
 Every board gets the band with no field to set, because the board owns the draw.
 
@@ -172,10 +172,10 @@ and `/` searches with `n` and `N`. A query with no capital in it ignores case. `
 `CopyText`, or the text as drawn, over OSC 52. `e` opens `EditFile` in `$VISUAL` or `$EDITOR`
 and lays the text out again after.
 
-Its top line names where the text sits: the groups holding the row that opened it, its title, then
-each heading still open above the top row. A heading joins once its own row scrolls off, as the
-table's band does. Where the line runs long, the longest name is cut first, and the outermost
-leaves once every name is down to a few words.
+Its top line names where the text sits: the groups the table's band would name over the row that
+opened it, its title, then each heading still open above the top row. A heading joins once its own
+row scrolls off, as the table's band does. Where the line runs long, the longest name is cut first,
+and the outermost leaves once every name is down to a few words.
 
 `Model.Read` opens one over the board from a board's own key, and `esc` or `space` returns to the
 board. `Model.Tall` says whether a document runs past the screen. `NewReader` runs as a program of its

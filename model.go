@@ -630,8 +630,8 @@ func (m *Model) revealDetail() {
 	m.clearOfBand(lines, at, h)
 }
 
-// cursorPath is what holds the cursor's line, outermost first, leaving out what stays on
-// screen above the table and any group with no words of its own.
+// cursorPath is the words of each group the sticky band would name over the cursor's line,
+// outermost first.
 func (m *Model) cursorPath() []Line {
 	n, ok := m.selected()
 	if !ok {
@@ -640,10 +640,8 @@ func (m *Model) cursorPath() []Line {
 	nodes := m.nodes()
 	var path []Line
 	for at := n.parent; at >= 0; at = nodes[at].parent {
-		if owner := nodes[at]; !owner.staysOnScreen() {
-			if words := groupWords(owner.group); len(words) > 0 {
-				path = append(path, words)
-			}
+		if nodes[at].names {
+			path = append(path, groupWords(nodes[at].group))
 		}
 	}
 	slices.Reverse(path)
@@ -708,7 +706,7 @@ func (m *Model) moveToLastRow() {
 	}
 }
 
-func (m *Model) nodes() []node { return m.display.walk(m.frame.Groups, 0, -1, nil) }
+func (m *Model) nodes() []node { return m.display.nodes(m.frame.Groups) }
 
 func selectableOf(nodes []node) []node {
 	return slices.DeleteFunc(slices.Clone(nodes), func(n node) bool { return !n.selectable() })
