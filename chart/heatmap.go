@@ -2,6 +2,7 @@ package chart
 
 import (
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -32,7 +33,8 @@ var shades = []rune("░▒▓█")
 
 // Lines is the heatmap in width by height cells. Each column of values takes an equal share of the
 // width past the row labels, with a gap where the share is three cells or more, and each row an
-// equal share of the lines under the names.
+// equal share of the lines under the names. Given fewer lines than the rows and the names, it drops
+// the names first, then ends on a +N line counting the rows that did not fit.
 func (h Heatmap) Lines(width, height int) []gotermboard.Line {
 	n, top := len(h.Columns), h.Max
 	labelWidth := 0
@@ -58,11 +60,15 @@ func (h Heatmap) Lines(width, height int) []gotermboard.Line {
 		mark--
 	}
 	var out []gotermboard.Line
-	if len(h.Columns) > 0 {
+	if len(h.Columns) > 0 && height > len(h.Rows) {
 		out = append(out, h.names(labelWidth, share))
 	}
-	rowHeight := max(1, (height-len(out))/len(h.Rows))
-	for _, row := range h.Rows {
+	rows := h.Rows
+	if room := height - len(out); len(rows) > room {
+		rows = rows[:room-1]
+	}
+	rowHeight := (height - len(out)) / max(len(rows), 1)
+	for _, row := range rows {
 		for i := range rowHeight {
 			label := ""
 			if i == 0 {
@@ -75,6 +81,9 @@ func (h Heatmap) Lines(width, height int) []gotermboard.Line {
 			}
 			out = append(out, line)
 		}
+	}
+	if cut := len(h.Rows) - len(rows); cut > 0 {
+		out = append(out, gotermboard.Line{gotermboard.C("+"+strconv.Itoa(cut), "")})
 	}
 	for i := range out {
 		out[i] = padded(out[i], width)

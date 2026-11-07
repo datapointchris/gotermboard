@@ -39,10 +39,12 @@ type TimeSeries struct {
 	// Series draw in order, so a later one covers an earlier where they cross.
 	Series []Series
 	Bands  []Band
-	// From and To bound the time axis. A zero one takes the readings' first or last time.
+	// From and To bound the time axis. A zero one takes the readings' first or last time, moved an
+	// hour out where every reading shares one time.
 	From, To time.Time
 	// Min and Max bound the value axis, which reaches further where a reading goes past. Where
-	// Max is not above Min, the axis runs from zero to the largest reading.
+	// Max is not above Min, the axis runs from zero, or the lowest reading below it, to the largest
+	// reading.
 	Min, Max float64
 	// TimeLabel names the time under a column, drawn where the name changes. Nil names the hour,
 	// the weekday or the date by how long the axis runs.
@@ -142,6 +144,14 @@ func (c TimeSeries) span() (from, to time.Time) {
 	for _, b := range c.Bands {
 		each(b.Low)
 		each(b.High)
+	}
+	if !from.IsZero() && !to.After(from) {
+		if c.From.IsZero() {
+			from = from.Add(-time.Hour)
+		}
+		if c.To.IsZero() {
+			to = to.Add(time.Hour)
+		}
 	}
 	return from, to
 }

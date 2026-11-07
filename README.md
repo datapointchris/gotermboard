@@ -226,14 +226,17 @@ whole screen on every frame that changed.
 
 ## Charts take the cells the draw gives them
 
-The `chart` package draws plain series as lines of cells. It has four charts:
+The `chart` package draws plain series as lines of cells:
 
 - `TimeSeries` draws braille lines over a time axis and a value axis. A `Dotted` series reads as a
   forecast, a `Band` shades the cells between two edges, and `Legend` names each beside its mark.
+  Readings that all share one time draw an hour either side of it.
 - `Heatmap` shades a grid such as hour against weekday, from `░` to `█` in one color. A shade orders
-  by density in any theme, where a ramp of the sixteen colors orders differently in each.
+  by density in any theme, where a ramp of the sixteen colors orders differently in each. Given fewer
+  lines than it has rows, it drops its column names first, then ends on a `+N` line for the rest.
 - `Sparkline` draws eighth-block columns, averaging more values than columns so the whole span shows.
-- `Columns` draws a column per value in its own color, over an axis labeled at the top, the middle
+  Any value above zero draws at least `▁`, so a quiet stretch reads apart from an empty one.
+- `Bars` draws an upright bar per value in its own color, over an axis labeled at the top, the middle
   and zero.
 
 Each fills exactly the width and height it is given, so `chart.Beside` lays them side by side. A

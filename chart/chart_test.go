@@ -1,6 +1,8 @@
 package chart_test
 
 import (
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -30,25 +32,48 @@ func (b chartBoard) Frame(time.Time, string) gotermboard.Frame {
 	}
 }
 
-func TestEachChartFillsTheScreensWidthUnderTheStripAndTheTableFollows(t *testing.T) {
+func TestEachChartFillsTheScreensWidthInItsColorsBetweenTheStripAndTheTable(t *testing.T) {
 	start := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
-	var used, forecast []chart.Point
+	var used, forecast, low, high []chart.Point
 	for h := range 96 {
-		point := chart.Point{At: start.Add(time.Duration(h) * time.Hour), Value: float64(h)}
+		at := start.Add(time.Duration(h) * time.Hour)
 		if h < 60 {
-			used = append(used, point)
-		} else {
-			forecast = append(forecast, point)
+			used = append(used, chart.Point{At: at, Value: float64(h)})
+			continue
 		}
+		forecast = append(forecast, chart.Point{At: at, Value: float64(h)})
+		low = append(low, chart.Point{At: at, Value: float64(h - 30)})
+		high = append(high, chart.Point{At: at, Value: float64(h + 30)})
 	}
 	charts := []chart.Chart{
 		chart.TimeSeries{
 			Series: []chart.Series{{Points: used, Code: gotermboard.Cyan}, {Points: forecast, Code: gotermboard.Yellow, Dotted: true}},
-			Bands:  []chart.Band{{Low: forecast, High: forecast[len(forecast)/2:], Code: gotermboard.Blue}},
+			Bands:  []chart.Band{{Low: low, High: high, Code: gotermboard.Blue}},
 		},
-		chart.Heatmap{Rows: []chart.HeatRow{{Label: "Mon", Values: []float64{0, 1, 2, 3}}}, Columns: []string{"00", "06", "12", "18"}},
-		chart.Sparkline{Values: []float64{1, 5, 2, 8, 3, 0, 4}},
-		chart.Columns{Columns: []chart.Column{{Label: "a", Value: 3}, {Label: "b", Value: 7}}},
+		chart.Heatmap{Rows: []chart.HeatRow{{Label: "Mon", Values: []float64{0, 1, 2, 3}}}, Columns: []string{"00", "06", "12", "18"}, Code: gotermboard.Magenta},
+		chart.Sparkline{Values: []float64{1, 5, 2, 8, 3, 0, 4}, Code: gotermboard.Cyan},
+		chart.Bars{Bars: []chart.Bar{{Label: "a", Value: 3, Code: gotermboard.Green}, {Label: "b", Value: 7, Code: gotermboard.Red}}},
+	}
+	// An ntcharts or lipgloss upgrade that hands a style's color back as other than an
+	// ansi.IndexedColor would leave every chart uncolored.
+	wants := [][]string{
+		{gotermboard.Cyan, gotermboard.Yellow, gotermboard.Blue, gotermboard.RuleCode},
+		{gotermboard.Magenta},
+		{gotermboard.Cyan},
+		{gotermboard.Green, gotermboard.Red, gotermboard.RuleCode},
+	}
+	for i, c := range charts {
+		drawn := map[string]bool{}
+		for _, line := range c.Lines(60, 6) {
+			for _, cell := range line {
+				drawn[cell.Code] = true
+			}
+		}
+		for _, code := range wants[i] {
+			if !drawn[code] {
+				t.Errorf("%T should draw in %q, drew in %q", c, code, slices.Sorted(maps.Keys(drawn)))
+			}
+		}
 	}
 	for _, width := range []int{60, 140} {
 		lines := strings.Split(gotermboard.Once(chartBoard{charts}, gotermstyle.NewPalette(false), width, 40), "\n")

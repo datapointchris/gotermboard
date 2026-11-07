@@ -6,7 +6,8 @@ import (
 )
 
 // Sparkline draws values, oldest first, as columns of eighth blocks with the newest at the right
-// edge. A value of zero or less draws nothing.
+// edge. A value of zero or less draws nothing, and any value above zero draws at least ▁, so a quiet
+// stretch reads apart from an empty one.
 type Sparkline struct {
 	Values []float64
 	Code   string
@@ -30,7 +31,11 @@ func (s Sparkline) Lines(width, height int) []gotermboard.Line {
 	var cs codes
 	line := sparkline.New(width, height, sparkline.WithStyle(cs.style(s.Code)),
 		sparkline.WithNoAutoMaxValue(), sparkline.WithMaxValue(top))
+	least := top / float64(8*height)
 	for _, v := range values {
+		if v > 0 {
+			v = max(v, least)
+		}
 		line.Push(min(v, top))
 	}
 	line.DrawColumnsOnly()

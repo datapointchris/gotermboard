@@ -8,10 +8,10 @@ import (
 	"github.com/datapointchris/gotermboard"
 )
 
-// Columns draws one column per value, each in its own color, over a value axis labeled at the top,
-// the middle and zero, with each column's label under the axis.
-type Columns struct {
-	Columns []Column
+// Bars draws one upright bar per value, each in its own color, over a value axis labeled at the top,
+// the middle and zero, with each bar's label under the axis.
+type Bars struct {
+	Bars []Bar
 	// Max is the value drawn full height, and the axis reaches further where a value goes past.
 	// Zero takes the largest value.
 	Max float64
@@ -19,20 +19,20 @@ type Columns struct {
 	ValueLabel func(float64) string
 }
 
-// Column is one value of a column chart.
-type Column struct {
+// Bar is one value of a bar chart.
+type Bar struct {
 	Label string
 	Value float64
 	Code  string
 }
 
-// Lines is the chart in width by height cells: the columns, then the axis, then their labels.
-func (c Columns) Lines(width, height int) []gotermboard.Line {
+// Lines is the chart in width by height cells: the bars, then the axis, then their labels.
+func (c Bars) Lines(width, height int) []gotermboard.Line {
 	top := c.Max
-	for _, col := range c.Columns {
-		top = max(top, col.Value)
+	for _, bar := range c.Bars {
+		top = max(top, bar.Value)
 	}
-	if width < 1 || height < 3 || len(c.Columns) == 0 || top <= 0 {
+	if width < 1 || height < 3 || len(c.Bars) == 0 || top <= 0 {
 		return blank(width, height)
 	}
 	label := c.ValueLabel
@@ -45,21 +45,21 @@ func (c Columns) Lines(width, height int) []gotermboard.Line {
 	for _, mark := range marks {
 		margin = max(margin, ansi.StringWidth(mark))
 	}
-	if width <= margin+1+len(c.Columns) {
+	if width <= margin+1+len(c.Bars) {
 		return blank(width, height)
 	}
 	var cs codes
-	data := make([]barchart.BarData, 0, len(c.Columns))
-	for _, col := range c.Columns {
-		value := barchart.BarValue{Name: col.Label, Value: col.Value, Style: cs.style(col.Code)}
-		data = append(data, barchart.BarData{Label: col.Label, Values: []barchart.BarValue{value}})
+	data := make([]barchart.BarData, 0, len(c.Bars))
+	for _, bar := range c.Bars {
+		value := barchart.BarValue{Name: bar.Label, Value: bar.Value, Style: cs.style(bar.Code)}
+		data = append(data, barchart.BarData{Label: bar.Label, Values: []barchart.BarValue{value}})
 	}
-	bars := barchart.New(width-margin-1, height,
+	chart := barchart.New(width-margin-1, height,
 		barchart.WithStyles(cs.style(gotermboard.RuleCode), cs.style("")),
 		barchart.WithNoAutoMaxValue(), barchart.WithMaxValue(top), barchart.WithDataSet(data))
-	bars.Draw()
+	chart.Draw()
 	out := make([]gotermboard.Line, 0, height)
-	for y, line := range cs.lines(&bars.Canvas) {
+	for y, line := range cs.lines(&chart.Canvas) {
 		mark, edge := marks[y], "│"
 		switch {
 		case y == rows:
