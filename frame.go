@@ -163,8 +163,20 @@ type Row struct {
 // opens says the row holds text the toggle shows under it.
 func (r *Row) opens() bool { return len(r.Detail) > 0 || r.Document != nil }
 
+// panelSource is the row's own text for the side panel: its Panel or else its Document, and
+// the Detail that shows where it holds neither.
+func (r *Row) panelSource() (Document, []Cell) {
+	if r.Panel != nil {
+		return r.Panel, r.Detail
+	}
+	return r.Document, r.Detail
+}
+
 // hasPanelText says the side panel has something of the row's own to show.
-func (r *Row) hasPanelText() bool { return r.Panel != nil || r.opens() }
+func (r *Row) hasPanelText() bool {
+	authored, cells := r.panelSource()
+	return authored != nil || len(cells) > 0
+}
 
 // The mark a Marked row draws.
 const (
@@ -231,20 +243,25 @@ type Group struct {
 	changed bool
 }
 
-func (g *Group) holdsRows() bool {
-	return len(g.Rows) > 0 || slices.ContainsFunc(g.Groups, func(child Group) bool { return child.holdsRows() })
+// panelSource is the group's own text for the side panel. The label and summary the panel
+// falls back on repeat what the table already draws, so they are not part of it.
+func (g *Group) panelSource() (Document, []Cell) { return g.Panel, g.Detail }
+
+// hasPanelText says the side panel has something of the group's own to show.
+func (g *Group) hasPanelText() bool {
+	authored, cells := g.panelSource()
+	return authored != nil || len(cells) > 0
 }
 
-// hasPanelText says the side panel has something of the group's own to show. The label and
-// summary the panel falls back on repeat what the table already draws, so they do not count.
-func (g *Group) hasPanelText() bool { return g.Panel != nil || len(g.Detail) > 0 }
+func (g *Group) cursorLands() bool { return !g.Still }
 
-// anyPanelText says a line the cursor can land on has text of its own for the side panel.
+// anyPanelText says a row, or a group the cursor can land on, anywhere in the frame, shown or
+// not, has text of its own for the side panel.
 func anyPanelText(groups []Group) bool {
 	for i := range groups {
 		g := &groups[i]
 		rowSays := func(r Row) bool { return r.hasPanelText() }
-		if (!g.Still && g.hasPanelText()) || slices.ContainsFunc(g.Rows, rowSays) || anyPanelText(g.Groups) {
+		if (g.cursorLands() && g.hasPanelText()) || slices.ContainsFunc(g.Rows, rowSays) || anyPanelText(g.Groups) {
 			return true
 		}
 	}
@@ -257,7 +274,8 @@ type Frame struct {
 	Columns []Column
 	Groups  []Group
 	// StartAt is the key the cursor starts on, where that key is showing. Without one it
-	// starts on the first line holding cells, passing any group with no panel text.
+	// starts on the first line holding cells, or the last on a TailBoard, past any group with
+	// no panel text. With no such line it starts on the first line with text to read.
 	StartAt string
 }
 
@@ -285,6 +303,9 @@ type node struct {
 	open  bool
 	// toggles says folding or opening the node changes what shows, so it draws a chevron.
 	toggles bool
+	// drawsRows says the table draws a row somewhere under a group, so the group's Summary
+	// gives way to the rows and the column titles are of use on its header.
+	drawsRows bool
 	// wraps says an Under line runs on past the screen's edge, where a row's is cut.
 	wraps bool
 	// document is what a nodeDocument draws.
@@ -293,7 +314,9 @@ type node struct {
 	column int
 }
 
-func (n node) selectable() bool { return (n.kind == nodeGroup && !n.group.Still) || n.kind == nodeRow }
+func (n node) selectable() bool {
+	return (n.kind == nodeGroup && n.group.cursorLands()) || n.kind == nodeRow
+}
 
 // staysOnScreen says the node can hold its place above a table that scrolls.
 func (n node) staysOnScreen() bool {
@@ -369,8 +392,11 @@ func (d display) groupMatches(g *Group) bool {
 	return false
 }
 
+// heldOpen says nothing can fold the group: it is Still, or a filter holds every group open.
+func (d display) heldOpen(g *Group) bool { return d.filter != "" || g.Still }
+
 func (d display) isOpen(g *Group) bool {
-	if d.filter != "" || g.Still {
+	if d.heldOpen(g) {
 		return true
 	}
 	if folded, set := d.folded[g.Key]; set {
@@ -379,13 +405,27 @@ func (d display) isOpen(g *Group) bool {
 	return !g.Folded
 }
 
+// shows says the table draws the group at all.
+func (d display) shows(g *Group) bool {
+	if d.filter == "" {
+		return !g.FilterOnly
+	}
+	return d.groupMatches(g)
+}
+
 // folds says folding the group changes what shows: it holds a row or a group the table
-// draws, and neither Still nor a filter holds it open.
+// draws, and nothing holds it open.
 func (d display) folds(g *Group) bool {
-	if g.Still || d.filter != "" {
+	if d.heldOpen(g) {
 		return false
 	}
-	return len(g.Rows) > 0 || slices.ContainsFunc(g.Groups, func(child Group) bool { return !child.FilterOnly })
+	return len(g.Rows) > 0 || slices.ContainsFunc(g.Groups, func(child Group) bool { return d.shows(&child) })
+}
+
+// drawsRows says a row sits somewhere under the group, counting only the groups the table
+// draws. An empty group under it folds and still draws no row, so this is not folds.
+func (d display) drawsRows(g *Group) bool {
+	return len(g.Rows) > 0 || slices.ContainsFunc(g.Groups, func(child Group) bool { return d.shows(&child) && d.drawsRows(&child) })
 }
 
 func (d display) isRowOpen(r *Row) bool {
@@ -412,14 +452,11 @@ func anyUnder(groups []Group) bool {
 func (d display) walk(groups []Group, depth int, out []node) []node {
 	for i := range groups {
 		g := &groups[i]
-		if g.FilterOnly && d.filter == "" {
-			continue
-		}
-		if d.filter != "" && !d.groupMatches(g) {
+		if !d.shows(g) {
 			continue
 		}
 		open := d.isOpen(g)
-		out = append(out, node{kind: nodeGroup, key: g.Key, depth: depth, group: g, open: open, toggles: d.folds(g)})
+		out = append(out, node{kind: nodeGroup, key: g.Key, depth: depth, group: g, open: open, toggles: d.folds(g), drawsRows: d.drawsRows(g)})
 		if d.under && g.Under.Text != "" {
 			out = append(out, node{kind: nodeUnder, depth: depth + 1, cell: g.Under, wraps: true, column: spanColumn(depth, g)})
 		}
@@ -602,7 +639,7 @@ func draw(pal gotermstyle.Palette, columns []Column, nodes []node, width int, cu
 	for _, n := range nodes {
 		pinning = pinning && n.staysOnScreen()
 		from := len(lines)
-		wantsTitles := n.kind == nodeGroup && n.depth == 0 && n.open && n.group.holdsRows() && !titled
+		wantsTitles := n.kind == nodeGroup && n.depth == 0 && n.open && n.drawsRows && !titled
 		titled = titled || wantsTitles
 		lines = append(lines, drawNode(pal, n, columns, widths, width, cursor, wantsTitles)...)
 		for i := from; i < len(lines); i++ {
@@ -880,7 +917,7 @@ func drawGroup(pal gotermstyle.Palette, n node, columns []Column, widths []int, 
 	switch {
 	case titles:
 		out += columnTitles(pal, columns, widths)
-	case !n.open || !n.group.holdsRows():
+	case !n.open || !n.drawsRows:
 		if len(n.group.Summary) > 0 {
 			out += columnGap + n.group.Summary.paint(pal)
 		}

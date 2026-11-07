@@ -279,7 +279,7 @@ func actionTable() []Action {
 				m.panelOff = !m.panelOff
 				return nil
 			},
-			Applies: func(m *Model) bool { return m.width >= PanelFrom && m.panelHasText },
+			Applies: (*Model).panelFits,
 		},
 		{Keys: []string{"/"}, Label: "filter the rows, matching their detail too", Footer: "/ filter", Run: func(m *Model) tea.Cmd {
 			m.filtering = true
@@ -625,8 +625,8 @@ func (m *Model) place() {
 }
 
 // startingLine is the first line holding cells, or the last on a board read from its
-// newest, and otherwise the first with anything to read. A group with no panel text only
-// labels what sits under it, so the cursor starts past it.
+// newest, and otherwise the first with anything to read. The cursor starts past a group
+// with no Panel or Detail, because the panel would only repeat its label.
 func (m *Model) startingLine(rows []node) int {
 	holdsCells := func(n node) bool {
 		if n.kind == nodeGroup {
@@ -704,10 +704,13 @@ func (m *Model) onOpenText() bool {
 	return n.open
 }
 
-// panelWidth grows with the screen up to ReadingWidth, the longest line this package lays
-// text out at. A frame with nothing for the panel to say gives the table its width.
+// panelFits says the screen has room for the side panel and this frame has text for it.
+func (m *Model) panelFits() bool { return m.width >= PanelFrom && m.panelHasText }
+
+// panelWidth grows with the screen up to ReadingWidth. A frame with nothing for the panel to
+// say gives the table its width.
 func (m *Model) panelWidth() int {
-	if m.panelOff || m.width < PanelFrom || !m.panelHasText {
+	if m.panelOff || !m.panelFits() {
 		return 0
 	}
 	return min(ReadingWidth, m.width*3/10)
@@ -830,21 +833,18 @@ func (m *Model) panelLines(height int) []string {
 	return lines
 }
 
-// panelText is a node's Panel where it has one, then its Document, and otherwise its Detail.
+// panelText is a node's panelSource, and a group's label and summary where it holds neither.
 func (m *Model) panelText(n node, width int) []string {
 	var authored Document
 	var cells []Cell
 	switch n.kind {
 	case nodeGroup:
-		authored, cells = n.group.Panel, n.group.Detail
+		authored, cells = n.group.panelSource()
 		if len(cells) == 0 {
 			cells = []Cell{C(groupLabel(n.group).Text(), Bold), C(n.group.Summary.Text(), "")}
 		}
 	case nodeRow:
-		authored, cells = n.row.Panel, n.row.Detail
-		if authored == nil {
-			authored = n.row.Document
-		}
+		authored, cells = n.row.panelSource()
 	}
 	var lines []string
 	if authored != nil {
