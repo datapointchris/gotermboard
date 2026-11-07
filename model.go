@@ -39,6 +39,18 @@ type CursorBoard interface {
 	CursorOn(key string)
 }
 
+// MovingBoard is a Board whose strip moves between its frames, as a diagram of work in motion
+// does. Only the strip redraws at this pace, so the table and its change cue wait for their
+// frame. Only the tab showing runs it, and a reader over the board holds it.
+type MovingBoard interface {
+	// MoveEvery is how long the strip holds each drawing. Zero or less holds it still, and the
+	// next tick asks again, so a board with nothing moving spends nothing.
+	MoveEvery() time.Duration
+	// StripAt is the whole strip at now. It stands in for Frame.Strip on every draw, so a line
+	// holding still is returned as it is. A strip that changes its height redraws the table.
+	StripAt(now time.Time) []Line
+}
+
 // PanelFrom is the narrowest screen that gets the side panel.
 const PanelFrom = 160
 
@@ -81,6 +93,14 @@ type Model struct {
 	toldCursor string
 	// reading is the full-screen Reader over the board, while one is open.
 	reading *Reader
+	// moveClock numbers the strip's clock. A hide moves it on, so a beat sent before the hide
+	// is dropped. moving says a beat is on its way.
+	moveClock int
+	moving    bool
+	// underStrip is what the last draw put under the strip, and stripOnly says the next draw
+	// keeps it, because only a move came in since.
+	underStrip []string
+	stripOnly  bool
 }
 
 // NewModel is a model reading board, sized until the terminal says otherwise.
@@ -128,6 +148,12 @@ func OnceSize(fallbackWidth, fallbackHeight int) (width, height int) {
 type (
 	tickMsg      time.Time
 	refreshedMsg struct{}
+	// moveMsg is one beat of the strip's clock, for the model that started it.
+	moveMsg struct {
+		model *Model
+		clock int
+		at    time.Time
+	}
 )
 
 func tick() tea.Cmd {
@@ -144,7 +170,53 @@ func (m *Model) reveal(now time.Time) tea.Cmd {
 	m.cue.hush(now)
 	reads := m.dueReads(now)
 	m.rebuild(now)
-	return reads
+	return tea.Batch(reads, m.nextMove())
+}
+
+// hide stops what runs only while the tab shows. A read under way runs to its end.
+func (m *Model) hide() {
+	m.hidden, m.moving = true, false
+	m.moveClock++
+}
+
+// nextMove waits out one drawing of the strip, where the board asks for one and nothing
+// else is waiting.
+func (m *Model) nextMove() tea.Cmd {
+	board, ok := m.board.(MovingBoard)
+	if !ok || m.hidden || m.moving || m.reading != nil {
+		return nil
+	}
+	every := board.MoveEvery()
+	if every <= 0 {
+		return nil
+	}
+	m.moving = true
+	clock := m.moveClock
+	return tea.Tick(every, func(at time.Time) tea.Msg { return moveMsg{model: m, clock: clock, at: at} })
+}
+
+// moved draws the strip at this beat and leaves the table as it stands. A reader over the
+// board ends the clock, and the key that closes it starts another.
+func (m *Model) moved(at time.Time) tea.Cmd {
+	m.moving = false
+	if m.reading != nil {
+		return nil
+	}
+	height := len(m.frame.Strip)
+	m.drawStrip(at)
+	if len(m.frame.Strip) == height {
+		m.stripOnly = true
+	} else {
+		m.follow()
+	}
+	return m.nextMove()
+}
+
+// drawStrip puts a moving board's strip in place of its frame's.
+func (m *Model) drawStrip(now time.Time) {
+	if board, ok := m.board.(MovingBoard); ok {
+		m.frame.Strip = board.StripAt(now)
+	}
 }
 
 func (m *Model) dueReads(now time.Time) tea.Cmd {
@@ -191,7 +263,11 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case tickMsg:
 		now := time.Time(msg)
 		m.rebuild(now)
-		return tea.Batch(tick(), m.dueReads(now))
+		return tea.Batch(tick(), m.dueReads(now), m.nextMove())
+	case moveMsg:
+		if msg.model == m && msg.clock == m.moveClock {
+			return m.moved(msg.at)
+		}
 	case refreshedMsg:
 		m.rebuild(time.Now())
 	case tea.PasteMsg:
@@ -202,7 +278,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.setFilter(m.display.filter + strings.Join(strings.Fields(msg.Content), " "))
 		}
 	case tea.KeyPressMsg:
-		return m.pressed(msg)
+		return tea.Batch(m.pressed(msg), m.nextMove())
 	}
 	return nil
 }
@@ -594,6 +670,7 @@ func (m *Model) currentGrouping() string {
 func (m *Model) rebuild(now time.Time) {
 	wasLast := m.tails() && m.placed && m.onLastRow()
 	m.frame = m.board.Frame(now, m.currentGrouping())
+	m.drawStrip(now)
 	m.panelHasText = anyPanelText(m.frame.Groups)
 	m.cue.mark(m.frame.Groups, now)
 	if settled := m.cue.quietFrom.Add(settleFor); m.cue.quiet && !now.Before(settled) && !m.readsUnderWayFrom(settled) {
@@ -830,14 +907,24 @@ func (m *Model) screen() string {
 	if m.reading != nil {
 		return m.reading.screen()
 	}
-	var out []string
+	if !m.stripOnly || m.underStrip == nil {
+		m.underStrip = m.drawUnderStrip()
+	}
+	m.stripOnly = false
+	out := make([]string, 0, len(m.frame.Strip)+len(m.underStrip))
 	for _, line := range m.frame.Strip {
 		out = append(out, ansi.Truncate(line.paint(m.pal), m.width, "…"))
 	}
+	return strings.Join(append(out, m.underStrip...), "\n")
+}
+
+// drawUnderStrip is the table or the keys overlay, then the footer.
+func (m *Model) drawUnderStrip() []string {
+	var out []string
 	h := m.bodyHeight()
 	if m.overlay {
 		out = append(out, m.keysOverlay(h)...)
-		return strings.Join(append(out, m.footer()...), "\n")
+		return append(out, m.footer()...)
 	}
 	pinned, lines := m.table()
 	for _, line := range pinned {
@@ -867,7 +954,7 @@ func (m *Model) screen() string {
 		}
 		out = append(out, strings.TrimRight(left+" │ "+right, " "))
 	}
-	return strings.Join(append(out, m.footer()...), "\n")
+	return append(out, m.footer()...)
 }
 
 func (m *Model) panelLines(height int) []string {

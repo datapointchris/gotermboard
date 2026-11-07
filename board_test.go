@@ -638,6 +638,63 @@ func TestAnOpenRowAndItsGroupsHoldTheTopWhileItsTextScrollsUnderThem(t *testing.
 	}
 }
 
+// movingBoard counts what each beat of its strip draws.
+type movingBoard struct{ frames, documents, beats int }
+
+func (b *movingBoard) Sources() []Refresher     { return nil }
+func (b *movingBoard) Groupings() []string      { return nil }
+func (b *movingBoard) MoveEvery() time.Duration { return 100 * time.Millisecond }
+func (b *movingBoard) StripAt(time.Time) []Line {
+	b.beats++
+	return []Line{{C("beat "+strconv.Itoa(b.beats), "")}}
+}
+
+func (b *movingBoard) Frame(time.Time, string) Frame {
+	b.frames++
+	document := func(int) []Line {
+		b.documents++
+		return []Line{{C("text", "")}}
+	}
+	return Frame{Columns: []Column{{Title: "NAME"}}, Groups: []Group{{Key: "g", Rows: []Row{
+		{Key: "r", Cells: []Cell{C("row", "")}, Document: document, StartsOpen: true},
+	}}}}
+}
+
+func TestAMovingStripRedrawsAloneAndOnlyWhileItsTabShows(t *testing.T) {
+	moving := &movingBoard{}
+	still := fixedBoard{Frame{Columns: []Column{{Title: "NAME"}}}}
+	tabs, err := NewTabs([]Tab{{Name: "moving", Board: moving}, {Name: "still", Board: still}}, gotermstyle.NewPalette(false), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabs.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	shown := tabs.models[0]
+	if shown.reveal(time.Now()) == nil {
+		t.Fatal("a moving board's tab should start its strip's clock when it shows")
+	}
+	tabs.View()
+	frames, documents := moving.frames, moving.documents
+	beat := moveMsg{model: shown, clock: shown.moveClock, at: time.Now()}
+	if _, next := tabs.Update(beat); next == nil {
+		t.Error("a beat should wait out the next")
+	}
+	if got := tabs.View().Content; !strings.Contains(got, "beat "+strconv.Itoa(moving.beats)) {
+		t.Errorf("a beat should redraw the strip:\n%s", got)
+	}
+	if moving.frames != frames || moving.documents != documents {
+		t.Errorf("a beat built %d frames and drew the table's text %d times", moving.frames-frames, moving.documents-documents)
+	}
+
+	press(tabs, tabKey)
+	beats := moving.beats
+	tabs.Update(beat)
+	tabs.Update(moveMsg{model: shown, clock: shown.moveClock, at: time.Now()})
+	tabs.View()
+	if moving.beats != beats || shown.moving {
+		t.Errorf("a hidden tab's strip moved %d times", moving.beats-beats)
+	}
+}
+
 func TestThePanelGrowsToAReadingWidthWhereAFrameHasTextForItAndTheCursorStartsPastABareHeader(t *testing.T) {
 	frame := func(detail []Cell) Frame {
 		return Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "top", Title: Line{C("TOP", "")}, Groups: []Group{

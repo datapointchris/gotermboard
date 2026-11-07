@@ -48,8 +48,8 @@ func main() {
 ## Tabs read only while they show
 
 `NewTabs` takes the tabs in the order Tab cycles them, and the name of the one to open
-on. Each tab keeps its own cursor, folds and filter. A hidden tab starts no read and
-builds no frame. On its return it draws its last good read with that read's age, and
+on. Each tab keeps its own cursor, folds and filter. A hidden tab starts no read,
+builds no frame and moves no strip. On its return it draws its last good read with that read's age, and
 every source past its interval reads at once. A source inside its interval keeps its
 pace, so cycling the tabs quickly starts nothing extra. A program with one tab draws no
 tab line, and Tab does nothing in it.
@@ -189,6 +189,29 @@ read-markdown README.md
 A `Cell` with `Section` set starts the words of a heading, and its value is the heading's depth, 1
 outermost. A heading closes every open one at its depth or deeper. The `markdown` package sets it
 on each heading's first word, past the bar that marks it.
+
+## A board's strip can move between its frames
+
+A board implementing `MovingBoard` gets its strip from `StripAt(now)`, redrawn every `MoveEvery()`,
+for a diagram of work in motion between its reads. Only the strip redraws at that pace, so the table,
+its change cue and the side panel wait for the next frame. Only the tab showing runs the clock, and a
+reader over the board holds it until the key that closes the reader. A `MoveEvery` of zero holds the
+strip still until the next once-a-second tick asks again, so a board with nothing moving spends nothing.
+
+```go
+func (b *board) MoveEvery() time.Duration { return 100 * time.Millisecond }
+
+func (b *board) StripAt(now time.Time) []gotermboard.Line {
+ return []gotermboard.Line{b.lane(b.runs.Value(), now)}
+}
+```
+
+`StripAt` replaces `Frame.Strip` on every draw, so it returns the lines that hold still as well. A
+strip changing its height between beats redraws the table, because the table's height moves with it.
+
+At 378 by 89, a five-line strip moving ten times a second costs about 5% of a core, against 1.4% for
+the same board held still and 9 to 10% for rebuilding the whole frame at that pace. Most of what is
+left is Bubble Tea's renderer, which parses and compares the whole screen on every frame that changed.
 
 ## A board can add keys
 
