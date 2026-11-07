@@ -13,9 +13,10 @@ import (
 	"github.com/datapointchris/gotermstyle"
 )
 
-// readingWidth is the widest a reader lays text out, because a longer line is hard to
-// follow back to its start. A wider screen keeps the rest as margin.
-const readingWidth = 100
+// ReadingWidth is the widest a reader lays text out, because a longer line is hard to
+// follow back to its start. A wider screen keeps the rest as margin. A view that lays
+// the same text out in its table reads this, so the two wrap alike.
+const ReadingWidth = 100
 
 // hitContext is how many rows a search leaves above the row it lands on.
 const hitContext = 2
@@ -132,7 +133,7 @@ func (r *Reader) View() tea.View {
 func (r *Reader) resize(width, height int) {
 	above := lettersIn(r.rows[:min(r.top, len(r.rows))])
 	r.width, r.height = width, height
-	r.rows = r.document(min(max(width-2, 1), readingWidth))
+	r.rows = r.document(min(max(width-2, 1), ReadingWidth))
 	r.sections = r.sections[:0]
 	for i, row := range r.rows {
 		if slices.ContainsFunc(row, func(c Cell) bool { return c.Section }) {
@@ -407,7 +408,7 @@ func (r *Reader) screen() string {
 		}
 		lines = lines[:min(len(lines), body)]
 	} else {
-		margin := strings.Repeat(" ", max((r.width-readingWidth)/2, 1))
+		margin := strings.Repeat(" ", max((r.width-ReadingWidth)/2, 1))
 		for _, row := range r.rows[r.top:min(r.top+body, len(r.rows))] {
 			lines = append(lines, ansi.Truncate(margin+r.marked(row).paint(r.pal), r.width, "…"))
 		}
