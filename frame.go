@@ -308,7 +308,11 @@ func anyPanelText(groups []Group) bool {
 
 // Frame is one screen of a view, before it is laid out to a size.
 type Frame struct {
-	Strip   []Line
+	Strip []Line
+	// Charts is drawn under the strip at the screen's width, for what has to be laid out at the
+	// width it gets, as a chart is. It is handed the screen's height too, so a board can keep it to
+	// a share of a short screen. A moving strip leaves it as the frame drew it.
+	Charts  func(width, height int) []Line
 	Columns []Column
 	Groups  []Group
 	// StartAt is the key the cursor starts on, where that key is showing. Without one it
