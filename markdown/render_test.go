@@ -97,6 +97,24 @@ func TestCodeWrapsAndHighlightsInALanguageItNamesAndAnyOtherFenceStaysPlainAndCu
 	}
 }
 
+func TestARendererThatWrapsEveryFenceKeepsAllOfADiagram(t *testing.T) {
+	renderer := New(nil)
+	renderer.WrapEveryFence = true
+	diagram := "┌ a diagram with a long line that runs well past the box ┐"
+	var kept strings.Builder
+	for _, line := range renderer.Lines("```text\n"+diagram+"\n```\n", 30) {
+		if width := ansi.StringWidth(line.Text()); width > 30 {
+			t.Errorf("row %q is %d wide, past the box", line.Text(), width)
+		}
+		kept.WriteString(line.Text())
+	}
+	for word := range strings.FieldsSeq(diagram) {
+		if !strings.Contains(kept.String(), word) {
+			t.Errorf("%q lost its word %q: %q", diagram, word, kept.String())
+		}
+	}
+}
+
 func TestProseResolvesEscapesAndKeepsAPlaceholderAndALinksAddressAsWritten(t *testing.T) {
 	got := texts(New(nil).Lines("a \\* b &amp; `<code>` run new <slug> [docs](https://example.com) https://example.org\n", 200))[0]
 	want := "a * b & <code> run new <slug> docs (https://example.com) https://example.org"

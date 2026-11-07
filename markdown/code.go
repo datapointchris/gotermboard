@@ -15,7 +15,7 @@ const continuedMark = "↪ "
 
 // code draws a fence in a box labeled with its language. A fence naming a language wraps a
 // line wider than the box, so all of its code can be read. Any other fence cuts that line,
-// so a diagram or a table of output stays lined up.
+// so a diagram or a table of output stays lined up, unless the renderer wraps every fence.
 func (l *layout) code(language, source string, first, rest gotermboard.Line, width int) {
 	label := "╭─"
 	isCode := language != "" && language != "text"
@@ -26,7 +26,7 @@ func (l *layout) code(language, source string, first, rest gotermboard.Line, wid
 	rows := []gotermboard.Line{{gotermboard.C(label, grayCode)}}
 	for _, line := range highlighted(language, strings.TrimRight(source, "\n")) {
 		pieces := []gotermboard.Line{clipped(line, width-2)}
-		if isCode {
+		if isCode || l.renderer.WrapEveryFence {
 			pieces = codeRows(line, width-2)
 		}
 		for _, piece := range pieces {

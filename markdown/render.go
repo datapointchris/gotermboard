@@ -33,6 +33,11 @@ type rendering struct {
 // Renderer lays out markdown and keeps what it laid out, because a board redraws on every
 // key and tick while its text stays the same. It belongs to one goroutine.
 type Renderer struct {
+	// WrapEveryFence wraps a text or bare fence's long lines too, for a text whose every word
+	// has to reach the reader, where a diagram losing its line-up costs less than losing its
+	// end.
+	WrapEveryFence bool
+
 	textRun  func(text, code string) gotermboard.Line
 	rendered map[rendering][]gotermboard.Line
 }

@@ -103,7 +103,8 @@ row.Document = func(width int) []gotermboard.Line { return renderer.Lines(descri
 
 A fence naming a language wraps a line wider than its box, marking each continued row with
 `↪`, as `bat` and `delta` do. A `text` or bare fence cuts that line instead, so a diagram or a
-table of output stays lined up.
+table of output stays lined up. `WrapEveryFence` on the renderer wraps those too, for a text whose
+every word has to reach the reader.
 
 Its argument colors what a caller recognizes in prose, such as a number that names a record.
 
