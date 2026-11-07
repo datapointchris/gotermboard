@@ -91,20 +91,34 @@ func TestEnterReadsTallTextFullScreenAndSpaceFoldsItInPlace(t *testing.T) {
 	if m.reading != nil || !strings.Contains(m.screen(), "section 0") {
 		t.Fatalf("space on a tall row should open it in place:\n%s", m.screen())
 	}
-	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	if strings.Contains(m.screen(), "›") {
-		t.Fatalf("ctrl+d should have scrolled the row off the screen:\n%s", m.screen())
-	}
 	m.Update(spaceKey)
-	if got := m.screen(); strings.Contains(got, "section 0") || !strings.Contains(got, "› ▸") {
-		t.Fatalf("closing a row after scrolling should leave the cursor on screen:\n%s", got)
+	if got := m.screen(); strings.Contains(got, "section 0") {
+		t.Fatalf("space should close a row open in place:\n%s", got)
 	}
 
 	m.Update(downKey)
 	m.Update(enterKey)
 	if m.reading != nil {
 		t.Fatal("a short row opened the reader rather than in place")
+	}
+}
+
+func TestClosingATallRowScrolledThroughWithThirtyRowsBelowItLeavesTheCursorOnScreen(t *testing.T) {
+	rows := []Row{{Key: "tall", Cells: []Cell{C("the tall row", "")}, Document: wrappedDocument}}
+	for range 30 {
+		rows = append(rows, Row{Key: "row" + strconv.Itoa(len(rows)), Cells: []Cell{C("a row", "")}})
+	}
+	m := NewModel(fixedBoard{Frame{Columns: []Column{{Title: "ROW"}}, Groups: []Group{{Rows: rows}}}}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	m.Update(spaceKey)
+	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	if strings.Contains(m.screen(), "›") {
+		t.Fatalf("ctrl+d should have scrolled the row off the screen:\n%s", m.screen())
+	}
+	m.Update(spaceKey)
+	if got := m.screen(); !strings.Contains(got, "› ▸") {
+		t.Fatalf("closing the row should leave the cursor on screen:\n%s", got)
 	}
 }
 

@@ -69,8 +69,8 @@ type Model struct {
 	filtering    bool
 	overlay      bool
 	said         string
-	// scrolled holds top where ScrollBy put it, until the cursor next moves, so a
-	// row's detail taller than the screen can be read through.
+	// scrolled holds top where ScrollBy put it, until the cursor moves or a key changes what
+	// shows, so a row's detail taller than the screen can be read through.
 	scrolled bool
 	// hidden is set while another tab shows. A hidden model starts no read.
 	hidden bool
@@ -268,7 +268,7 @@ func actionTable() []Action {
 			Keys: []string{"f"}, Label: "show each row's summary under it", Footer: "f summaries",
 			Run: func(m *Model) tea.Cmd {
 				m.display.under = !m.display.under
-				m.follow()
+				m.displayChanged()
 				return nil
 			},
 			Applies: func(m *Model) bool { return anyUnder(m.frame.Groups) },
@@ -365,7 +365,7 @@ func (m *Model) Say(text string) { m.said = text }
 // Restart puts the cursor back at the top and reads every source now, for a board's
 // key that changes what the view shows.
 func (m *Model) Restart() tea.Cmd {
-	m.cursor, m.cursorAt, m.top, m.placed = "", 0, 0, false
+	m.cursor, m.cursorAt, m.top, m.placed, m.scrolled = "", 0, 0, false, false
 	for _, source := range m.board.Sources() {
 		source.Force()
 	}
@@ -393,9 +393,15 @@ func (m *Model) ToggleEveryRow() tea.Cmd {
 	for _, key := range rows {
 		m.display.opened[key] = !allOpen
 	}
+	m.displayChanged()
+	return nil
+}
+
+// displayChanged is for a key that changes what shows. It ends any scroll through the text,
+// which would otherwise leave the cursor off the screen, and brings the cursor into view.
+func (m *Model) displayChanged() {
 	m.scrolled = false
 	m.follow()
-	return nil
 }
 
 // ScrollBy moves the screen over the table by lines and leaves the cursor, for
@@ -474,7 +480,7 @@ func (m *Model) typed(key tea.KeyPressMsg) {
 func (m *Model) setFilter(filter string) {
 	m.display.filter = filter
 	m.place()
-	m.follow()
+	m.displayChanged()
 }
 
 // toggle is enter: a row's Document that runs past the screen opens on a Reader, open in
@@ -500,6 +506,8 @@ func (m *Model) toggleInPlace() tea.Cmd {
 	case nodeRow:
 		m.display.opened[n.key] = !n.open
 	}
+	// A cursor still looking for its starting line stays on the line this key acted on.
+	m.placed = true
 	m.revealDetail()
 	return nil
 }
@@ -517,11 +525,9 @@ func (r Row) title() string {
 }
 
 // revealDetail scrolls the cursor's row and what opens under it into view, so a row
-// opened near the screen's foot shows its text, stopping with the row at the top. It ends
-// any scroll through the text, which a row closing would otherwise leave the cursor above.
+// opened near the screen's foot shows its text, stopping with the row at the top.
 func (m *Model) revealDetail() {
-	m.scrolled = false
-	m.follow()
+	m.displayChanged()
 	pinned, lines := m.table()
 	at := slices.IndexFunc(lines, func(l drawn) bool { return l.key != "" && l.key == m.cursor })
 	if at < 0 {
@@ -541,6 +547,7 @@ func (m *Model) nextGrouping() tea.Cmd {
 		m.grouping = (m.grouping + 1) % len(groupings)
 		m.said = "grouped by " + groupings[m.grouping]
 		m.Rebuild()
+		m.displayChanged()
 	}
 	return nil
 }
