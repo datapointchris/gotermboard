@@ -141,6 +141,9 @@ type Row struct {
 	WrapLast Line
 	// Under is the row's summary, drawn on a └─ row while those are on.
 	Under Cell
+	// UnderWhereCut draws Under only where the last column is too narrow for the row's cell
+	// there, for a summary that repeats that cell. Only the draw knows the column's width.
+	UnderWhereCut bool
 	// Detail is what the side panel shows while the cursor is on the row, and what opens
 	// under the row. Each cell is a paragraph that wraps. A row holding Detail or a
 	// Document draws a chevron in its indent.
@@ -164,6 +167,18 @@ type Row struct {
 
 // opens says the row holds text the toggle shows under it.
 func (r *Row) opens() bool { return len(r.Detail) > 0 || r.Document != nil }
+
+// showsUnder says the row has a summary to draw at these column widths.
+func (r *Row) showsUnder(widths []int) bool {
+	if r.Under.Text == "" {
+		return false
+	}
+	if !r.UnderWhereCut {
+		return true
+	}
+	last := len(widths) - 1
+	return last >= 0 && len(r.WrapLast) == 0 && len(r.Cells) > last && ansi.StringWidth(r.Cells[last].Text) > widths[last]
+}
 
 // panelSource is the row's own text for the side panel: its Panel or else its Document, and
 // the Detail that shows where it holds neither.
@@ -448,11 +463,11 @@ func (d display) isRowOpen(r *Row) bool {
 	return r.StartsOpen
 }
 
-// anyUnder says whether any row, folded or not, has a summary to show.
-func anyUnder(groups []Group) bool {
+// anyUnder says whether any row, folded or not, has a summary to show at these column widths.
+func anyUnder(groups []Group, widths []int) bool {
 	for i := range groups {
-		hasUnder := func(r Row) bool { return r.Under.Text != "" }
-		if groups[i].Under.Text != "" || slices.ContainsFunc(groups[i].Rows, hasUnder) || anyUnder(groups[i].Groups) {
+		hasUnder := func(r Row) bool { return r.showsUnder(widths) }
+		if groups[i].Under.Text != "" || slices.ContainsFunc(groups[i].Rows, hasUnder) || anyUnder(groups[i].Groups, widths) {
 			return true
 		}
 	}
@@ -514,7 +529,7 @@ func (d display) walk(groups []Group, depth, parent int, out []node) []node {
 				row := len(out)
 				out = append(out, node{kind: nodeRow, key: r.Key, depth: depth + 1, row: r, open: rowOpen, toggles: r.opens(), parent: self})
 				if d.under && r.Under.Text != "" {
-					out = append(out, node{kind: nodeUnder, depth: depth + 1, cell: r.Under, parent: self})
+					out = append(out, node{kind: nodeUnder, depth: depth + 1, row: r, cell: r.Under, parent: self})
 				}
 				if rowOpen {
 					if r.Document != nil {
@@ -804,6 +819,9 @@ func drawNodeBody(pal gotermstyle.Palette, n node, columns []Column, widths []in
 		text = pointer + drawRow(pal, n, columns, widths, selected)
 		wrapped = n.row.WrapLast
 	case nodeUnder:
+		if n.row != nil && !n.row.showsUnder(widths) {
+			return nil
+		}
 		return underLines(pal, n, width)
 	case nodeDetail:
 		var lines []drawn

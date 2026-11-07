@@ -86,7 +86,11 @@ continuing on further lines at that column, so a bar wider than the row keeps ev
 
 `Items` makes a line of `Below` or `Beside` that the draw cuts to the items that fit,
 ending in `+N`, because only the draw knows the width and it moves with the side panel.
-`Under` is a group's summary, wrapping under `Below` while `f` has them on.
+`Under` is a summary on a `└─` line while `f` has them on: a row's under the row, and a
+group's wrapping under `Below`.
+`UnderWhereCut` on a row draws its `Under` only where the last column is too narrow for the
+row's cell there, for a summary that repeats that cell. `f` leaves the footer while no row
+has a summary to draw.
 
 `Span` draws a long value whole past a group's title, wrapping under itself, so it never
 sets the first column's width. The group's cells then take the next line, with `Beside`

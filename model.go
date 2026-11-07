@@ -356,7 +356,9 @@ func actionTable() []Action {
 				m.displayChanged()
 				return nil
 			},
-			Applies: func(m *Model) bool { return anyUnder(m.frame.Groups) },
+			Applies: func(m *Model) bool {
+				return anyUnder(m.frame.Groups, layout(m.frame.Columns, m.nodes(), m.tableWidth()))
+			},
 		},
 		{
 			Keys: []string{"p"}, Label: "show or hide the side panel", Footer: "p panel",
