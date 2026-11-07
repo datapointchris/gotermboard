@@ -116,13 +116,12 @@ stays on screen with the column titles while the table scrolls, which suits a ro
 ## A chevron marks only what opens
 
 The board decides the mark from what a node holds. A row draws `▸` or `▾` where it holds `Detail`
-or a `Document`, and a group where it holds a row or a group the table draws. Anywhere else space
-changes nothing, so nothing promises that it would. A filter holds every group open, so a group
-draws no mark while one is typed.
+or a `Document`, and a group where it holds a row or a group the table draws. Anywhere else `enter`
+and `space` change nothing, so no mark promises otherwise and the footer and `?` leave both keys out
+on that line. A filter holds every group open, so a group draws no mark while one is typed.
 
 A row's chevron sits in the last cell of its indent, one cell in from its parent's, with `Symbol`
-beside it rather than replaced by it. `MarkGlyph` sits in the cell before the chevron. No column
-moves for either.
+beside it. `MarkGlyph` sits in the cell before the chevron. No column moves for either.
 
 ## A filter can reach past what shows
 
@@ -133,17 +132,19 @@ it matches nothing.
 
 ## The side panel follows the cursor
 
-From `PanelFrom` columns the panel takes three tenths of the screen, up to `ReadingWidth`. A frame
-with no `Panel`, `Document` or `Detail` on any line the cursor can land on draws no panel, and the
-table takes the width. The frame decides rather than the cursor's line, so the table never jumps
-as the cursor moves.
+From `PanelFrom` columns the panel grows with the screen, up to `ReadingWidth`. It draws where any
+row in the frame holds `Panel`, `Document` or `Detail`, or any group but a `Still` one holds `Panel`
+or `Detail`, counting lines folded away or held back for a filter. A frame with none of them draws
+no panel, and the table takes the width. The frame decides rather than the cursor's line, so the
+table never jumps as the cursor moves.
 
 `Panel` on a row or a group is what the side panel shows in `Detail`'s place, a function of
 the panel's width whose lines wrap at spaces with each cell's own color. A row with no `Panel`
 shows its `Document`. A board implementing `CursorBoard` is
 told each key the cursor lands on, so a read that only one row needs can follow it.
 `Frame.StartAt` names the key the cursor starts on. Without one it starts on the first line
-holding cells, past any group with no panel text.
+holding cells, or the last on a `TailBoard`, past any group with no panel text. With no such line
+it starts on the first line with text to read.
 
 ## A tall document reads on a full screen
 
@@ -174,4 +175,5 @@ newest row, as a log does.
 
 `enter` and `space` are separate keys in the table, so a board that takes `enter` leaves `space`
 folding in place. `Model.Toggle` is what the table's `enter` does, for a board's `enter` that acts
-only on some rows.
+only on some rows. Bind it to `enter` alone. A row open in place that turns tall, as on a pane
+shrink, reads on `Toggle` and closes only on the table's `space`.

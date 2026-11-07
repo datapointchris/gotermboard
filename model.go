@@ -352,8 +352,9 @@ func (m *Model) Cursor() string { return m.cursor }
 
 // Toggle is what enter does, for a board's key that takes enter and acts only on some
 // rows: a row's Document that runs past the screen opens on a Reader, open in place or
-// not, and anything else folds or opens in place. Space stays the table's, which folds
-// in place however tall the text.
+// not, and anything else folds or opens in place. Bind it to enter alone and leave space
+// to the table, which folds in place however tall the text. A row open in place that turns
+// tall closes only on that space.
 func (m *Model) Toggle() tea.Cmd { return m.toggle() }
 
 // Reveal scrolls the cursor's row and what opens under it into view, for a board's key
