@@ -12,5 +12,5 @@ A Go library that Go command-line tools import, shipped as git tags. Its one `ma
 - **Colors are ANSI 0-15, through gotermstyle**, so a board follows the terminal's theme.
 - **A hidden tab starts no read and builds no frame.** A tab's return draws its last good
   read first, then reads what is due.
-- **No cue or mark moves a column.** A change cue sits in the pointer's column and a mark
-  in a row's indent, so a table never shifts under the eye.
+- **No cue or mark moves a column.** A change cue sits in the pointer's column, and a mark
+  and a chevron each in a cell of a row's indent, so a table never shifts under the eye.

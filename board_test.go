@@ -173,6 +173,7 @@ var (
 	downKey  = tea.KeyPressMsg{Code: 'j', Text: "j"}
 	upKey    = tea.KeyPressMsg{Code: 'k', Text: "k"}
 	enterKey = tea.KeyPressMsg{Code: tea.KeyEnter}
+	spaceKey = tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 )
 
 func twoTabs(t *testing.T, answer *atomic.Value) (*Tabs, countedBoard, countedBoard) {
@@ -460,7 +461,7 @@ func TestASpanGroupDrawsItsSpanWholeWithItsCellsAndBesideOnTheLineBelow(t *testi
 	}
 	lines := strings.Split(Once(fixedBoard{frame}, gotermstyle.NewPalette(false), 70, 12), "\n")
 	want := []string{
-		"   ▾ 1544  " + strings.TrimSpace(strings.Repeat("title ", 10)),
+		"     1544  " + strings.TrimSpace(strings.Repeat("title ", 10)),
 		"           end",
 		"           alpha, beta, +2     5/7  ▰▰▱",
 		"           read at 59",
@@ -540,6 +541,53 @@ func TestAGroupDrawsItsLinesAboveAndBelowItsHeaderAndARuleAfterIt(t *testing.T) 
 	}
 	if !strings.HasPrefix(lines[at-1], "══") || !strings.HasPrefix(lines[at+1], "──") || !strings.HasPrefix(lines[at+2], "──") {
 		t.Errorf("want a double line above, then a thin line under and a rule after:\n%s", m.screen())
+	}
+}
+
+func TestAChevronDrawsOnlyOnWhatOpensAndLeavesABulletItsCell(t *testing.T) {
+	more := []Cell{C("more text", "")}
+	bullet := C("●", "")
+	frame := Frame{StartAt: "empty", Columns: []Column{{Title: ""}, {Title: "STATE"}}, Groups: []Group{
+		{Key: "empty", Title: Line{C("EMPTY", "")}, Detail: more},
+		{Key: "full", Title: Line{C("FULL", "")}, Rows: []Row{
+			{Key: "opens", Symbol: bullet, Cells: []Cell{C("opens", ""), C("x", "")}, Detail: more},
+			{Key: "plain", Symbol: bullet, Cells: []Cell{C("plain", ""), C("x", "")}},
+			{Key: "marked", Symbol: bullet, Marked: true, Cells: []Cell{C("marked", ""), C("x", "")}, Detail: more},
+			{Key: "span", Span: Line{C("span", "")}, Detail: more},
+		}},
+	}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 14})
+	screen := m.screen()
+	for _, want := range []string{"  EMPTY", " ▾ FULL", "  ▸● opens", "   ● plain", " ◆▸● marked", "  ▸span"} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("no %q in:\n%s", want, screen)
+		}
+	}
+	lines := strings.Split(screen, "\n")
+	columnsOf := func(name string) [2]int {
+		at := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, name) })
+		before, _, _ := strings.Cut(lines[at], "●")
+		state, _, _ := strings.Cut(lines[at], " x")
+		return [2]int{ansi.StringWidth(before), ansi.StringWidth(state)}
+	}
+	if opens, plain, marked := columnsOf("opens"), columnsOf("plain"), columnsOf("marked"); opens != plain || marked != plain {
+		t.Errorf("a chevron or a mark moved a column: %v %v %v:\n%s", opens, plain, marked, screen)
+	}
+
+	m.Update(spaceKey)
+	if got := m.screen(); got != screen {
+		t.Errorf("space on a group holding nothing should change nothing:\n%s", got)
+	}
+	m.Update(downKey)
+	m.Update(downKey)
+	m.Update(spaceKey)
+	if got := m.screen(); !strings.Contains(got, "▾● opens") || !strings.Contains(got, "more text") {
+		t.Errorf("space should open the row in place:\n%s", got)
+	}
+	m.setFilter("opens")
+	if got := m.screen(); !strings.Contains(got, "  FULL") {
+		t.Errorf("a group a filter holds open cannot fold, so it draws no mark:\n%s", got)
 	}
 }
 

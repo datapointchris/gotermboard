@@ -111,6 +111,17 @@ Its argument colors what a caller recognizes in prose, such as a number that nam
 A `Still` group has no fold mark and the cursor passes over it. At the top of a frame it
 stays on screen with the column titles while the table scrolls, which suits a row of totals.
 
+## A chevron marks only what opens
+
+The board decides the mark from what a node holds. A row draws `▸` or `▾` where it holds `Detail`
+or a `Document`, and a group where it holds a row or a group the table draws. Anywhere else space
+changes nothing, so nothing promises that it would. A filter holds every group open, so a group
+draws no mark while one is typed.
+
+A row's chevron sits in the last cell of its indent, one cell in from its parent's, with `Symbol`
+beside it rather than replaced by it. `MarkGlyph` sits in the cell before the chevron. No column
+moves for either.
+
 ## A filter can reach past what shows
 
 `FilterOnly` keeps a group out of the table until a filter is typed, so a view that shows

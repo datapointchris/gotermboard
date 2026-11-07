@@ -382,7 +382,7 @@ func (m *Model) ToggleEveryRow() tea.Cmd {
 	var rows []string
 	allOpen := true
 	for _, n := range m.nodes() {
-		if n.kind == nodeRow && (len(n.row.Detail) > 0 || n.row.Document != nil) {
+		if n.kind == nodeRow && n.toggles {
 			rows = append(rows, n.key)
 			allOpen = allOpen && n.open
 		}
@@ -475,18 +475,18 @@ func (m *Model) setFilter(filter string) {
 
 func (m *Model) toggle() tea.Cmd {
 	n, ok := m.selected()
-	if !ok {
+	if !ok || !n.toggles {
 		return nil
 	}
 	switch n.kind {
 	case nodeGroup:
 		m.display.folded[n.key] = n.open
 	case nodeRow:
-		if !m.display.opened[n.key] && n.row.Document != nil && m.Tall(n.row.Document) {
+		if !n.open && n.row.Document != nil && m.Tall(n.row.Document) {
 			m.Read(n.row.title(), n.row.Document)
 			return nil
 		}
-		m.display.opened[n.key] = !m.display.opened[n.key]
+		m.display.opened[n.key] = !n.open
 	}
 	m.follow()
 	m.revealDetail()
@@ -687,7 +687,7 @@ func (m *Model) onOpenText() bool {
 	if n.kind == nodeGroup {
 		return n.group.Document != nil
 	}
-	return n.open && (len(n.row.Detail) > 0 || n.row.Document != nil)
+	return n.open
 }
 
 // panelWidth grows with the screen up to ReadingWidth, the longest line this package lays
