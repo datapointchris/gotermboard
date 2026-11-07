@@ -91,9 +91,11 @@ ahead of them in the first column. `Column.Min` holds that column wide enough to
 ## A row can open a document laid out at its width
 
 `Document` on a `Row` or a `Group` is a function of width, because hanging bullets, tables
-and boxes of code cannot be wrapped after they are drawn. A row's opens under it on `enter`,
-or on the full-screen reader where it runs past the screen. A group's draws under `Below`
-whether the group is folded or not. The `markdown` package
+and boxes of code cannot be wrapped after they are drawn. A row's opens under it on `space`,
+however tall it is. `enter` opens it the same way, or on the full-screen reader where it runs
+past the screen, whether or not it already shows in place. `StartsOpen` on a row shows its text
+from the first frame, so a view can draw its newest entry whole and still fold it to its first
+line. A group's draws under `Below` whether the group is folded or not. The `markdown` package
 makes one from markdown, in ANSI 0-15 so it follows the theme:
 
 ```go
@@ -111,6 +113,16 @@ Its argument colors what a caller recognizes in prose, such as a number that nam
 A `Still` group has no fold mark and the cursor passes over it. At the top of a frame it
 stays on screen with the column titles while the table scrolls, which suits a row of totals.
 
+## A chevron marks only what opens
+
+The board decides the mark from what a node holds. A row draws `▸` or `▾` where it holds `Detail`
+or a `Document`, and a group where it holds a row or a group the table draws. Anywhere else `enter`
+and `space` change nothing, so no mark promises otherwise and the footer and `?` leave both keys out
+on that line. A filter holds every group open, so a group draws no mark while one is typed.
+
+A row's chevron sits in the last cell of its indent, one cell in from its parent's, with `Symbol`
+beside it. `MarkGlyph` sits in the cell before the chevron. No column moves for either.
+
 ## A filter can reach past what shows
 
 `FilterOnly` keeps a group out of the table until a filter is typed, so a view that shows
@@ -120,11 +132,19 @@ it matches nothing.
 
 ## The side panel follows the cursor
 
+From `PanelFrom` columns the panel grows with the screen, up to `ReadingWidth`. It draws where any
+row in the frame holds `Panel`, `Document` or `Detail`, or any group but a `Still` one holds `Panel`
+or `Detail`, counting lines folded away or held back for a filter. A frame with none of them draws
+no panel, and the table takes the width. The frame decides rather than the cursor's line, so the
+table never jumps as the cursor moves.
+
 `Panel` on a row or a group is what the side panel shows in `Detail`'s place, a function of
 the panel's width whose lines wrap at spaces with each cell's own color. A row with no `Panel`
 shows its `Document`. A board implementing `CursorBoard` is
 told each key the cursor lands on, so a read that only one row needs can follow it.
-`Frame.StartAt` names the key the cursor starts on.
+`Frame.StartAt` names the key the cursor starts on. Without one it starts on the first line
+holding cells, or the last on a `TailBoard`, past any group with no panel text. With no such line
+it starts on the first line with text to read.
 
 ## A tall document reads on a full screen
 
@@ -135,8 +155,8 @@ and `/` searches with `n` and `N`. A query with no capital in it ignores case. `
 `CopyText`, or the text as drawn, over OSC 52. `e` opens `EditFile` in `$VISUAL` or `$EDITOR`
 and lays the text out again after.
 
-`Model.Read` opens one over the board from a board's own key, and `esc` returns to the board.
-`Model.Tall` says whether a document runs past the screen. `NewReader` runs as a program of its
+`Model.Read` opens one over the board from a board's own key, and `esc` or `space` returns to the
+board. `Model.Tall` says whether a document runs past the screen. `NewReader` runs as a program of its
 own, which is all `cmd/read-markdown` does with a file or a pipe:
 
 ```bash
@@ -152,3 +172,8 @@ heading.
 A board implementing `Keyed` adds `Action`s, which take precedence over the table's and
 appear in the footer and the `?` overlay. A board implementing `TailBoard` reads from its
 newest row, as a log does.
+
+`enter` and `space` are separate keys in the table, so a board that takes `enter` leaves `space`
+folding in place. `Model.Toggle` is what the table's `enter` does, for a board's `enter` that acts
+only on some rows. Bind it to `enter` alone. A row open in place that turns tall, as on a pane
+shrink, reads on `Toggle` and closes only on the table's `space`.

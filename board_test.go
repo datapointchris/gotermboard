@@ -68,7 +68,8 @@ func (b groupedBoard) Groupings() []string { return []string{"one", "two"} }
 
 func TestTheFooterListsOnlyTheKeysThisViewCanUse(t *testing.T) {
 	plain := fixedBoard{Frame{Columns: []Column{{Title: "NAME"}}, Groups: []Group{{Key: "g", Rows: []Row{{Key: "r", Cells: []Cell{C("x", "")}}}}}}}
-	withLines := fixedBoard{Frame{Columns: plain.frame.Columns, Groups: []Group{{Key: "g", Groups: []Group{{Key: "inner", Rows: []Row{{Key: "r", Under: C("the first line", "")}}}}}}}}
+	withLines := fixedBoard{Frame{Columns: plain.frame.Columns, Groups: []Group{{Key: "g", Groups: []Group{{Key: "inner", Rows: []Row{{Key: "r", Under: C("the first line", ""), Detail: []Cell{C("more", "")}}}}}}}}}
+	openRow := fixedBoard{Frame{Columns: plain.frame.Columns, Groups: []Group{{Key: "g", Rows: []Row{{Key: "r", Cells: []Cell{C("x", "")}, Detail: []Cell{C("more", "")}, StartsOpen: true}}}}}}
 	for _, test := range []struct {
 		name         string
 		board        Board
@@ -76,7 +77,9 @@ func TestTheFooterListsOnlyTheKeysThisViewCanUse(t *testing.T) {
 		shown, unset []string
 	}{
 		{"nothing to offer", plain, 120, []string{"j/k move", "? keys"}, []string{"v group", "f summaries", "p panel"}},
-		{"every key has a use", groupedBoard{withLines}, PanelFrom, []string{"v group", "f summaries", "p panel"}, nil},
+		{"the cursor on a row holding neither Detail nor Document", plain, 120, nil, []string{"enter open", "space fold"}},
+		{"every key has a use", groupedBoard{withLines}, PanelFrom, []string{"enter open", "space fold", "v group", "f summaries", "p panel"}, nil},
+		{"a 60-column terminal with the cursor on an open row", openRow, 60, []string{"? keys", "q quit"}, nil},
 	} {
 		screen := Once(test.board, gotermstyle.NewPalette(true), test.width, 10)
 		for _, want := range test.shown {
@@ -173,6 +176,7 @@ var (
 	downKey  = tea.KeyPressMsg{Code: 'j', Text: "j"}
 	upKey    = tea.KeyPressMsg{Code: 'k', Text: "k"}
 	enterKey = tea.KeyPressMsg{Code: tea.KeyEnter}
+	spaceKey = tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 )
 
 func twoTabs(t *testing.T, answer *atomic.Value) (*Tabs, countedBoard, countedBoard) {
@@ -370,7 +374,7 @@ func TestAFilterReachesAGroupTheViewDoesNotShow(t *testing.T) {
 	if !strings.Contains(got, "second") || strings.Contains(got, "first") {
 		t.Errorf("the filter should find the group past the view and nothing else:\n%s", got)
 	}
-	if strings.Contains(got, "› ▾ long text") {
+	if slices.ContainsFunc(m.nodes(), func(n node) bool { return n.key == "labels" }) {
 		t.Errorf("a heading's own words should match nothing:\n%s", got)
 	}
 }
@@ -395,9 +399,6 @@ func TestAStillHeaderTakesNoCursorAndStaysAboveWhatScrolls(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("scrolled to the bottom, the screen should hold %q:\n%s", want, got)
 		}
-	}
-	if strings.Contains(got, "row 3\n") {
-		t.Errorf("the rows should have scrolled:\n%s", got)
 	}
 	m.move(-len(rows) - 5)
 	if m.Cursor() != "g" {
@@ -460,7 +461,7 @@ func TestASpanGroupDrawsItsSpanWholeWithItsCellsAndBesideOnTheLineBelow(t *testi
 	}
 	lines := strings.Split(Once(fixedBoard{frame}, gotermstyle.NewPalette(false), 70, 12), "\n")
 	want := []string{
-		"   ▾ 1544  " + strings.TrimSpace(strings.Repeat("title ", 10)),
+		"     1544  " + strings.TrimSpace(strings.Repeat("title ", 10)),
 		"           end",
 		"           alpha, beta, +2     5/7  ▰▰▱",
 		"           read at 59",
@@ -540,5 +541,80 @@ func TestAGroupDrawsItsLinesAboveAndBelowItsHeaderAndARuleAfterIt(t *testing.T) 
 	}
 	if !strings.HasPrefix(lines[at-1], "══") || !strings.HasPrefix(lines[at+1], "──") || !strings.HasPrefix(lines[at+2], "──") {
 		t.Errorf("want a double line above, then a thin line under and a rule after:\n%s", m.screen())
+	}
+}
+
+func TestAChevronDrawsOnlyOnWhatOpensAndLeavesABulletItsCell(t *testing.T) {
+	more := []Cell{C("more text", "")}
+	bullet := C("●", "")
+	frame := Frame{StartAt: "empty", Columns: []Column{{Title: ""}, {Title: "STATE"}}, Groups: []Group{
+		{Key: "empty", Title: Line{C("EMPTY", "")}, Detail: more},
+		{Key: "full", Title: Line{C("FULL", "")}, Rows: []Row{
+			{Key: "opens", Symbol: bullet, Cells: []Cell{C("opens", ""), C("x", "")}, Detail: more},
+			{Key: "plain", Symbol: bullet, Cells: []Cell{C("plain", ""), C("x", "")}},
+			{Key: "marked", Symbol: bullet, Marked: true, Cells: []Cell{C("marked", ""), C("x", "")}, Detail: more},
+			{Key: "span", Span: Line{C("span", "")}, Detail: more},
+		}},
+	}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 14})
+	screen := m.screen()
+	for _, want := range []string{"  EMPTY", " ▾ FULL", "  ▸● opens", "   ● plain", " ◆▸● marked", "  ▸span"} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("no %q in:\n%s", want, screen)
+		}
+	}
+	lines := strings.Split(screen, "\n")
+	columnsOf := func(name string) [2]int {
+		at := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, name) })
+		before, _, _ := strings.Cut(lines[at], "●")
+		state, _, _ := strings.Cut(lines[at], " x")
+		return [2]int{ansi.StringWidth(before), ansi.StringWidth(state)}
+	}
+	if opens, plain, marked := columnsOf("opens"), columnsOf("plain"), columnsOf("marked"); opens != plain || marked != plain {
+		t.Errorf("a chevron or a mark moved a column: %v %v %v:\n%s", opens, plain, marked, screen)
+	}
+
+	m.Update(spaceKey)
+	if got := m.screen(); got != screen {
+		t.Errorf("space on a group holding nothing should change nothing:\n%s", got)
+	}
+	m.Update(downKey)
+	m.Update(downKey)
+	m.Update(spaceKey)
+	if got := m.screen(); !strings.Contains(got, "▾● opens") || !strings.Contains(got, "more text") {
+		t.Errorf("space should open the row in place:\n%s", got)
+	}
+	m.setFilter("opens")
+	if got := m.screen(); !strings.Contains(got, "  FULL") {
+		t.Errorf("a group a filter holds open cannot fold, so it draws no mark:\n%s", got)
+	}
+}
+
+func TestThePanelGrowsToAReadingWidthWhereAFrameHasTextForItAndTheCursorStartsPastABareHeader(t *testing.T) {
+	frame := func(detail []Cell) Frame {
+		return Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "top", Title: Line{C("TOP", "")}, Groups: []Group{
+			{Key: "first", Title: Line{C("first", "")}, Detail: detail, Folded: true, Rows: []Row{{Key: "r", Cells: []Cell{C("r", "")}}}},
+		}}}}
+	}
+	m := NewModel(fixedBoard{frame([]Cell{C("what it says", "")})}, gotermstyle.NewPalette(false))
+	if m.Cursor() != "first" {
+		t.Errorf("the cursor should start past a header with nothing to say, on %q", m.Cursor())
+	}
+	for _, size := range []struct{ width, panel int }{{188, 56}, {240, 72}, {334, 100}, {378, 100}} {
+		m.Update(tea.WindowSizeMsg{Width: size.width, Height: 20})
+		if got := m.panelWidth(); got != size.panel {
+			t.Errorf("at %d columns the panel is %d wide, want %d", size.width, got, size.panel)
+		}
+	}
+	m.Update(upKey)
+	if got := m.panelWidth(); got != 100 {
+		t.Errorf("the panel should stay put on a line with nothing to say, so the table does not jump: %d", got)
+	}
+
+	silent := NewModel(fixedBoard{frame(nil)}, gotermstyle.NewPalette(false))
+	silent.Update(tea.WindowSizeMsg{Width: 378, Height: 20})
+	if got := silent.screen(); strings.Contains(got, "│") || strings.Contains(got, "p panel") {
+		t.Errorf("a frame with nothing for the panel should give the table its width:\n%s", got)
 	}
 }

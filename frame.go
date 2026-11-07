@@ -137,15 +137,17 @@ type Row struct {
 	// WrapLast is the last column as cells of their own colors. It continues on
 	// further lines at that column, where a cell in Cells is cut at the screen's edge.
 	WrapLast Line
-	// Chevron draws ▸ or ▾ in Symbol's place, for a row whose Detail is the point of it.
-	Chevron bool
 	// Under is the row's summary, drawn on a └─ row while those are on.
 	Under Cell
-	// Detail is what the side panel shows while the cursor is on the row, and
-	// what enter opens under the row. Each cell is a paragraph that wraps.
+	// Detail is what the side panel shows while the cursor is on the row, and what opens
+	// under the row. Each cell is a paragraph that wraps. A row holding Detail or a
+	// Document draws a chevron in its indent.
 	Detail []Cell
-	// Document is what enter opens under the row and the side panel shows, in Detail's place.
+	// Document is what opens under the row and the side panel shows, in Detail's place.
 	Document Document
+	// StartsOpen shows the row's Detail or Document under it until a key closes it, so a
+	// view can draw its newest entry whole and still fold it to its first line.
+	StartsOpen bool
 	// Panel is what the side panel shows in place of both, each line wrapping at spaces
 	// with its cells' own colors.
 	Panel Document
@@ -156,6 +158,24 @@ type Row struct {
 	Marked bool
 	// changed is set while the row wears the change cue.
 	changed bool
+}
+
+// opens says the row holds text the toggle shows under it.
+func (r *Row) opens() bool { return len(r.Detail) > 0 || r.Document != nil }
+
+// panelSource is the row's own text for the side panel: its Panel or else its Document, and
+// the Detail that shows where it holds neither.
+func (r *Row) panelSource() (Document, []Cell) {
+	if r.Panel != nil {
+		return r.Panel, r.Detail
+	}
+	return r.Document, r.Detail
+}
+
+// hasPanelText says the side panel has something of the row's own to show.
+func (r *Row) hasPanelText() bool {
+	authored, cells := r.panelSource()
+	return authored != nil || len(cells) > 0
 }
 
 // The mark a Marked row draws.
@@ -223,8 +243,29 @@ type Group struct {
 	changed bool
 }
 
-func (g *Group) holdsRows() bool {
-	return len(g.Rows) > 0 || slices.ContainsFunc(g.Groups, func(child Group) bool { return child.holdsRows() })
+// panelSource is the group's own text for the side panel. The label and summary the panel
+// falls back on repeat what the table already draws, so they are not part of it.
+func (g *Group) panelSource() (Document, []Cell) { return g.Panel, g.Detail }
+
+// hasPanelText says the side panel has something of the group's own to show.
+func (g *Group) hasPanelText() bool {
+	authored, cells := g.panelSource()
+	return authored != nil || len(cells) > 0
+}
+
+func (g *Group) cursorLands() bool { return !g.Still }
+
+// anyPanelText says a row, or a group the cursor can land on, anywhere in the frame, shown or
+// not, has text of its own for the side panel.
+func anyPanelText(groups []Group) bool {
+	for i := range groups {
+		g := &groups[i]
+		rowSays := func(r Row) bool { return r.hasPanelText() }
+		if (g.cursorLands() && g.hasPanelText()) || slices.ContainsFunc(g.Rows, rowSays) || anyPanelText(g.Groups) {
+			return true
+		}
+	}
+	return false
 }
 
 // Frame is one screen of a view, before it is laid out to a size.
@@ -233,7 +274,8 @@ type Frame struct {
 	Columns []Column
 	Groups  []Group
 	// StartAt is the key the cursor starts on, where that key is showing. Without one it
-	// starts on the first line holding cells.
+	// starts on the first line holding cells, or the last on a TailBoard, past any group with
+	// no panel text. With no such line it starts on the first line with text to read.
 	StartAt string
 }
 
@@ -259,6 +301,11 @@ type node struct {
 	row   *Row
 	cell  Cell
 	open  bool
+	// toggles says folding or opening the node changes what shows, so it draws a chevron.
+	toggles bool
+	// drawsRows says the table draws a row somewhere under a group, so the group's Summary
+	// gives way to the rows and the column titles are of use on its header.
+	drawsRows bool
 	// wraps says an Under line runs on past the screen's edge, where a row's is cut.
 	wraps bool
 	// document is what a nodeDocument draws.
@@ -267,11 +314,24 @@ type node struct {
 	column int
 }
 
-func (n node) selectable() bool { return (n.kind == nodeGroup && !n.group.Still) || n.kind == nodeRow }
+func (n node) selectable() bool {
+	return (n.kind == nodeGroup && n.group.cursorLands()) || n.kind == nodeRow
+}
 
 // staysOnScreen says the node can hold its place above a table that scrolls.
 func (n node) staysOnScreen() bool {
 	return n.kind == nodeBlank || (n.kind == nodeGroup && n.group.Still && n.depth == 0)
+}
+
+// foldMark is what a node's chevron cell holds: blank where the toggle would change nothing.
+func (n node) foldMark() string {
+	switch {
+	case !n.toggles:
+		return " "
+	case n.open:
+		return "▾"
+	}
+	return "▸"
 }
 
 func (n node) wearsCue() bool {
@@ -332,14 +392,50 @@ func (d display) groupMatches(g *Group) bool {
 	return false
 }
 
+// heldOpen says nothing can fold the group: it is Still, or a filter holds every group open.
+func (d display) heldOpen(g *Group) bool { return d.filter != "" || g.Still }
+
 func (d display) isOpen(g *Group) bool {
-	if d.filter != "" || g.Still {
+	if d.heldOpen(g) {
 		return true
 	}
 	if folded, set := d.folded[g.Key]; set {
 		return !folded
 	}
 	return !g.Folded
+}
+
+// shows says the table draws the group at all.
+func (d display) shows(g *Group) bool {
+	if d.filter == "" {
+		return !g.FilterOnly
+	}
+	return d.groupMatches(g)
+}
+
+// folds says folding the group changes what shows: it holds a row or a group the table
+// draws, and nothing holds it open.
+func (d display) folds(g *Group) bool {
+	if d.heldOpen(g) {
+		return false
+	}
+	return len(g.Rows) > 0 || slices.ContainsFunc(g.Groups, func(child Group) bool { return d.shows(&child) })
+}
+
+// drawsRows says a row sits somewhere under the group, counting only the groups the table
+// draws. An empty group under it folds and still draws no row, so this is not folds.
+func (d display) drawsRows(g *Group) bool {
+	return len(g.Rows) > 0 || slices.ContainsFunc(g.Groups, func(child Group) bool { return d.shows(&child) && d.drawsRows(&child) })
+}
+
+func (d display) isRowOpen(r *Row) bool {
+	if !r.opens() {
+		return false
+	}
+	if opened, set := d.opened[r.Key]; set {
+		return opened
+	}
+	return r.StartsOpen
 }
 
 // anyUnder says whether any row, folded or not, has a summary to show.
@@ -356,14 +452,11 @@ func anyUnder(groups []Group) bool {
 func (d display) walk(groups []Group, depth int, out []node) []node {
 	for i := range groups {
 		g := &groups[i]
-		if g.FilterOnly && d.filter == "" {
-			continue
-		}
-		if d.filter != "" && !d.groupMatches(g) {
+		if !d.shows(g) {
 			continue
 		}
 		open := d.isOpen(g)
-		out = append(out, node{kind: nodeGroup, key: g.Key, depth: depth, group: g, open: open})
+		out = append(out, node{kind: nodeGroup, key: g.Key, depth: depth, group: g, open: open, toggles: d.folds(g), drawsRows: d.drawsRows(g)})
 		if d.under && g.Under.Text != "" {
 			out = append(out, node{kind: nodeUnder, depth: depth + 1, cell: g.Under, wraps: true, column: spanColumn(depth, g)})
 		}
@@ -380,11 +473,12 @@ func (d display) walk(groups []Group, depth int, out []node) []node {
 				if !d.matches(r) {
 					continue
 				}
-				out = append(out, node{kind: nodeRow, key: r.Key, depth: depth + 1, row: r, open: d.opened[r.Key]})
+				rowOpen := d.isRowOpen(r)
+				out = append(out, node{kind: nodeRow, key: r.Key, depth: depth + 1, row: r, open: rowOpen, toggles: r.opens()})
 				if d.under && r.Under.Text != "" {
 					out = append(out, node{kind: nodeUnder, depth: depth + 1, cell: r.Under})
 				}
-				if d.opened[r.Key] {
+				if rowOpen {
 					if r.Document != nil {
 						out = append(out, node{kind: nodeDocument, depth: depth + 2, document: r.Document, column: indentOf(depth + 2)})
 						continue
@@ -440,7 +534,7 @@ func layout(columns []Column, nodes []node, width int) []int {
 				w := ansi.StringWidth(c.Text)
 				if i == 0 {
 					w += indentOf(n.depth)
-					if symbol := rowSymbol(n); symbol.Text != "" {
+					if symbol := n.row.Symbol; symbol.Text != "" {
 						w += ansi.StringWidth(symbol.Text) + 1
 					}
 				}
@@ -545,7 +639,7 @@ func draw(pal gotermstyle.Palette, columns []Column, nodes []node, width int, cu
 	for _, n := range nodes {
 		pinning = pinning && n.staysOnScreen()
 		from := len(lines)
-		wantsTitles := n.kind == nodeGroup && n.depth == 0 && n.open && n.group.holdsRows() && !titled
+		wantsTitles := n.kind == nodeGroup && n.depth == 0 && n.open && n.drawsRows && !titled
 		titled = titled || wantsTitles
 		lines = append(lines, drawNode(pal, n, columns, widths, width, cursor, wantsTitles)...)
 		for i := from; i < len(lines); i++ {
@@ -766,13 +860,6 @@ func belowLines(pal gotermstyle.Palette, n node, width int) []drawn {
 
 // groupHead is a group's indent and fold mark, then its label as this frame wears it.
 func groupHead(n node, selected bool) (string, Line) {
-	fold := "▸"
-	switch {
-	case n.group.Still:
-		fold = " "
-	case n.open:
-		fold = "▾"
-	}
 	label := groupLabel(n.group)
 	if n.group.changed {
 		label = label.emboldened()
@@ -780,7 +867,7 @@ func groupHead(n node, selected bool) (string, Line) {
 	if selected {
 		label = Line{C(label.Text(), Reverse)}
 	}
-	return strings.Repeat(" ", indentOf(n.depth)-1) + fold + " ", label
+	return strings.Repeat(" ", indentOf(n.depth)-1) + n.foldMark() + " ", label
 }
 
 // spanLines is a Span group: its label and Span, wrapping under the Span's start, then
@@ -830,7 +917,7 @@ func drawGroup(pal gotermstyle.Palette, n node, columns []Column, widths []int, 
 	switch {
 	case titles:
 		out += columnTitles(pal, columns, widths)
-	case !n.open || !n.group.holdsRows():
+	case !n.open || !n.drawsRows:
 		if len(n.group.Summary) > 0 {
 			out += columnGap + n.group.Summary.paint(pal)
 		}
@@ -838,12 +925,20 @@ func drawGroup(pal gotermstyle.Palette, n node, columns []Column, widths []int, 
 	return out
 }
 
+// rowIndent is the cells ahead of a row's symbol. The last two hold MarkGlyph and the
+// chevron, each in a cell of its own, so neither moves a column or takes the symbol's. The
+// chevron in the last sits one cell in from its parent's, so the nesting shows.
+func rowIndent(pal gotermstyle.Palette, n node) string {
+	mark := " "
+	if n.row.Marked {
+		mark = pal.Paint(MarkCode, MarkGlyph)
+	}
+	return strings.Repeat(" ", indentOf(n.depth)-3) + mark + n.foldMark()
+}
+
 func drawRow(pal gotermstyle.Palette, n node, columns []Column, widths []int, selected bool) string {
 	r := n.row
-	indent := strings.Repeat(" ", indentOf(n.depth)-1)
-	if r.Marked && len(indent) > 0 {
-		indent = indent[1:] + pal.Paint(MarkCode, MarkGlyph)
-	}
+	indent := rowIndent(pal, n)
 	if len(r.Cells) == 0 {
 		span := r.Span
 		if r.changed {
@@ -856,7 +951,7 @@ func drawRow(pal gotermstyle.Palette, n node, columns []Column, widths []int, se
 	}
 	symbol := ""
 	used := indentOf(n.depth)
-	if cell := rowSymbol(n); cell.Text != "" {
+	if cell := r.Symbol; cell.Text != "" {
 		symbol = pal.Paint(cell.Code, cell.Text) + " "
 		used += ansi.StringWidth(cell.Text) + 1
 	}
@@ -873,17 +968,6 @@ func drawRow(pal gotermstyle.Palette, n node, columns []Column, widths []int, se
 		code = Reverse
 	}
 	return indent + symbol + pal.Paint(code, text) + columnCells(pal, r.Cells[1:], 1, r.WrapLast, columns, widths)
-}
-
-// rowSymbol is what a row draws before its first cell: its chevron, or its symbol.
-func rowSymbol(n node) Cell {
-	switch {
-	case !n.row.Chevron:
-		return n.row.Symbol
-	case n.open:
-		return C("▾", "")
-	}
-	return C("▸", "")
 }
 
 // wrapWords breaks a line at spaces to width, each cell keeping its color. A word wider

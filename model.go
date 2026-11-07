@@ -57,17 +57,20 @@ type Model struct {
 	height   int
 	grouping int
 
-	display   display
-	cursor    string
-	cursorAt  int
-	top       int
-	placed    bool
-	panelOff  bool
-	filtering bool
-	overlay   bool
-	said      string
-	// scrolled holds top where ScrollBy put it, until the cursor next moves, so a
-	// row's detail taller than the screen can be read through.
+	display  display
+	cursor   string
+	cursorAt int
+	top      int
+	placed   bool
+	panelOff bool
+	// panelHasText says this frame holds text for the side panel. It is the frame's answer
+	// rather than the cursor's line's, so the table never jumps as the cursor moves.
+	panelHasText bool
+	filtering    bool
+	overlay      bool
+	said         string
+	// scrolled holds top where ScrollBy put it, until the cursor moves or a key changes what
+	// shows, so a row's detail taller than the screen can be read through.
 	scrolled bool
 	// hidden is set while another tab shows. A hidden model starts no read.
 	hidden bool
@@ -253,9 +256,19 @@ func actionTable() []Action {
 		{Keys: []string{"G", "end"}, Label: "go to the bottom", Run: moved(func(m *Model) int { return len(m.nodes()) })},
 		{Keys: []string{"ctrl+d", "pgdown"}, Label: "half a screen down the open text, or down the rows", Run: halfScreen(1)},
 		{Keys: []string{"ctrl+u", "pgup"}, Label: "half a screen up the open text, or up the rows", Run: halfScreen(-1)},
+		{Keys: []string{"enter"}, Label: "fold a group, or open a row, a tall document full screen", Footer: "enter open", Run: (*Model).toggle, Applies: (*Model).cursorToggles},
+		{Keys: []string{"space"}, Label: "fold a group, or open or close a row's text in place", Footer: "space fold", Run: (*Model).toggleInPlace, Applies: (*Model).cursorToggles},
+		// The way to the other keys and the way out sit ahead of what a narrow footer cuts.
+		{Keys: []string{"?"}, Label: "show these keys and every read", Footer: "? keys", Run: func(m *Model) tea.Cmd {
+			m.overlay = true
+			return nil
+		}},
+		{Keys: []string{"q", "ctrl+c"}, Label: "quit", Footer: "q quit", Run: func(m *Model) tea.Cmd {
+			m.cancel()
+			return tea.Quit
+		}},
 		{Keys: []string{"J"}, Label: "scroll the open text down a line", Footer: "J/K scroll", Run: scrolled(1), Applies: (*Model).onOpenText},
 		{Keys: []string{"K"}, Label: "scroll the open text up a line", Run: scrolled(-1), Applies: (*Model).onOpenText},
-		{Keys: []string{"enter", "space"}, Label: "fold a group, or open a row's detail in place", Footer: "enter fold", Run: (*Model).toggle},
 		{
 			Keys: []string{"v"}, Label: "cycle the grouping", Footer: "v group", Run: (*Model).nextGrouping,
 			Applies: func(m *Model) bool { return len(m.board.Groupings()) > 1 },
@@ -264,7 +277,7 @@ func actionTable() []Action {
 			Keys: []string{"f"}, Label: "show each row's summary under it", Footer: "f summaries",
 			Run: func(m *Model) tea.Cmd {
 				m.display.under = !m.display.under
-				m.follow()
+				m.displayChanged()
 				return nil
 			},
 			Applies: func(m *Model) bool { return anyUnder(m.frame.Groups) },
@@ -275,7 +288,7 @@ func actionTable() []Action {
 				m.panelOff = !m.panelOff
 				return nil
 			},
-			Applies: func(m *Model) bool { return m.width >= PanelFrom },
+			Applies: (*Model).panelFits,
 		},
 		{Keys: []string{"/"}, Label: "filter the rows, matching their detail too", Footer: "/ filter", Run: func(m *Model) tea.Cmd {
 			m.filtering = true
@@ -287,14 +300,6 @@ func actionTable() []Action {
 			}
 			m.said = "reading every source again"
 			return m.dueReads(time.Now())
-		}},
-		{Keys: []string{"?"}, Label: "show these keys and every read", Footer: "? keys", Run: func(m *Model) tea.Cmd {
-			m.overlay = true
-			return nil
-		}},
-		{Keys: []string{"q", "ctrl+c"}, Label: "quit", Footer: "q quit", Run: func(m *Model) tea.Cmd {
-			m.cancel()
-			return tea.Quit
 		}},
 	}
 }
@@ -345,8 +350,11 @@ func (m *Model) boardThenTableActions() []Action {
 // Cursor is the key of the group or row the cursor is on, for a board's own keys.
 func (m *Model) Cursor() string { return m.cursor }
 
-// Toggle folds the group under the cursor or opens its row's detail, for a board's key
-// that takes enter and acts only on some rows.
+// Toggle is what enter does, for a board's key that takes enter and acts only on some
+// rows: a row's Document that runs past the screen opens on a Reader, open in place or
+// not, and anything else folds or opens in place. Bind it to enter alone and leave space
+// to the table, which folds in place however tall the text. A row open in place that turns
+// tall closes only on that space.
 func (m *Model) Toggle() tea.Cmd { return m.toggle() }
 
 // Reveal scrolls the cursor's row and what opens under it into view, for a board's key
@@ -359,7 +367,7 @@ func (m *Model) Say(text string) { m.said = text }
 // Restart puts the cursor back at the top and reads every source now, for a board's
 // key that changes what the view shows.
 func (m *Model) Restart() tea.Cmd {
-	m.cursor, m.cursorAt, m.top, m.placed = "", 0, 0, false
+	m.cursor, m.cursorAt, m.top, m.placed, m.scrolled = "", 0, 0, false, false
 	for _, source := range m.board.Sources() {
 		source.Force()
 	}
@@ -379,7 +387,7 @@ func (m *Model) ToggleEveryRow() tea.Cmd {
 	var rows []string
 	allOpen := true
 	for _, n := range m.nodes() {
-		if n.kind == nodeRow && (len(n.row.Detail) > 0 || n.row.Document != nil) {
+		if n.kind == nodeRow && n.toggles {
 			rows = append(rows, n.key)
 			allOpen = allOpen && n.open
 		}
@@ -387,8 +395,15 @@ func (m *Model) ToggleEveryRow() tea.Cmd {
 	for _, key := range rows {
 		m.display.opened[key] = !allOpen
 	}
-	m.follow()
+	m.displayChanged()
 	return nil
+}
+
+// displayChanged is for a key that changes what shows. It ends any scroll through the text,
+// which would otherwise leave the cursor off the screen, and brings the cursor into view.
+func (m *Model) displayChanged() {
+	m.scrolled = false
+	m.follow()
 }
 
 // ScrollBy moves the screen over the table by lines and leaves the cursor, for
@@ -402,7 +417,7 @@ func (m *Model) ScrollBy(lines int) {
 // HalfScreen is half the table's height in lines.
 func (m *Model) HalfScreen() int { return max(1, m.bodyHeight()/2) }
 
-// Read opens document on a full-screen Reader over the board, until esc closes it.
+// Read opens document on a full-screen Reader over the board, until esc or space closes it.
 func (m *Model) Read(title string, document Document) {
 	m.reading = NewReader(title, document, m.pal)
 	m.reading.back = func() { m.reading = nil }
@@ -413,7 +428,7 @@ func (m *Model) Read(title string, document Document) {
 	m.reading.resize(m.width, m.height)
 }
 
-// Tall says document runs past the screen, so it reads on a Reader rather than in place.
+// Tall says document runs past the screen, so enter reads it on a Reader.
 func (m *Model) Tall(document Document) bool {
 	return len(document(m.tableWidth())) >= m.bodyHeight()
 }
@@ -467,27 +482,42 @@ func (m *Model) typed(key tea.KeyPressMsg) {
 func (m *Model) setFilter(filter string) {
 	m.display.filter = filter
 	m.place()
-	m.follow()
+	m.displayChanged()
 }
 
+// toggle is enter: a row's Document that runs past the screen opens on a Reader, open in
+// place or not, and anything else folds or opens in place.
 func (m *Model) toggle() tea.Cmd {
+	if n, ok := m.selected(); ok && n.kind == nodeRow && n.row.Document != nil && m.Tall(n.row.Document) {
+		m.Read(n.row.title(), n.row.Document)
+		return nil
+	}
+	return m.toggleInPlace()
+}
+
+// toggleInPlace is space: it folds the group or opens the row under the cursor, however
+// tall its text, and does nothing where that would change nothing.
+func (m *Model) toggleInPlace() tea.Cmd {
 	n, ok := m.selected()
-	if !ok {
+	if !ok || !n.toggles {
 		return nil
 	}
 	switch n.kind {
 	case nodeGroup:
 		m.display.folded[n.key] = n.open
 	case nodeRow:
-		if !m.display.opened[n.key] && n.row.Document != nil && m.Tall(n.row.Document) {
-			m.Read(n.row.title(), n.row.Document)
-			return nil
-		}
-		m.display.opened[n.key] = !m.display.opened[n.key]
+		m.display.opened[n.key] = !n.open
 	}
-	m.follow()
+	// A cursor still looking for its starting line stays on the line this key acted on.
+	m.placed = true
 	m.revealDetail()
 	return nil
+}
+
+// cursorToggles says enter and space would change something on the cursor's line.
+func (m *Model) cursorToggles() bool {
+	n, ok := m.selected()
+	return ok && n.toggles
 }
 
 // title is the row's words, for a Reader to name what it holds.
@@ -505,6 +535,7 @@ func (r Row) title() string {
 // revealDetail scrolls the cursor's row and what opens under it into view, so a row
 // opened near the screen's foot shows its text, stopping with the row at the top.
 func (m *Model) revealDetail() {
+	m.displayChanged()
 	pinned, lines := m.table()
 	at := slices.IndexFunc(lines, func(l drawn) bool { return l.key != "" && l.key == m.cursor })
 	if at < 0 {
@@ -524,6 +555,7 @@ func (m *Model) nextGrouping() tea.Cmd {
 		m.grouping = (m.grouping + 1) % len(groupings)
 		m.said = "grouped by " + groupings[m.grouping]
 		m.Rebuild()
+		m.displayChanged()
 	}
 	return nil
 }
@@ -538,6 +570,7 @@ func (m *Model) currentGrouping() string {
 func (m *Model) rebuild(now time.Time) {
 	wasLast := m.tails() && m.placed && m.onLastRow()
 	m.frame = m.board.Frame(now, m.currentGrouping())
+	m.panelHasText = anyPanelText(m.frame.Groups)
 	m.cue.mark(m.frame.Groups, now)
 	if settled := m.cue.quietFrom.Add(settleFor); m.cue.quiet && !now.Before(settled) && !m.readsUnderWayFrom(settled) {
 		m.cue.quiet = false
@@ -580,8 +613,8 @@ func selectableOf(nodes []node) []node {
 	return slices.DeleteFunc(slices.Clone(nodes), func(n node) bool { return !n.selectable() })
 }
 
-// place puts the cursor on its key, or on the first line holding cells the first time
-// there is one, or on the line it was on where its row is gone.
+// place puts the cursor on its key, or on where it starts the first time there is such a
+// line, or on the line it was on where its row is gone.
 func (m *Model) place() {
 	rows := selectableOf(m.nodes())
 	if len(rows) == 0 {
@@ -593,19 +626,7 @@ func (m *Model) place() {
 			m.cursor, m.cursorAt, m.placed = rows[i].key, i, true
 			return
 		}
-		holdsCells := func(n node) bool {
-			return (n.kind == nodeRow && len(n.row.Cells) > 0) || (n.kind == nodeGroup && len(n.group.Cells) > 0)
-		}
-		i := slices.IndexFunc(rows, holdsCells)
-		if m.tails() {
-			for at := len(rows) - 1; at >= 0; at-- {
-				if holdsCells(rows[at]) {
-					i = at
-					break
-				}
-			}
-		}
-		if i >= 0 {
+		if i := m.startingLine(rows); i >= 0 {
 			m.cursor, m.cursorAt, m.placed = rows[i].key, i, true
 			return
 		}
@@ -616,6 +637,30 @@ func (m *Model) place() {
 	}
 	m.cursorAt = max(0, min(m.cursorAt, len(rows)-1))
 	m.cursor = rows[m.cursorAt].key
+}
+
+// startingLine is the first line holding cells, or the last on a board read from its
+// newest, and otherwise the first with anything to read. The cursor starts past a group
+// with no Panel or Detail, because the panel would only repeat its label.
+func (m *Model) startingLine(rows []node) int {
+	holdsCells := func(n node) bool {
+		if n.kind == nodeGroup {
+			return len(n.group.Cells) > 0 && n.group.hasPanelText()
+		}
+		return len(n.row.Cells) > 0
+	}
+	i := slices.IndexFunc(rows, holdsCells)
+	if m.tails() {
+		for at := len(rows) - 1; at >= 0; at-- {
+			if holdsCells(rows[at]) {
+				return at
+			}
+		}
+	}
+	if i >= 0 {
+		return i
+	}
+	return slices.IndexFunc(rows, func(n node) bool { return n.kind == nodeRow || n.group.hasPanelText() })
 }
 
 func (m *Model) selected() (node, bool) {
@@ -671,14 +716,19 @@ func (m *Model) onOpenText() bool {
 	if n.kind == nodeGroup {
 		return n.group.Document != nil
 	}
-	return n.open && (len(n.row.Detail) > 0 || n.row.Document != nil)
+	return n.open
 }
 
+// panelFits says the screen has room for the side panel and this frame has text for it.
+func (m *Model) panelFits() bool { return m.width >= PanelFrom && m.panelHasText }
+
+// panelWidth grows with the screen up to ReadingWidth. A frame with nothing for the panel to
+// say gives the table its width.
 func (m *Model) panelWidth() int {
-	if m.panelOff || m.width < PanelFrom {
+	if m.panelOff || !m.panelFits() {
 		return 0
 	}
-	return min(64, m.width*3/10)
+	return min(ReadingWidth, m.width*3/10)
 }
 
 func (m *Model) tableWidth() int {
@@ -798,21 +848,18 @@ func (m *Model) panelLines(height int) []string {
 	return lines
 }
 
-// panelText is a node's Panel where it has one, then its Document, and otherwise its Detail.
+// panelText is a node's panelSource, and a group's label and summary where it holds neither.
 func (m *Model) panelText(n node, width int) []string {
 	var authored Document
 	var cells []Cell
 	switch n.kind {
 	case nodeGroup:
-		authored, cells = n.group.Panel, n.group.Detail
+		authored, cells = n.group.panelSource()
 		if len(cells) == 0 {
 			cells = []Cell{C(groupLabel(n.group).Text(), Bold), C(n.group.Summary.Text(), "")}
 		}
 	case nodeRow:
-		authored, cells = n.row.Panel, n.row.Detail
-		if authored == nil {
-			authored = n.row.Document
-		}
+		authored, cells = n.row.panelSource()
 	}
 	var lines []string
 	if authored != nil {
