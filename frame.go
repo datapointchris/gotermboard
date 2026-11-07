@@ -196,6 +196,14 @@ type Group struct {
 	Folded  bool
 	// Gap draws a blank line after the group.
 	Gap bool
+	// Rule draws a thin line after the group, in place of Gap's blank one.
+	Rule bool
+	// Tone is the code the group's overline and underline draw in, where not the rule gray.
+	Tone string
+	// Overline draws a line across the table above the header.
+	Overline RuleWeight
+	// Underline draws a line across the table under the header, ahead of Below.
+	Underline RuleWeight
 	// Still keeps the header open with no fold mark, and the cursor passes over it. At
 	// the top of a frame it stays on screen with the column titles while the table scrolls.
 	Still bool
@@ -239,6 +247,7 @@ const (
 	nodeDetail
 	nodeDocument
 	nodeBlank
+	nodeRule
 )
 
 // node is one line of the table as folds and the filter leave it.
@@ -387,7 +396,10 @@ func (d display) walk(groups []Group, depth int, out []node) []node {
 			}
 			out = d.walk(g.Groups, depth+1, out)
 		}
-		if g.Gap {
+		switch {
+		case g.Rule:
+			out = append(out, node{kind: nodeRule, depth: depth})
+		case g.Gap:
 			out = append(out, node{kind: nodeBlank})
 		}
 	}
@@ -545,6 +557,35 @@ func draw(pal gotermstyle.Palette, columns []Column, nodes []node, width int, cu
 
 // drawNode is the lines one node takes.
 func drawNode(pal gotermstyle.Palette, n node, columns []Column, widths []int, width int, cursor string, wantsTitles bool) []drawn {
+	lines := drawNodeBody(pal, n, columns, widths, width, cursor, wantsTitles)
+	if n.kind == nodeGroup && n.group.Overline != RuleNone {
+		lines = append([]drawn{{text: n.group.Overline.line(pal, width, n.group.Tone)}}, lines...)
+	}
+	return lines
+}
+
+// RuleWeight is how heavy a line across the table is drawn.
+type RuleWeight int
+
+// The weights a rule takes.
+const (
+	RuleNone RuleWeight = iota
+	RuleThin
+	RuleDouble
+)
+
+func (w RuleWeight) line(pal gotermstyle.Palette, width int, tone string) string {
+	if tone == "" {
+		tone = RuleCode
+	}
+	glyph := "─"
+	if w == RuleDouble {
+		glyph = "═"
+	}
+	return pal.Paint(tone, strings.Repeat(glyph, max(width-1, 0)))
+}
+
+func drawNodeBody(pal gotermstyle.Palette, n node, columns []Column, widths []int, width int, cursor string, wantsTitles bool) []drawn {
 	pointer := " "
 	selected := n.selectable() && n.key == cursor
 	switch {
@@ -558,6 +599,8 @@ func drawNode(pal gotermstyle.Palette, n node, columns []Column, widths []int, w
 	switch n.kind {
 	case nodeBlank:
 		text = ""
+	case nodeRule:
+		return []drawn{{text: pal.Paint(RuleCode, strings.Repeat("─", max(width-1, 0)))}}
 	case nodeGroup:
 		if len(n.group.Span) > 0 {
 			return append(spanLines(pal, n, pointer, columns, widths, width, selected), belowLines(pal, n, width)...)
@@ -710,7 +753,10 @@ func wrapLine(line Line, width int) []Line {
 
 // belowLines are the lines a group keeps under its header, at its title's column.
 func belowLines(pal gotermstyle.Palette, n node, width int) []drawn {
-	lines := make([]drawn, 0, len(n.group.Below))
+	lines := make([]drawn, 0, len(n.group.Below)+1)
+	if n.group.Underline != RuleNone {
+		lines = append(lines, drawn{text: n.group.Underline.line(pal, width, n.group.Tone)})
+	}
 	indent := strings.Repeat(" ", indentOf(n.depth)+2)
 	for _, line := range n.group.Below {
 		lines = append(lines, drawn{text: ansi.Truncate(indent+line.elided(width-len(indent)).paint(pal), width, "…")})
@@ -914,3 +960,6 @@ func barFilled(done, open, cells int) int {
 	}
 	return min(max((done*cells+total/2)/total, 1), ceiling)
 }
+
+// RuleCode is the gray a rule draws in, which the terminal palette's theme sets.
+const RuleCode = "\033[0;90m"

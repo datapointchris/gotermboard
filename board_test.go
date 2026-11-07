@@ -3,6 +3,7 @@ package gotermboard
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -523,5 +524,21 @@ func TestTheHalfScreenKeysReadOpenTextOtherwiseMoveTheRows(t *testing.T) {
 	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	if m.Cursor() == "r0" {
 		t.Error("ctrl+d should move the rows with no text open")
+	}
+}
+
+func TestAGroupDrawsItsLinesAboveAndBelowItsHeaderAndARuleAfterIt(t *testing.T) {
+	frame := Frame{Columns: []Column{{Title: ""}, {Title: "N"}}, Groups: []Group{
+		{Key: "a", Title: Line{C("first", "")}, Cells: []Cell{C("1", "")}, Overline: RuleDouble, Underline: RuleThin, Rule: true},
+		{Key: "b", Title: Line{C("second", "")}, Cells: []Cell{C("2", "")}},
+	}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	lines := strings.Split(m.screen(), "\n")
+	at := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "first") })
+	if at < 1 || at+2 >= len(lines) {
+		t.Fatalf("the header sits where no lines can surround it:\n%s", m.screen())
+	}
+	if !strings.HasPrefix(lines[at-1], "══") || !strings.HasPrefix(lines[at+1], "──") || !strings.HasPrefix(lines[at+2], "──") {
+		t.Errorf("want a double line above, then a thin line under and a rule after:\n%s", m.screen())
 	}
 }
