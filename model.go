@@ -256,10 +256,19 @@ func actionTable() []Action {
 		{Keys: []string{"G", "end"}, Label: "go to the bottom", Run: moved(func(m *Model) int { return len(m.nodes()) })},
 		{Keys: []string{"ctrl+d", "pgdown"}, Label: "half a screen down the open text, or down the rows", Run: halfScreen(1)},
 		{Keys: []string{"ctrl+u", "pgup"}, Label: "half a screen up the open text, or up the rows", Run: halfScreen(-1)},
+		{Keys: []string{"enter"}, Label: "fold a group, or open a row, a tall document full screen", Footer: "enter open", Run: (*Model).toggle, Applies: (*Model).cursorToggles},
+		{Keys: []string{"space"}, Label: "fold a group, or open or close a row's text in place", Footer: "space fold", Run: (*Model).toggleInPlace, Applies: (*Model).cursorToggles},
+		// The way to the other keys and the way out sit ahead of what a narrow footer cuts.
+		{Keys: []string{"?"}, Label: "show these keys and every read", Footer: "? keys", Run: func(m *Model) tea.Cmd {
+			m.overlay = true
+			return nil
+		}},
+		{Keys: []string{"q", "ctrl+c"}, Label: "quit", Footer: "q quit", Run: func(m *Model) tea.Cmd {
+			m.cancel()
+			return tea.Quit
+		}},
 		{Keys: []string{"J"}, Label: "scroll the open text down a line", Footer: "J/K scroll", Run: scrolled(1), Applies: (*Model).onOpenText},
 		{Keys: []string{"K"}, Label: "scroll the open text up a line", Run: scrolled(-1), Applies: (*Model).onOpenText},
-		{Keys: []string{"enter"}, Label: "fold a group, or open a row's text, full screen where it runs past the screen", Footer: "enter open", Run: (*Model).toggle},
-		{Keys: []string{"space"}, Label: "fold a group, or open or close a row's text in place, however tall", Footer: "space fold", Run: (*Model).toggleInPlace},
 		{
 			Keys: []string{"v"}, Label: "cycle the grouping", Footer: "v group", Run: (*Model).nextGrouping,
 			Applies: func(m *Model) bool { return len(m.board.Groupings()) > 1 },
@@ -291,14 +300,6 @@ func actionTable() []Action {
 			}
 			m.said = "reading every source again"
 			return m.dueReads(time.Now())
-		}},
-		{Keys: []string{"?"}, Label: "show these keys and every read", Footer: "? keys", Run: func(m *Model) tea.Cmd {
-			m.overlay = true
-			return nil
-		}},
-		{Keys: []string{"q", "ctrl+c"}, Label: "quit", Footer: "q quit", Run: func(m *Model) tea.Cmd {
-			m.cancel()
-			return tea.Quit
 		}},
 	}
 }
@@ -510,6 +511,12 @@ func (m *Model) toggleInPlace() tea.Cmd {
 	m.placed = true
 	m.revealDetail()
 	return nil
+}
+
+// cursorToggles says enter and space would change something on the cursor's line.
+func (m *Model) cursorToggles() bool {
+	n, ok := m.selected()
+	return ok && n.toggles
 }
 
 // title is the row's words, for a Reader to name what it holds.

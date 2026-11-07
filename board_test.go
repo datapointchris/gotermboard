@@ -69,6 +69,7 @@ func (b groupedBoard) Groupings() []string { return []string{"one", "two"} }
 func TestTheFooterListsOnlyTheKeysThisViewCanUse(t *testing.T) {
 	plain := fixedBoard{Frame{Columns: []Column{{Title: "NAME"}}, Groups: []Group{{Key: "g", Rows: []Row{{Key: "r", Cells: []Cell{C("x", "")}}}}}}}
 	withLines := fixedBoard{Frame{Columns: plain.frame.Columns, Groups: []Group{{Key: "g", Groups: []Group{{Key: "inner", Rows: []Row{{Key: "r", Under: C("the first line", ""), Detail: []Cell{C("more", "")}}}}}}}}}
+	openRow := fixedBoard{Frame{Columns: plain.frame.Columns, Groups: []Group{{Key: "g", Rows: []Row{{Key: "r", Cells: []Cell{C("x", "")}, Detail: []Cell{C("more", "")}, StartsOpen: true}}}}}}
 	for _, test := range []struct {
 		name         string
 		board        Board
@@ -76,7 +77,9 @@ func TestTheFooterListsOnlyTheKeysThisViewCanUse(t *testing.T) {
 		shown, unset []string
 	}{
 		{"nothing to offer", plain, 120, []string{"j/k move", "? keys"}, []string{"v group", "f summaries", "p panel"}},
-		{"every key has a use", groupedBoard{withLines}, PanelFrom, []string{"v group", "f summaries", "p panel"}, nil},
+		{"the cursor on a row holding neither Detail nor Document", plain, 120, nil, []string{"enter open", "space fold"}},
+		{"every key has a use", groupedBoard{withLines}, PanelFrom, []string{"enter open", "space fold", "v group", "f summaries", "p panel"}, nil},
+		{"a 60-column terminal with the cursor on an open row", openRow, 60, []string{"? keys", "q quit"}, nil},
 	} {
 		screen := Once(test.board, gotermstyle.NewPalette(true), test.width, 10)
 		for _, want := range test.shown {
