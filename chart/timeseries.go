@@ -294,7 +294,6 @@ func drawLine(lc *linechart.Model, s Series, style lipgloss.Style) {
 	graph.DrawBraillePatterns(&lc.Canvas, canvas.Point{X: plotLeft(lc)}, grid.BraillePatterns(), style)
 }
 
-
 // drawColumns draws a series' readings as columns up from the axis's foot over the plotting area.
 func drawColumns(lc *linechart.Model, s Series, style lipgloss.Style) {
 	width, height := lc.GraphWidth(), lc.GraphHeight()
