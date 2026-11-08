@@ -610,6 +610,45 @@ func TestAQuestionTakesEveryKeyUntilEnterHandsItTheLineOrEscClosesIt(t *testing.
 	}
 }
 
+type choosingBoard struct {
+	fixedBoard
+	answers *[]string
+}
+
+func (b choosingBoard) Actions() []Action {
+	heard := func(said string) tea.Cmd {
+		*b.answers = append(*b.answers, said)
+		return nil
+	}
+	return []Action{{Keys: []string{"f"}, Run: func(m *Model) tea.Cmd {
+		m.Ask(Question{
+			Listing: []Line{{C("#13 conflicts with main", "")}}, Text: "fix #13:", Typed: true, Answer: heard,
+			Choices: []Choice{{Key: "n", Label: "resolve in nvim"}, {Key: "c", Label: "hand to claude"}},
+			Cancel:  func() tea.Cmd { return heard("canceled") },
+		})
+		return nil
+	}}}
+}
+
+func TestAQuestionWithChoicesAnswersOnTheKeyNamingOneAndNothingElse(t *testing.T) {
+	var answers []string
+	frame := Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "g", Rows: []Row{{Key: "row", Cells: []Cell{C("row", "")}}}}}}
+	m := NewModel(choosingBoard{fixedBoard{frame}, &answers}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	m.Update(typedKey("f"))
+	if screen := m.screen(); !strings.Contains(screen, "#13 conflicts with main\nfix #13:\n  n  resolve in nvim\n  c  hand to claude\nn c chooses  esc cancels") {
+		t.Errorf("the menu should draw its listing, its text, a choice a line, then the keys:\n%s", screen)
+	}
+	for _, key := range []tea.KeyPressMsg{enterKey, typedKey("x"), typedKey("q"), typedKey("c")} {
+		m.Update(key)
+	}
+	m.Update(typedKey("f"))
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if strings.Join(answers, ",") != "c,canceled" {
+		t.Errorf("answers %q, want the choice's key alone, then the cancel", answers)
+	}
+}
+
 func TestACursorBoardHearsEachKeyTheCursorLandsOnOnce(t *testing.T) {
 	frame := Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "g", Rows: []Row{
 		{Key: "one", Cells: []Cell{C("one", "")}}, {Key: "two", Cells: []Cell{C("two", "")}},

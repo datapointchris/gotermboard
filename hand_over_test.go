@@ -147,4 +147,11 @@ func TestOpenWindowLooksForItsProgramsAndDirectoryThenRunsArgvInTmux(t *testing.
 	if got, want := ran(), "new-window\n-n\nreview\nunlisted '/review-pr 12'\n"; got != want {
 		t.Errorf("tmux ran\n%s\nwant\n%s", got, want)
 	}
+
+	if err := OpenWindowBehind("fix 12", dir, brief); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := ran(), strings.Join([]string{"new-window", "-d", "-n", "fix 12", "-c", dir, "claude", "a brief with spaces"}, "\n")+"\n"; got != want {
+		t.Errorf("tmux ran\n%s\nwant the window opened behind the board's\n%s", got, want)
+	}
 }

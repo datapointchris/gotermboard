@@ -393,7 +393,7 @@ as a merge moves to the next row in its group. It says whether the key shows, so
 the next candidate where the filter or a fold hides one. A key that changed what the board holds
 calls `Rebuild` first, so the key is looked for in the new frame.
 
-## A key can ask for a line of text on the footer
+## A key can ask on the footer for a line of text or one key from a menu
 
 `Model.Ask` puts a `Question` on the footer's lines. With `Typed` set it takes one line typed under
 the question, and `enter` hands `Answer` what was typed, trimmed. Without it `enter` alone answers,
@@ -423,6 +423,20 @@ A question about several things names each one in its `Listing`, a `Line` each, 
 question and cut at the screen's edge. The listing takes the screen above the footer and leaves the
 table one line, which the cursor's row holds. A listing longer than that ends on how many more it
 held.
+
+A question with `Choices` is a menu. Each `Choice` draws under the question as its key and a label,
+and pressing that key answers at once, handing `Answer` the key. Every other key does nothing,
+`enter` included, so a reflex press picks nothing, and `esc` cancels as it does any question. The
+choices are never cut, so the listing gives way to them.
+
+```go
+m.Ask(gotermboard.Question{
+ Listing: []gotermboard.Line{{gotermboard.C("#13 conflicts with main in 2 files", "")}},
+ Text:    "fix #13:",
+ Choices: []gotermboard.Choice{{Key: "n", Label: "resolve in nvim"}, {Key: "c", Label: "hand to claude"}},
+ Answer:  func(key string) tea.Cmd { return fixes[key](m) },
+})
+```
 
 ## A key's command reports back to its board
 
@@ -493,3 +507,5 @@ quoting. tmux opens a window whether or not its program starts, and in another d
 `dir` is gone. So `OpenWindow` first looks for `dir`, and for tmux, `argv[0]` and each of `needs`
 on `PATH`. A lone argument holding a space is a shell command, which tmux runs through its default
 shell, so `needs` names the programs it runs. Outside tmux it opens nothing and says why.
+`OpenWindowBehind` takes the same arguments and leaves the board's window current, for a command
+that runs on its own while the board stays in front.
