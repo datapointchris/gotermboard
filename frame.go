@@ -1420,17 +1420,17 @@ func wrap(text string, width int) []string {
 	return out
 }
 
-// TallyBar is one cell per unit counted: done ▰ in green, under way ▱ in yellow, blocked ✕ in
+// TallyBar is one cell per unit counted: done ▰ in green, under way ▱ in yellow, blocked ▱ in
 // red and the rest ▱ plain. Its length shows how many there are, and one blocked unit among
 // sixty still shows, where a fixed width would round it away. Without color only done is
-// filled and blocked is crossed, so no unfinished unit reads as done. In a WrapLast it keeps
-// every cell however narrow the row.
+// filled, so no unfinished unit reads as done. In a WrapLast it keeps every cell however
+// narrow the row.
 func TallyBar(done, underWay, blocked, rest int) Line {
 	cells := func(glyph string, n int) string { return strings.Repeat(glyph, max(n, 0)) }
 	return Line{
 		C(cells("▰", done), Green),
 		C(cells("▱", underWay), Yellow),
-		C(cells("✕", blocked), Red),
+		C(cells("▱", blocked), Red),
 		C(cells("▱", rest), ""),
 	}
 }
