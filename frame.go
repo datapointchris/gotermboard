@@ -285,6 +285,12 @@ const (
 	MarkCode  = BoldMagenta
 )
 
+// The mark a row naming what the tabs are locked to draws in the same cell, ahead of MarkGlyph.
+const (
+	LockGlyph = "●"
+	LockCode  = BoldCyan
+)
+
 // Group is a header carrying its count, with rows and groups under it.
 type Group struct {
 	Key   string
@@ -436,6 +442,8 @@ type node struct {
 	// names says the node scrolls and has words to name what sits inside it, so the sticky band
 	// and a reader's path both name it.
 	names bool
+	// locked says the row names what the tabs are locked to, so it wears LockGlyph.
+	locked bool
 }
 
 func (n node) selectable() bool {
@@ -474,6 +482,8 @@ type display struct {
 	opened map[string]bool
 	under  bool
 	filter string
+	// locked is what every tab is locked to, and nil with no lock.
+	locked *EntityRef
 	// matched keeps what the filter reads of each row, because one draw walks the rows several
 	// times, the clock draws a frame a second, and a row's text can run to pages.
 	matched *rowMatches
@@ -580,8 +590,21 @@ func (d display) groupMatches(g *Group) bool {
 	return false
 }
 
-// heldOpen says nothing can fold the group: it is Still, or a filter holds every group open.
-func (d display) heldOpen(g *Group) bool { return d.filter != "" || g.Still }
+// heldOpen says nothing can fold the group: it is Still, or a filter or a lock holds every
+// group open.
+func (d display) heldOpen(g *Group) bool { return d.filter != "" || d.locked != nil || g.Still }
+
+// namesLocked says the group itself names what the tabs are locked to, which keeps every line
+// under it.
+func (d display) namesLocked(g *Group) bool {
+	return d.locked != nil && slices.Contains(g.Entities, *d.locked)
+}
+
+// keepsRow says the lock leaves the row: nothing is locked, a group above names it, or the row
+// names it itself.
+func (d display) keepsRow(r *Row, held bool) bool {
+	return d.locked == nil || held || slices.Contains(r.Entities, *d.locked)
+}
 
 func (d display) isOpen(g *Group) bool {
 	if d.heldOpen(g) {
@@ -594,9 +617,18 @@ func (d display) isOpen(g *Group) bool {
 }
 
 // shows says the table draws the group at all.
-func (d display) shows(g *Group) bool {
+func (d display) shows(g *Group) bool { return d.showsUnder(g, false) }
+
+// showsUnder is shows for a group whose parent the lock may already keep whole. A lock keeps a
+// group that holds a line naming what is locked, as a filter keeps one holding a match.
+func (d display) showsUnder(g *Group, held bool) bool {
+	if d.locked != nil && !held {
+		if _, _, holds := entityLine([]Group{*g}, *d.locked, nil); !holds {
+			return false
+		}
+	}
 	if d.filter == "" {
-		return !g.FilterOnly
+		return !g.FilterOnly || d.locked != nil
 	}
 	return d.groupMatches(g)
 }
@@ -642,7 +674,7 @@ func anyUnder(groups []Group, widths []int, depth int) bool {
 // leaves ahead of them, and the width each column takes for it. Each node is marked with
 // whether it stays on screen and whether it names what sits inside it.
 func (d display) nodes(groups []Group, columns []Column, width int, look Look) ([]node, []Column, []int) {
-	nodes := d.walk(groups, 0, -1, nil)
+	nodes := d.walk(groups, 0, -1, false, nil)
 	columns, widths := layout(columns, nodes, width, look)
 	nodes = withoutHiddenUnders(nodes, widths)
 	pinned := true
@@ -686,12 +718,15 @@ func (n node) holdsNamedLines() bool {
 	return false
 }
 
-func (d display) walk(groups []Group, depth, parent int, out []node) []node {
+// walk is the nodes of groups. held says a group above names what is locked, so every line
+// under it stays.
+func (d display) walk(groups []Group, depth, parent int, held bool, out []node) []node {
 	for i := range groups {
 		g := &groups[i]
-		if !d.shows(g) {
+		if !d.showsUnder(g, held) {
 			continue
 		}
+		heldHere := held || d.namesLocked(g)
 		open := d.isOpen(g)
 		self := len(out)
 		out = append(out, node{kind: nodeGroup, key: g.Key, depth: depth, group: g, open: open, toggles: d.folds(g), drawsRows: d.drawsRows(g), parent: parent})
@@ -709,7 +744,7 @@ func (d display) walk(groups []Group, depth, parent int, out []node) []node {
 			drawnRows := 0
 			for j := range g.Rows {
 				r := &g.Rows[j]
-				if !d.matches(r) {
+				if !d.matches(r) || !d.keepsRow(r, heldHere) {
 					continue
 				}
 				if g.BetweenRows != RuleNone && drawnRows > 0 {
@@ -718,7 +753,10 @@ func (d display) walk(groups []Group, depth, parent int, out []node) []node {
 				drawnRows++
 				rowOpen := d.isRowOpen(r)
 				row := len(out)
-				out = append(out, node{kind: nodeRow, key: r.Key, depth: depth + 1, row: r, open: rowOpen, toggles: r.opens(), parent: self})
+				out = append(out, node{
+					kind: nodeRow, key: r.Key, depth: depth + 1, row: r, open: rowOpen, toggles: r.opens(), parent: self,
+					locked: d.locked != nil && slices.Contains(r.Entities, *d.locked),
+				})
 				if d.under && r.Under.Text != "" {
 					out = append(out, node{kind: nodeUnder, depth: depth + 1, row: r, cell: r.Under, parent: self})
 				}
@@ -732,7 +770,7 @@ func (d display) walk(groups []Group, depth, parent int, out []node) []node {
 					}
 				}
 			}
-			out = d.walk(g.Groups, depth+1, self, out)
+			out = d.walk(g.Groups, depth+1, self, heldHere, out)
 		}
 		switch {
 		case g.Rule:
@@ -1345,7 +1383,10 @@ func drawGroup(p painter, n node, columns []Column, widths []int, titles bool) s
 // chevron in the last sits one cell in from its parent's, so the nesting shows.
 func rowIndent(p painter, n node) string {
 	mark := " "
-	if n.row.Marked {
+	switch {
+	case n.locked:
+		mark = p.cell(C(LockGlyph, LockCode))
+	case n.row.Marked:
 		mark = p.cell(C(MarkGlyph, MarkCode))
 	}
 	return strings.Repeat(" ", indentOf(n.depth)-3) + mark + n.foldMark()

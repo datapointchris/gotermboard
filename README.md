@@ -76,9 +76,32 @@ names goes to more than one place, `t` lists them by number and goes to the one 
   on one. A jump there hands it the terminal and pushes nothing, because quitting it comes back.
   It ends as `HandOver` does: the board receives the `HandedBack`, and a failure says the last
   line of its stderr. `Command` returns a `tea.ExecCommand`, so the caller's own runner starts it.
+- **`EntityPage` names the tab that shows any one entity whole,** as Backstage gives each entity
+  one page. `i` opens it on what the row names, from any tab, the page's own included, and lists
+  the row's things by number where it names several. `t` leaves the page out of its list, because
+  a row naming three things would otherwise list each twice. A jump from the page to itself
+  pushes what the page showed, so `esc` opens it on that again.
 - **`Tabs.Keys` is the keys a board's own would hide**: tab and shift+tab where there are tabs to
-  cycle, and `t` where a row could go somewhere. `TableKeys` is the table's alone.
-  `Model.CursorEntities` is what the cursor's line names.
+  cycle, `t` where a row could go somewhere, `i` where a tab is the entity page, and `*` where
+  there are tabs to lock. `TableKeys` is the table's alone. `Model.CursorEntities` is what the
+  cursor's line names.
+
+## `*` locks every tab to what a row names
+
+The lock is cross-filtering, as Tableau's brushing and linking and Grafana's ad hoc filters are.
+`*` on a row locks every tab to the one thing it names, asking by number where it names several,
+and `*` again from any tab lifts it.
+
+- **Each tab keeps only the lines naming the locked thing,** and every line under a group that
+  names it. A group holding such a line stays, open, as a filter holds a match's groups open.
+  Each row naming it directly wears `LockGlyph` in its indent, ahead of `MarkGlyph`.
+- **The tab line leaves out a tab holding nothing locked, and tab skips it.** Only a frame built
+  from reads that all landed answers that. A tab never shown, with a read under way or with a
+  failed read may still hold the thing, so it stays listed, and a hidden tab still reads nothing.
+  The tab showing always stays. The line names the lock after the tabs.
+- **A tab shown under a lock puts its cursor on the first line naming the thing** once its reads
+  land, as a jump does, and the footer says what is locked and that `*` lifts it.
+- **The lock filters what each board draws, and changes no board's reads.**
 
 `Once` draws one frame from what a board's sources already hold, and `OnceSize` picks
 its size: `COLUMNS` by `LINES`, then the terminal, then a fallback you pass. A screen that

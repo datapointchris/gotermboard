@@ -126,6 +126,8 @@ type Model struct {
 	cancel  context.CancelFunc
 
 	frame Frame
+	// built says a frame was built, so frame is the board's answer rather than nothing yet.
+	built bool
 	// width and height are what the board draws in, inside its Look's margin, and margin is
 	// that margin: Sides and Ends as the screen's size leaves them.
 	width    int
@@ -950,7 +952,7 @@ func (m *Model) currentGrouping() string {
 
 func (m *Model) rebuild(now time.Time) {
 	wasLast := m.tails() && m.placed && m.onLastRow()
-	m.frame = m.board.Frame(now, m.currentGrouping())
+	m.frame, m.built = m.board.Frame(now, m.currentGrouping()), true
 	m.layout = nil
 	m.display.matched.newFrame()
 	m.drawStrip(now)
@@ -1234,6 +1236,9 @@ func (m *Model) footer() []string {
 		lines = append(lines, m.wrapped(m.said)...)
 	case m.display.filter != "":
 		lines = append(lines, ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…"))
+	}
+	if locked := m.lockLine(); locked != "" {
+		lines = append(lines, ansi.Truncate(m.painter.cell(C(LockGlyph, LockCode))+" "+locked, m.width, "…"))
 	}
 	return append(lines, ansi.Truncate(strings.Join(FooterHints(m.actions()), "  "), m.width, "…"))
 }

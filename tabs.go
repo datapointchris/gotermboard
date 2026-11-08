@@ -28,10 +28,23 @@ type Tabs struct {
 	models  []*Model
 	painter painter
 	at      int
-	// back is the tab each jump left, newest last, which esc returns to. A cycle empties it,
+	// back is each step a jump left, newest last, which esc returns to. A cycle empties it,
 	// because the reader then left the trail the jumps made.
-	back    []int
+	back    []backStep
 	outside []Outside
+	// page is the tab EntityPage names, and pageShows what it was last opened on.
+	page      int
+	hasPage   bool
+	pageShows *EntityRef
+	// locked is what LockKey locked every tab to, and nil with no lock.
+	locked *EntityRef
+}
+
+// backStep is the tab a jump left, and what the entity page showed where it left the page, so
+// esc puts that back.
+type backStep struct {
+	tab  int
+	page *EntityRef
 }
 
 // NewTabs is a program of these tabs, opening on the one named open, or the first where
@@ -67,12 +80,15 @@ func (t *Tabs) hostActions() {
 	}
 }
 
-// besideTable is the keys Tabs binds beside the table's: tab's, then t's.
-func (t *Tabs) besideTable() []Action { return append(t.cycleActions(), t.jumpActions()...) }
+// besideTable is the keys Tabs binds beside the table's: tab's, t's, i's, then the lock's.
+func (t *Tabs) besideTable() []Action {
+	return slices.Concat(t.cycleActions(), t.jumpActions(), t.pageActions(), t.lockActions())
+}
 
 // Keys is every key Tabs binds beside the table's, which a board's own key would hide: tab and
-// shift+tab where there are tabs to cycle, and JumpKey where a row could go somewhere. A board
-// taking keys from its own config asks this and TableKeys which ones it would take.
+// shift+tab where there are tabs to cycle, JumpKey where a row could go somewhere, PageKey where
+// a tab is the entity page, and LockKey where there are tabs to lock. A board taking keys from
+// its own config asks this and TableKeys which ones it would take.
 func (t *Tabs) Keys() []string {
 	var keys []string
 	for _, action := range t.besideTable() {
@@ -104,7 +120,7 @@ func (t *Tabs) cycleActions() []Action {
 	cycle := func(by int) func(*Model) tea.Cmd {
 		return func(*Model) tea.Cmd {
 			t.back = nil
-			return t.show(t.at + by)
+			return t.showLocked(t.nextListed(by))
 		}
 	}
 	return []Action{
@@ -171,10 +187,12 @@ func (t *Tabs) View() tea.View {
 // tabLine names the tabs, each padded by a space and two spaces apart. It marks the current
 // tab by color and weight rather than a box, as a tmux status line marks its window: bold in
 // ui.warning, and the rest in ui.muted, so it reads like a tmux bar drawn from the same theme.
-// Where there is no color, brackets take the current tab's padding, so no name moves.
+// Where there is no color, brackets take the current tab's padding, so no name moves. Under a
+// lock it leaves out each tab holding nothing locked, and names the lock after the tabs.
 func (t *Tabs) tabLine() string {
-	parts := make([]string, 0, len(t.names))
-	for i, name := range t.names {
+	parts := make([]string, 0, len(t.names)+1)
+	for _, i := range t.listed() {
+		name := t.names[i]
 		switch {
 		case i != t.at:
 			parts = append(parts, t.painter.cell(Cell{Text: " " + name + " ", Role: "ui.muted"}))
@@ -183,6 +201,9 @@ func (t *Tabs) tabLine() string {
 		default:
 			parts = append(parts, "["+name+"]")
 		}
+	}
+	if t.locked != nil {
+		parts = append(parts, t.painter.cell(C(LockGlyph+" "+t.locked.Kind+" "+t.locked.ID, LockCode)))
 	}
 	return ansi.Truncate(strings.Join(parts, "  "), t.active().width, "…")
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 	"slices"
 	"strconv"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -69,11 +70,14 @@ func (j jumpTarget) where(t *Tabs) string {
 
 // jumpTargets is every place the cursor's entities go from the tab showing, in the order the row
 // names them: each other tab that shows the kind, then each program outside. A tab is never its
-// own target, because the row is already there.
+// own target, because the row is already there. The entity page is PageKey's, so t leaves it out.
 func (t *Tabs) jumpTargets(m *Model) []jumpTarget {
 	var targets []jumpTarget
 	for _, ref := range m.CursorEntities() {
 		for at, model := range t.models {
+			if t.hasPage && at == t.page {
+				continue
+			}
 			if board, ok := model.board.(EntityBoard); ok && at != t.at && slices.Contains(board.EntityKinds(), ref.Kind) {
 				targets = append(targets, jumpTarget{ref: ref, tab: at})
 			}
@@ -107,6 +111,84 @@ func (t *Tabs) jumpActions() []Action {
 		Run:     t.pickJump,
 		Applies: func(m *Model) bool { return len(t.jumpTargets(m)) > 0 },
 	}}
+}
+
+// PageKey opens the entity page on what the cursor's row names, from any tab, the page's own
+// included.
+const PageKey = "i"
+
+// EntityPage names the tab that shows any one entity whole, as Backstage gives each entity one
+// page. Its board is an EntityBoard. PageKey goes there, and JumpKey leaves it out of its list,
+// because a row naming three things would otherwise list each twice.
+func (t *Tabs) EntityPage(name string) error {
+	at := slices.Index(t.names, name)
+	if at < 0 {
+		return fmt.Errorf("no tab %q: the tabs are %s", name, strings.Join(t.names, ", "))
+	}
+	if _, ok := t.models[at].board.(EntityBoard); !ok {
+		return fmt.Errorf("tab %q shows no entity, so it cannot be the entity page", name)
+	}
+	t.page, t.hasPage = at, true
+	t.hostActions()
+	return nil
+}
+
+// pageRefs is what the cursor's row names that the entity page shows.
+func (t *Tabs) pageRefs(m *Model) []EntityRef {
+	if !t.hasPage {
+		return nil
+	}
+	kinds := t.models[t.page].board.(EntityBoard).EntityKinds()
+	var refs []EntityRef
+	for _, ref := range m.CursorEntities() {
+		if slices.Contains(kinds, ref.Kind) {
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
+// pageActions is PageKey, which opens the page on the one thing the row names, or asks which
+// where it names several.
+func (t *Tabs) pageActions() []Action {
+	if !t.hasPage {
+		return nil
+	}
+	return []Action{{
+		Keys: []string{PageKey}, Label: "open everything known about what the row names, in " + t.names[t.page] + "; esc comes back",
+		Footer:  PageKey + " " + t.names[t.page],
+		Run:     t.pickPage,
+		Applies: func(m *Model) bool { return len(t.pageRefs(m)) > 0 },
+	}}
+}
+
+func (t *Tabs) pickPage(m *Model) tea.Cmd {
+	refs := t.pageRefs(m)
+	switch len(refs) {
+	case 0:
+		return nil
+	case 1:
+		return t.jump(jumpTarget{ref: refs[0], tab: t.page})
+	}
+	listing := make([]Line, 0, len(refs))
+	for i, ref := range refs {
+		listing = append(listing, Line{C(strconv.Itoa(i+1), Bold), C("  "+ref.Kind+" "+ref.ID, "")})
+	}
+	openedNothing := func() tea.Cmd {
+		m.Say("opened nothing")
+		return nil
+	}
+	m.Ask(Question{
+		Listing: listing, Text: fmt.Sprintf("open 1 to %d:", len(refs)), Typed: true, Cancel: openedNothing,
+		Answer: func(typed string) tea.Cmd {
+			n, err := strconv.Atoi(typed)
+			if err != nil || n < 1 || n > len(refs) {
+				return openedNothing()
+			}
+			return t.jump(jumpTarget{ref: refs[n-1], tab: t.page})
+		},
+	})
+	return nil
 }
 
 // backActions is esc while a jump brought the reader here. It sits ahead of the board's own keys,
@@ -154,14 +236,26 @@ func (t *Tabs) jump(target jumpTarget) tea.Cmd {
 	if outside := target.outside; outside != nil {
 		return t.active().openOutside(outside, target.ref)
 	}
-	to := t.models[target.tab]
-	whole := to.board.(EntityBoard).ShowEntity(target.ref)
+	step := backStep{tab: t.at}
+	if t.hasPage && t.at == t.page {
+		step.page = t.pageShows
+	}
+	t.back = append(t.back, step)
+	return t.showEntity(target.tab, target.ref)
+}
+
+// showEntity tells the tab at at the entity, then shows it, with its cursor where the board says.
+func (t *Tabs) showEntity(at int, ref EntityRef) tea.Cmd {
+	to := t.models[at]
+	whole := to.board.(EntityBoard).ShowEntity(ref)
 	to.toTop()
 	if !whole {
-		to.seeking = &seek{ref: target.ref, tab: t.names[target.tab]}
+		to.seeking = &seek{ref: ref, tab: t.names[at]}
 	}
-	t.back = append(t.back, t.at)
-	return t.show(target.tab)
+	if t.hasPage && at == t.page {
+		t.pageShows = &ref
+	}
+	return t.show(at)
 }
 
 // openOutside hands the terminal to the program outside on ref, as HandOver does.
@@ -197,11 +291,15 @@ func (r *runnerHandedOver) SetStderr(w io.Writer) {
 
 func (r *runnerHandedOver) kept() []byte { return r.tail.kept() }
 
-// goBack shows the tab the newest jump left, whose cursor stayed where it was.
+// goBack shows the tab the newest jump left, whose cursor stayed where it was. A jump from the
+// entity page to itself changed what the page shows, so going back opens it on that again.
 func (t *Tabs) goBack() tea.Cmd {
 	from := t.back[len(t.back)-1]
 	t.back = t.back[:len(t.back)-1]
-	return t.show(from)
+	if from.page != nil && (t.pageShows == nil || *from.page != *t.pageShows) {
+		return t.showEntity(from.tab, *from.page)
+	}
+	return t.show(from.tab)
 }
 
 // seek is the entity a jump came for, which the cursor goes to once a line names it, and the
