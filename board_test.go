@@ -771,6 +771,10 @@ func TestAPanelLineWrapsAtSpacesKeepingEachCellsColor(t *testing.T) {
 	if last := pieces[len(pieces)-1]; last[len(last)-1].Code != Red {
 		t.Errorf("the last word should keep its cell's color: %+v", last)
 	}
+	pieces = wrapWords(Line{C("one\n\ntwo", Green)}, 40)
+	if len(pieces) != 3 || pieces[0].Text() != "one" || pieces[1].Text() != "" || pieces[2][0].Code != Green {
+		t.Errorf("a line break should start a new line, a blank one kept, with no break left in the text: %+v", pieces)
+	}
 }
 
 func TestASpanGroupDrawsItsSpanWholeWithItsCellsAndBesideOnTheLineBelow(t *testing.T) {

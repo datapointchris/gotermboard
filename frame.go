@@ -1375,9 +1375,16 @@ func drawRow(p painter, n node, columns []Column, widths []int) string {
 	return indent + symbol + p.cell(first) + columnCells(p, r.Cells[1:], 1, r.WrapLast, columns, widths)
 }
 
-// wrapWords breaks a line at spaces to width, each cell keeping its color. A word wider
-// than width is cut.
+// wrapWords breaks a line at its line breaks, then at spaces to width, each cell keeping its
+// color. A word wider than width is cut.
 func wrapWords(line Line, width int) []Line {
+	if parts := splitAtLineBreaks(line); len(parts) > 1 {
+		var out []Line
+		for _, part := range parts {
+			out = append(out, wrapWords(part, width)...)
+		}
+		return out
+	}
 	if width < 2 || line.width() <= width {
 		return []Line{line}
 	}
@@ -1409,6 +1416,23 @@ func wrapWords(line Line, width int) []Line {
 	}
 	if len(current) > 0 {
 		finish()
+	}
+	return out
+}
+
+// splitAtLineBreaks cuts a line at each "\n" in its cells. A break reaching the terminal moves
+// the cursor to column 0, outside the panel.
+func splitAtLineBreaks(line Line) []Line {
+	out := []Line{nil}
+	for _, c := range line {
+		for i, text := range strings.Split(c.Text, "\n") {
+			if i > 0 {
+				out = append(out, nil)
+			}
+			if text != "" {
+				out[len(out)-1] = append(out[len(out)-1], c.withText(text))
+			}
+		}
 	}
 	return out
 }
