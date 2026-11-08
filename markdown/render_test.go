@@ -122,8 +122,8 @@ func TestARendererThatWrapsEveryFenceKeepsAllOfADiagram(t *testing.T) {
 }
 
 func TestProseResolvesEscapesAndKeepsAPlaceholderAndALinksAddressAsWritten(t *testing.T) {
-	got := texts(New(nil).Lines("a \\* b &amp; `<code>` run new <slug> [docs](https://example.com) https://example.org\n", 200))[0]
-	want := "a * b & <code> run new <slug> docs (https://example.com) https://example.org"
+	got := texts(New(nil).Lines("a \\* b &amp; \\&amp; `<code>` run new <slug> [docs](https://example.com) https://example.org\n", 200))[0]
+	want := "a * b & &amp; <code> run new <slug> docs (https://example.com) https://example.org"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

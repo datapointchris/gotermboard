@@ -49,9 +49,22 @@ func (l *layout) run(text string, s style) gotermboard.Line {
 	return gotermboard.Line{gotermboard.C(text, s.code())}
 }
 
-// prose is a text node's bytes as a reader sees them, its escapes and entities resolved.
+// prose is a text node's bytes as a reader sees them, its escapes and entities resolved in one
+// pass, so an escaped `&` stays as typed rather than opening a reference.
 func prose(raw []byte) string {
-	return string(util.UnescapePunctuations(util.ResolveNumericReferences(util.ResolveEntityNames(raw))))
+	var b strings.Builder
+	resolve := func(run []byte) { b.Write(util.ResolveNumericReferences(util.ResolveEntityNames(run))) }
+	start := 0
+	for i := 0; i < len(raw)-1; i++ {
+		if raw[i] == '\\' && util.IsPunct(raw[i+1]) {
+			resolve(raw[start:i])
+			b.WriteByte(raw[i+1])
+			i++
+			start = i + 1
+		}
+	}
+	resolve(raw[start:])
+	return b.String()
 }
 
 func (l *layout) inline(parent ast.Node, s style) gotermboard.Line {
