@@ -56,6 +56,12 @@ func TestATableKeepsItsShortColumnWholeAndFitsTheWidth(t *testing.T) {
 			t.Errorf("%q is wider than the table's room", line)
 		}
 	}
+
+	path := "| release | v0.16.0 |\n| --- | --- |\n| report | /home/someone/.local/state/a-path-longer-than-the-room.json |\n"
+	lines = texts(New(nil).Lines(path, 40))
+	if !strings.HasPrefix(lines[0], "release │ v0.16.0") || !strings.HasPrefix(lines[2], "report  │ /home") {
+		t.Errorf("a word too long for the room should not squeeze the short column: %q", lines)
+	}
 }
 
 func TestCodeWrapsAndHighlightsInALanguageItNamesAndAnyOtherFenceStaysPlainAndCut(t *testing.T) {

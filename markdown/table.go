@@ -114,17 +114,32 @@ func columnWidths(grid [][]gotermboard.Line, columns, room int) []int {
 	if sum(most) <= room {
 		return most
 	}
-	widths := make([]int, columns)
 	spare := room - sum(least)
 	if spare <= 0 {
-		for i, w := range least {
-			widths[i] = max(w*max(room, columns)/max(sum(least), 1), 1)
-		}
-		return widths
+		return sharedFairly(least, room)
 	}
+	widths := make([]int, columns)
 	wanting := sum(most) - sum(least)
 	for i := range widths {
 		widths[i] = least[i] + (most[i]-least[i])*spare/max(wanting, 1)
+	}
+	return widths
+}
+
+// sharedFairly is room where the columns' longest words do not all fit. Narrowest first, each
+// column keeps its longest word while that fits an even share of what is left, and the rest
+// split what remains, so one unbreakable word such as a path never squeezes a short column.
+func sharedFairly(least []int, room int) []int {
+	order := make([]int, len(least))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(a, b int) int { return least[a] - least[b] })
+	widths := make([]int, len(least))
+	left := room
+	for n, i := range order {
+		widths[i] = max(min(least[i], left/(len(order)-n)), 1)
+		left -= widths[i]
 	}
 	return widths
 }
