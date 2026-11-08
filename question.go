@@ -111,7 +111,7 @@ func (m *Model) questionLines(room int) (lines []string, keys string) {
 	case len(m.asking.Choices) > 0:
 		picks := make([]string, len(m.asking.Choices))
 		for i, choice := range m.asking.Choices {
-			lines = append(lines, ansi.Truncate("  "+m.pal.Bold(choice.Key)+"  "+choice.Label, m.width, "…"))
+			lines = append(lines, ansi.Truncate("  "+m.painter.bold(choice.Key)+"  "+choice.Label, m.width, "…"))
 			picks[i] = choice.Key
 		}
 		keys = strings.Join(picks, " ") + " chooses  esc cancels"
