@@ -481,7 +481,11 @@ func (b askingBoard) Actions() []Action {
 		return nil
 	}
 	return []Action{{Keys: []string{"m"}, Run: func(m *Model) tea.Cmd {
-		m.Ask(Question{Text: "merge into:", Typed: true, Answer: heard, Cancel: func() tea.Cmd { m.Say("nothing merged"); return heard("canceled") }})
+		var listing []Line
+		for i := range 6 {
+			listing = append(listing, Line{C("listed-"+strconv.Itoa(i), "")})
+		}
+		m.Ask(Question{Listing: listing, Text: "merge into:", Typed: true, Answer: heard, Cancel: func() tea.Cmd { m.Say("nothing merged"); return heard("canceled") }})
 		return nil
 	}}}
 }
@@ -499,8 +503,8 @@ func TestAQuestionTakesEveryKeyUntilEnterHandsItTheLineOrEscClosesIt(t *testing.
 	for _, key := range []tea.KeyPressMsg{typedKey("/"), typedKey("r"), typedKey("o"), typedKey("w"), enterKey, typedKey("G"), typedKey("m")} {
 		m.Update(key)
 	}
-	if !strings.Contains(m.screen(), "row-19") {
-		t.Errorf("the question's lines hid the cursor's row:\n%s", m.screen())
+	if screen := m.screen(); !strings.Contains(screen, "row-19") || !strings.Contains(screen, "listed-2\n3 more\nmerge into:") {
+		t.Errorf("the question's listing should stop where the cursor's row would leave the screen, and count the rest:\n%s", screen)
 	}
 	for _, key := range []tea.KeyPressMsg{typedKey("q"), spaceKey, typedKey("x"), spaceKey, enterKey, typedKey("m"), typedKey("y")} {
 		m.Update(key)
@@ -523,7 +527,11 @@ func TestACursorBoardHearsEachKeyTheCursorLandsOnOnce(t *testing.T) {
 	m.Update(refreshedMsg{})
 	m.Update(downKey)
 	m.Update(refreshedMsg{})
-	if want := "one,two"; strings.Join(heard, ",") != want {
+	if !m.MoveCursorTo("one") || m.MoveCursorTo("three") {
+		t.Error("MoveCursorTo should move to a key that shows and refuse one that does not")
+	}
+	m.Update(refreshedMsg{})
+	if want := "one,two,one"; strings.Join(heard, ",") != want {
 		t.Errorf("heard %v, want %s", heard, want)
 	}
 }

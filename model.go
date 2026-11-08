@@ -556,6 +556,34 @@ func (m *Model) boardThenTableActions() []Action {
 // Cursor is the key of the group or row the cursor is on, for a board's own keys.
 func (m *Model) Cursor() string { return m.cursor }
 
+// MoveCursorTo puts the cursor on the group or row keyed key, for a board's key that acts on
+// the cursor's row and moves on, and says whether key shows. A row in a folded group, or one
+// the filter hides, does not. A key that changed what the board holds calls Rebuild first.
+func (m *Model) MoveCursorTo(key string) bool {
+	rows := selectableOf(m.nodes())
+	at := slices.IndexFunc(rows, func(n node) bool { return n.key != "" && n.key == key })
+	if at < 0 {
+		return false
+	}
+	m.cursor, m.cursorAt, m.placed, m.scrolled = key, at, true, false
+	m.follow()
+	return true
+}
+
+// CloseInPlace closes the text open under the cursor's row, as the table's space does, and
+// says whether any was open. A board that binds space to a row verb, such as a mark, calls it
+// first, so space still closes a row open in place.
+func (m *Model) CloseInPlace() bool {
+	n, ok := m.selected()
+	if !ok || n.kind != nodeRow || !n.open {
+		return false
+	}
+	m.display.opened[n.key] = false
+	m.placed = true
+	m.revealDetail()
+	return true
+}
+
 // Toggle is what enter does, for a board's key that takes enter and acts only on some
 // rows: a row's Document that runs past the screen opens on a Reader, open in place or
 // not, and anything else folds or opens in place. Bind it to enter alone and leave space
@@ -1069,7 +1097,7 @@ func (m *Model) footer() []string {
 		lines = append(lines, ansi.Truncate(m.pal.Paint(Yellow, spinner[m.spinAt])+" "+work, m.width, "…"))
 	}
 	if m.mode() == askingMode {
-		asked, keys := m.questionLines()
+		asked, keys := m.questionLines(m.height - len(m.frame.Strip) - len(lines) - 2)
 		return append(append(lines, asked...), ansi.Truncate(keys, m.width, "…"))
 	}
 	switch {

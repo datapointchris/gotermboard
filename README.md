@@ -281,7 +281,14 @@ newest row, as a log does.
 `enter` and `space` are separate keys in the table, so a board that takes `enter` leaves `space`
 folding in place. `Model.Toggle` is what the table's `enter` does, for a board's `enter` that acts
 only on some rows. Bind it to `enter` alone. A row open in place that turns tall, as on a pane
-shrink, reads on `Toggle` and closes only on the table's `space`.
+shrink, reads on `Toggle` and closes only on the table's `space`. A board that binds `space` to a
+row verb, such as a mark, calls `Model.CloseInPlace` first, which closes the cursor's row where it
+is open and says whether it was, so `space` still closes it.
+
+`Model.MoveCursorTo` puts the cursor on a key, for a key that acts on the cursor's row and moves on,
+as a merge moves to the next row in its group. It says whether the key shows, so a board can try
+the next candidate where the filter or a fold hides one. A key that changed what the board holds
+calls `Rebuild` first, so the key is looked for in the new frame.
 
 ## A key can ask for a line of text on the footer
 
@@ -308,6 +315,11 @@ where more was left. The typed line is cut from the left, so its end and the cur
 screen, as the filter and the reader's search are. A footer that grows keeps the cursor's row in
 view. The answer runs after the question closes, so it can `Say` what it did, ask another question,
 or return a command, such as one that opens an editor.
+
+A question about several things names each one in its `Listing`, a `Line` each, drawn above the
+question and cut at the screen's edge. The listing takes the screen above the footer and leaves the
+table one line, which the cursor's row holds. A listing longer than that ends on how many more it
+held.
 
 ## A key's command reports back to its board
 

@@ -1,6 +1,7 @@
 package gotermboard
 
 import (
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -9,6 +10,11 @@ import (
 
 // Question is what a key asks on the footer's lines, until enter answers it or esc takes it away.
 type Question struct {
+	// Listing draws above Text, a line each, for a question about several things that names
+	// each one. Each line is cut at the screen's edge. While the question is open the table
+	// keeps one line, and a listing longer than the rest of the screen ends on how many more
+	// it held.
+	Listing []Line
 	// Text draws in bold as written, so its own punctuation ends it.
 	Text string
 	// Typed takes one line typed under the question as the answer. Without it enter alone
@@ -50,14 +56,35 @@ func (m *Model) answering(key tea.KeyPressMsg) tea.Cmd {
 }
 
 // questionLines is the open question in bold, then the line being typed, and the keys that answer.
-func (m *Model) questionLines() (lines []string, keys string) {
+func (m *Model) questionLines(room int) (lines []string, keys string) {
 	for _, line := range m.wrapped(m.asking.Text) {
 		lines = append(lines, m.pal.Bold(line))
 	}
-	if !m.asking.Typed {
-		return lines, "enter confirms  esc cancels"
+	keys = "enter confirms  esc cancels"
+	if m.asking.Typed {
+		lines = append(lines, m.answer.draw("› ", m.width))
+		keys = "enter answers  esc cancels  ctrl+u clears"
 	}
-	return append(lines, m.answer.draw("› ", m.width)), "enter answers  esc cancels  ctrl+u clears"
+	return append(m.listingLines(room-len(lines)), lines...), keys
+}
+
+// listingLines is the open question's Listing in room lines at most, the last saying how many
+// more there were where it held more than that.
+func (m *Model) listingLines(room int) []string {
+	listing := m.asking.Listing
+	room = max(room, 1)
+	cut := len(listing) > room
+	if cut {
+		listing = listing[:room-1]
+	}
+	lines := make([]string, 0, room)
+	for _, line := range listing {
+		lines = append(lines, ansi.Truncate(line.Paint(m.pal), m.width, "…"))
+	}
+	if cut {
+		lines = append(lines, ansi.Truncate(strconv.Itoa(len(m.asking.Listing)-len(listing))+" more", m.width, "…"))
+	}
+	return lines
 }
 
 // footerTextLines bounds the lines a question or what a key did may take, so a long one never
