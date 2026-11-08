@@ -12,10 +12,11 @@ import (
 // thingsBoard draws a row naming each thing it holds, shows the kind thing, and binds esc itself.
 type thingsBoard struct {
 	ids     []string
+	sources []Refresher
 	escaped bool
 }
 
-func (b *thingsBoard) Sources() []Refresher { return nil }
+func (b *thingsBoard) Sources() []Refresher { return b.sources }
 func (b *thingsBoard) Groupings() []string  { return nil }
 func (b *thingsBoard) Frame(time.Time, string) Frame {
 	group := Group{Key: "things", Title: Line{C("THINGS", Bold)}}

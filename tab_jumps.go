@@ -1,10 +1,13 @@
 package gotermboard
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"slices"
 	"strconv"
+	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -69,11 +72,14 @@ func (j jumpTarget) where(t *Tabs) string {
 
 // jumpTargets is every place the cursor's entities go from the tab showing, in the order the row
 // names them: each other tab that shows the kind, then each program outside. A tab is never its
-// own target, because the row is already there.
+// own target, because the row is already there. The entity page is PageKey's, so t leaves it out.
 func (t *Tabs) jumpTargets(m *Model) []jumpTarget {
 	var targets []jumpTarget
 	for _, ref := range m.CursorEntities() {
 		for at, model := range t.models {
+			if t.hasPage && at == t.page {
+				continue
+			}
 			if board, ok := model.board.(EntityBoard); ok && at != t.at && slices.Contains(board.EntityKinds(), ref.Kind) {
 				targets = append(targets, jumpTarget{ref: ref, tab: at})
 			}
@@ -109,6 +115,115 @@ func (t *Tabs) jumpActions() []Action {
 	}}
 }
 
+// PageKey opens the entity page on what the cursor's row names, from any tab, the page's own
+// included.
+const PageKey = "i"
+
+// EntityPage names the tab that shows any one entity whole, as Backstage gives each entity one
+// page. Its board is an EntityBoard. PageKey goes there, and JumpKey leaves it out of its list,
+// because a row naming three things would otherwise list each twice. A lock marks the lines on
+// the page naming what is locked and hides none, because the page already shows one thing whole.
+func (t *Tabs) EntityPage(name string) error {
+	at := slices.Index(t.names, name)
+	if at < 0 {
+		return fmt.Errorf("no tab %q: the tabs are %s", name, strings.Join(t.names, ", "))
+	}
+	if _, ok := t.models[at].board.(EntityBoard); !ok {
+		return fmt.Errorf("tab %q shows no entity, so it cannot be the entity page", name)
+	}
+	t.page, t.hasPage = at, true
+	t.models[at].display.wholePage = true
+	t.hostActions()
+	return nil
+}
+
+// OpenPage opens the program on the entity page showing ref, as PageKey would from a row naming
+// it, so esc from the page opened on another thing comes back to ref. It is for before the
+// program starts, after EntityPage.
+func (t *Tabs) OpenPage(ref EntityRef) error {
+	if !t.hasPage {
+		return errors.New("no tab is the entity page, so EntityPage has to name one first")
+	}
+	t.models[t.page].board.(EntityBoard).ShowEntity(ref)
+	t.at, t.pageShows = t.page, &ref
+	return nil
+}
+
+// pageRefs is what the cursor's row names that the entity page shows.
+func (t *Tabs) pageRefs(m *Model) []EntityRef {
+	if !t.hasPage {
+		return nil
+	}
+	kinds := t.models[t.page].board.(EntityBoard).EntityKinds()
+	var refs []EntityRef
+	for _, ref := range m.CursorEntities() {
+		if slices.Contains(kinds, ref.Kind) {
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
+// pageActions is PageKey, which opens the page on the one thing the row names, or asks which
+// where it names several.
+func (t *Tabs) pageActions() []Action {
+	if !t.hasPage {
+		return nil
+	}
+	return []Action{{
+		Keys: []string{PageKey}, Label: "open everything known about what the row names, in " + t.names[t.page] + "; esc comes back",
+		Footer:  PageKey + " " + t.names[t.page],
+		Run:     t.pickPage,
+		Applies: func(m *Model) bool { return len(t.pageRefs(m)) > 0 },
+	}}
+}
+
+func (t *Tabs) pickPage(m *Model) tea.Cmd {
+	refs := t.pageRefs(m)
+	return askByNumber(m, "open", "opened nothing", refLabels(refs), func(n int) tea.Cmd {
+		return t.jump(jumpTarget{ref: refs[n], tab: t.page})
+	})
+}
+
+// askByNumber acts on the one choice there is, or lists them by number and acts on the one
+// typed. ask is the question's verb, and nothing what the footer says to any other answer.
+func askByNumber(m *Model, ask, nothing string, labels []Line, pick func(int) tea.Cmd) tea.Cmd {
+	switch len(labels) {
+	case 0:
+		return nil
+	case 1:
+		return pick(0)
+	}
+	listing := make([]Line, 0, len(labels))
+	for i, label := range labels {
+		listing = append(listing, append(Line{C(strconv.Itoa(i+1), Bold), C("  ", "")}, label...))
+	}
+	cancel := func() tea.Cmd {
+		m.Say(nothing)
+		return nil
+	}
+	m.Ask(Question{
+		Listing: listing, Text: fmt.Sprintf("%s 1 to %d:", ask, len(labels)), Typed: true, Cancel: cancel,
+		Answer: func(typed string) tea.Cmd {
+			n, err := strconv.Atoi(typed)
+			if err != nil || n < 1 || n > len(labels) {
+				return cancel()
+			}
+			return pick(n - 1)
+		},
+	})
+	return nil
+}
+
+// refLabels is each ref as a numbered choice reads it.
+func refLabels(refs []EntityRef) []Line {
+	labels := make([]Line, 0, len(refs))
+	for _, ref := range refs {
+		labels = append(labels, Line{C(ref.Kind+" "+ref.ID, "")})
+	}
+	return labels
+}
+
 // backActions is esc while a jump brought the reader here. It sits ahead of the board's own keys,
 // so the tab a jump opened is that tab's top, and esc there goes back rather than deeper into it.
 func (t *Tabs) backActions() []Action {
@@ -121,31 +236,11 @@ func (t *Tabs) backActions() []Action {
 
 func (t *Tabs) pickJump(m *Model) tea.Cmd {
 	targets := t.jumpTargets(m)
-	switch len(targets) {
-	case 0:
-		return nil
-	case 1:
-		return t.jump(targets[0])
+	labels := make([]Line, 0, len(targets))
+	for _, target := range targets {
+		labels = append(labels, Line{C(target.where(t)+"  ", Cyan), C(target.ref.Kind+" "+target.ref.ID, "")})
 	}
-	listing := make([]Line, 0, len(targets))
-	for i, target := range targets {
-		listing = append(listing, Line{C(strconv.Itoa(i+1), Bold), C("  "+target.where(t)+"  ", Cyan), C(target.ref.Kind+" "+target.ref.ID, "")})
-	}
-	wentNowhere := func() tea.Cmd {
-		m.Say("went nowhere")
-		return nil
-	}
-	m.Ask(Question{
-		Listing: listing, Text: fmt.Sprintf("go to 1 to %d:", len(targets)), Typed: true, Cancel: wentNowhere,
-		Answer: func(typed string) tea.Cmd {
-			n, err := strconv.Atoi(typed)
-			if err != nil || n < 1 || n > len(targets) {
-				return wentNowhere()
-			}
-			return t.jump(targets[n-1])
-		},
-	})
-	return nil
+	return askByNumber(m, "go to", "went nowhere", labels, func(n int) tea.Cmd { return t.jump(targets[n]) })
 }
 
 // jump goes to target. A program outside is handed the terminal. A tab is shown at the entity,
@@ -154,14 +249,30 @@ func (t *Tabs) jump(target jumpTarget) tea.Cmd {
 	if outside := target.outside; outside != nil {
 		return t.active().openOutside(outside, target.ref)
 	}
-	to := t.models[target.tab]
-	whole := to.board.(EntityBoard).ShowEntity(target.ref)
-	to.toTop()
-	if !whole {
-		to.seeking = &seek{ref: target.ref, tab: t.names[target.tab]}
+	step := backStep{tab: t.at, cursor: t.active().Cursor()}
+	if t.hasPage && t.at == t.page {
+		step.page = t.pageShows
 	}
-	t.back = append(t.back, t.at)
-	return t.show(target.tab)
+	t.back = append(t.back, step)
+	return t.showEntity(target.tab, target.ref, "")
+}
+
+// showEntity tells the tab at at the entity, then shows it. Its cursor goes to the line keyed
+// backTo where that is set, and otherwise where the board says.
+func (t *Tabs) showEntity(at int, ref EntityRef, backTo string) tea.Cmd {
+	to := t.models[at]
+	whole := to.board.(EntityBoard).ShowEntity(ref)
+	to.toTop()
+	switch {
+	case backTo != "":
+		to.seeking = &seek{key: backTo}
+	case !whole:
+		to.seeking = &seek{ref: ref, tab: t.names[at]}
+	}
+	if t.hasPage && at == t.page {
+		t.pageShows = &ref
+	}
+	return t.show(at)
 }
 
 // openOutside hands the terminal to the program outside on ref, as HandOver does.
@@ -197,17 +308,24 @@ func (r *runnerHandedOver) SetStderr(w io.Writer) {
 
 func (r *runnerHandedOver) kept() []byte { return r.tail.kept() }
 
-// goBack shows the tab the newest jump left, whose cursor stayed where it was.
+// goBack shows the tab the newest jump left, whose cursor stayed where it was. A jump from the
+// entity page to itself changed what the page shows, so going back opens it on that again, with
+// the cursor on the line it left once the reads land.
 func (t *Tabs) goBack() tea.Cmd {
 	from := t.back[len(t.back)-1]
 	t.back = t.back[:len(t.back)-1]
-	return t.show(from)
+	if from.page != nil && (t.pageShows == nil || *from.page != *t.pageShows) {
+		return t.showEntity(from.tab, *from.page, from.cursor)
+	}
+	return t.show(from.tab)
 }
 
-// seek is the entity a jump came for, which the cursor goes to once a line names it, and the
-// tab it went to, which the footer names where none does once the reads land.
+// seek is what the cursor goes to once the reads land: the first line naming the entity a jump
+// or the lock came for, or the line keyed key that esc comes back to. tab is the tab it went to,
+// which the footer names where no line names the entity.
 type seek struct {
 	ref EntityRef
+	key string
 	tab string
 }
 
@@ -223,34 +341,51 @@ func (m *Model) CursorEntities() []EntityRef {
 	return n.row.Entities
 }
 
-// seekEntity puts the cursor on the first line naming what a jump came for, opening the groups
-// that hold it and clearing a filter that hides it. Where no line names it and no read is under
-// way, the footer says so, and the cursor stays where the tab starts. A read that failed is no
-// answer, so the footer then says the tab may hold it.
+// seekEntity puts the cursor where seeking says once the reads land. For an entity that is the
+// first line naming it, opening the groups that hold it, and clearing a filter or lifting a lock
+// on another thing that hides it, as the footer then says. Where no line names it, the footer
+// says so, and the cursor stays where the tab starts. A read that failed is no answer, so the
+// footer then says the tab may hold it.
 func (m *Model) seekEntity() {
-	if m.seeking == nil {
+	s := m.seeking
+	if s == nil {
 		return
 	}
-	key, holding, found := entityLine(m.frame.Groups, m.seeking.ref, nil)
-	if !found {
-		sources := m.board.Sources()
-		if slices.ContainsFunc(sources, func(source Refresher) bool { return source.Status().Reading }) {
+	if s.key != "" {
+		if !m.MoveCursorTo(s.key) && !m.drawnFrom.landed {
 			return
-		}
-		ref := m.seeking.ref
-		m.said = fmt.Sprintf("%s holds no %s %s", m.seeking.tab, ref.Kind, ref.ID)
-		if slices.ContainsFunc(sources, func(source Refresher) bool { return source.Status().Fault != "" }) {
-			m.said = fmt.Sprintf("%s could not read, so it may still hold %s %s", m.seeking.tab, ref.Kind, ref.ID)
 		}
 		m.seeking = nil
 		return
 	}
+	key, holding, f := m.lookFor(s.ref, time.Now())
+	switch f {
+	case unanswered:
+		return
+	case holdsNone:
+		m.said = fmt.Sprintf("%s holds no %s %s", s.tab, s.ref.Kind, s.ref.ID)
+	case readFailed:
+		m.said = fmt.Sprintf("%s could not read, so it may still hold %s %s", s.tab, s.ref.Kind, s.ref.ID)
+	}
 	m.seeking = nil
+	if f != found {
+		return
+	}
 	for _, group := range holding {
 		m.display.folded[group] = false
 	}
-	if !m.MoveCursorTo(key) && m.display.filter != "" {
+	if m.MoveCursorTo(key) {
+		return
+	}
+	if m.display.filter != "" {
 		m.display.filter = ""
+		if m.MoveCursorTo(key) {
+			return
+		}
+	}
+	if locked := m.display.narrowsTo(); locked != nil && *locked != s.ref {
+		m.said = fmt.Sprintf("the lock on %s %s hid %s %s here, so it lifted", locked.Kind, locked.ID, s.ref.Kind, s.ref.ID)
+		m.display.lock.ref = nil
 		m.MoveCursorTo(key)
 	}
 }
