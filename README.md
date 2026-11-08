@@ -393,6 +393,17 @@ as a merge moves to the next row in its group. It says whether the key shows, so
 the next candidate where the filter or a fold hides one. A key that changed what the board holds
 calls `Rebuild` first, so the key is looked for in the new frame.
 
+A program that draws its own screen rather than a board builds its key table from the same rows.
+`KeyAction[H]` is a row for a screen of type `H`, and `Action` is a `Model`'s. `UniversalActions`
+is the rows for moving, opening a row, the `?` overlay and quitting, each bound where its
+`Applies` holds. `esc` stays the host's, because what it backs out of is the host's. The `Host`
+answers how to move, scroll, jump, open a row, show the keys and quit.
+`ActionsNow(host, own, UniversalActions[H]())` is every row that applies now, with each of the
+host's keys hiding the universal one while it applies. `RunKey` runs a pressed key from those
+rows, and `FooterHints` is their footer's words in order. `BySection` puts them under their
+`Section`, each where its first row stands, for an overlay that heads them. A `Model`'s overlay
+lists its rows in one run.
+
 ## A key can ask on the footer for a line of text or one key from a menu
 
 `Model.Ask` puts a `Question` on the footer's lines. With `Typed` set it takes one line typed under
@@ -509,3 +520,15 @@ on `PATH`. A lone argument holding a space is a shell command, which tmux runs t
 shell, so `needs` names the programs it runs. Outside tmux it opens nothing and says why.
 `OpenWindowBehind` takes the same arguments and leaves the board's window current, for a command
 that runs on its own while the board stays in front.
+
+`OpenClaudeSession(ClaudeSession{On, Dir, Fallback, Brief, Env})` is a key that opens a Claude
+session on a record. Inside tmux it opens in a window named `claude <On>`, and outside tmux it
+holds the terminal until it ends. `Brief` says what the record is and asks nothing. The brief goes
+on to ask the session to say what it would do and wait. With a `Fallback`, a bare clause such as
+`12 names no one repo`, it then says where the session runs and why. `Env` reaches the session
+inside tmux too, through `env`, because a window takes the tmux server's environment. The command
+ends in a `ClaudeSessionOutcome` either way, whose `Said` says what came of it. Inside tmux that
+is only that the window opened, because tmux answers before claude starts. Outside it, a failed
+session's `Said` carries its last stderr line. A `Model` shows `Said` on the footer of the tab showing, then hands the outcome to its
+`ReceivingBoard`. `HeldTerminal` says the session held the terminal and ended, so what it changed
+is there to read again. A program that draws its own screen shows `Said` itself.

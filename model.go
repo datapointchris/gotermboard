@@ -75,8 +75,9 @@ type CursorBoard interface {
 // one a command its key started sends when it ends. Receive runs with the model, so it can Say
 // what came of the command, Rebuild, or return the next command. Tabs hands such a message to
 // every tab, because the tab whose key started the command may be hidden by the time it ends,
-// so a board ignores a message of a type it does not own. A HandedBack is the exception, and
-// reaches only the board whose model handed the terminal over.
+// so a board ignores a message of a type it does not own. A message whose type names where it
+// goes is the exception: a HandedBack reaches only the board whose model handed the terminal
+// over, and a ClaudeSessionOutcome only the board of the tab showing.
 type ReceivingBoard interface {
 	Receive(m *Model, msg tea.Msg) tea.Cmd
 }
@@ -481,6 +482,11 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if msg.model == m {
 			return m.receive(msg)
 		}
+	case ClaudeSessionOutcome:
+		if !m.hidden {
+			m.said = msg.Said
+			return m.receive(msg)
+		}
 	default:
 		return m.receive(msg)
 	}
@@ -507,18 +513,6 @@ func (m *Model) receive(msg tea.Msg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// Action is one row of the key table the handler, the footer and the ? overlay
-// all read.
-type Action struct {
-	Keys   []string
-	Label  string
-	Footer string
-	Run    func(*Model) tea.Cmd
-	// Applies says whether this view can use the key now. Nil means always.
-	// A board's key hides the table's action for it even while Applies is false.
-	Applies func(*Model) bool
-}
-
 // TableKeys is every key the built-in table binds. A board's key hides the table's, so a board
 // taking keys from its own config asks this which ones would take a key from the table, and
 // Tabs.Keys where it is one of several tabs.
@@ -530,57 +524,9 @@ func TableKeys() []string {
 	return keys
 }
 
+// actionTable is the universal rows, then the keys only a Model binds.
 func actionTable() []Action {
-	moved := func(by func(*Model) int) func(*Model) tea.Cmd {
-		return func(m *Model) tea.Cmd {
-			m.move(by(m))
-			return nil
-		}
-	}
-	halfScreen := func(direction int) func(*Model) tea.Cmd {
-		return func(m *Model) tea.Cmd {
-			if m.onOpenText() {
-				m.ScrollBy(direction * m.HalfScreen())
-			} else {
-				m.move(direction * m.HalfScreen())
-			}
-			return nil
-		}
-	}
-	scrolled := func(lines int) func(*Model) tea.Cmd {
-		return func(m *Model) tea.Cmd {
-			m.ScrollBy(lines)
-			return nil
-		}
-	}
-	jumped := func(direction int) func(*Model) tea.Cmd {
-		return func(m *Model) tea.Cmd {
-			m.jump(direction)
-			return nil
-		}
-	}
-	return []Action{
-		{Keys: []string{"j", "down"}, Label: "move down", Footer: "j/k move", Run: moved(func(*Model) int { return 1 })},
-		{Keys: []string{"k", "up"}, Label: "move up", Run: moved(func(*Model) int { return -1 })},
-		{Keys: []string{"]"}, Label: "jump to the next group", Footer: "[/] jump", Run: jumped(1), Applies: (*Model).hasGroups},
-		{Keys: []string{"["}, Label: "jump to the previous group", Run: jumped(-1), Applies: (*Model).hasGroups},
-		{Keys: []string{"g", "home"}, Label: "go to the top", Run: moved(func(m *Model) int { return -len(m.nodes()) })},
-		{Keys: []string{"G", "end"}, Label: "go to the bottom", Run: moved(func(m *Model) int { return len(m.nodes()) })},
-		{Keys: []string{"ctrl+d", "pgdown"}, Label: "half a screen down the open text, or down the rows", Run: halfScreen(1)},
-		{Keys: []string{"ctrl+u", "pgup"}, Label: "half a screen up the open text, or up the rows", Run: halfScreen(-1)},
-		{Keys: []string{"enter"}, Label: "fold a group, or open a row, full screen where its document is tall or the panel draws it", Footer: "enter open", Run: (*Model).toggle, Applies: (*Model).cursorToggles},
-		{Keys: []string{"space"}, Label: "fold a group, or open or close a row's text in place", Footer: "space fold", Run: (*Model).toggleInPlace, Applies: (*Model).cursorToggles},
-		// The way to the other keys and the way out sit ahead of what a narrow footer cuts.
-		{Keys: []string{"?"}, Label: "show these keys and every read", Footer: "? keys", Run: func(m *Model) tea.Cmd {
-			m.overlay = true
-			return nil
-		}},
-		{Keys: []string{"q", "ctrl+c"}, Label: "quit", Footer: "q quit", Run: func(m *Model) tea.Cmd {
-			m.cancel()
-			return tea.Quit
-		}},
-		{Keys: []string{"J"}, Label: "scroll the open text down a line", Footer: "J/K scroll", Run: scrolled(1), Applies: (*Model).onOpenText},
-		{Keys: []string{"K"}, Label: "scroll the open text up a line", Run: scrolled(-1), Applies: (*Model).onOpenText},
+	return append(modelActions(), []Action{
 		{
 			Keys: []string{"v"}, Label: "cycle the grouping", Footer: "v group", Run: (*Model).nextGrouping,
 			Applies: func(m *Model) bool { return len(m.board.Groupings()) > 1 },
@@ -617,7 +563,7 @@ func actionTable() []Action {
 			m.said = "reading every source again"
 			return m.dueReads(time.Now())
 		}},
-	}
+	}...)
 }
 
 // tableActions is what holds this model's keys, then the table's own.
@@ -636,14 +582,11 @@ func (m *Model) actions() []Action {
 // boardThenTableActions is clearing a kept filter, then the holder's keys, while each applies,
 // then the board's keys, then the table's, each less the keys one before it took.
 func (m *Model) boardThenTableActions() []Action {
-	applying := func(actions []Action) []Action {
-		return slices.DeleteFunc(slices.Clone(actions), func(action Action) bool { return action.Applies != nil && !action.Applies(m) })
-	}
 	var own []Action
 	if keyed, ok := m.board.(Keyed); ok {
 		own = keyed.Actions()
 	}
-	return keysTakenInOrder(applying(filterClearing()), applying(m.ahead), own, m.tableActions())
+	return keysTakenInOrder(applyingTo(m, filterClearing()), applyingTo(m, m.ahead), own, m.tableActions())
 }
 
 // filterClearing is esc while a filter is kept, ahead of every other esc, because a filter is the
@@ -657,33 +600,6 @@ func filterClearing() []Action {
 		},
 		Applies: func(m *Model) bool { return m.display.filter != "" },
 	}}
-}
-
-// keysTakenInOrder is each layer's actions less the keys a layer before it took. An action losing
-// every key goes, and one losing its first key also loses its place in the footer, where the
-// earlier layer's stands.
-func keysTakenInOrder(layers ...[]Action) []Action {
-	taken := map[string]bool{}
-	var all []Action
-	for _, layer := range layers {
-		var took []string
-		for _, action := range layer {
-			left := slices.DeleteFunc(slices.Clone(action.Keys), func(key string) bool { return taken[key] })
-			if len(left) == 0 {
-				continue
-			}
-			if taken[action.Keys[0]] {
-				action.Footer = ""
-			}
-			action.Keys = left
-			all = append(all, action)
-			took = append(took, left...)
-		}
-		for _, key := range took {
-			taken[key] = true
-		}
-	}
-	return all
 }
 
 // Cursor is the key of the group or row the cursor is on, for a board's own keys.
@@ -877,13 +793,8 @@ func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	m.said = ""
-	name := key.String()
-	for _, action := range m.actions() {
-		if slices.Contains(action.Keys, name) {
-			return action.Run(m)
-		}
-	}
-	return nil
+	cmd, _ := RunKey(m, m.actions(), key.String())
+	return cmd
 }
 
 // typed is a key while the filter is typed: enter keeps it, and esc clears it.
@@ -1271,13 +1182,7 @@ func (m *Model) footer() []string {
 	case m.display.filter != "":
 		lines = append(lines, ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…"))
 	}
-	var keys []string
-	for _, action := range m.actions() {
-		if action.Footer != "" {
-			keys = append(keys, action.Footer)
-		}
-	}
-	return append(lines, ansi.Truncate(strings.Join(keys, "  "), m.width, "…"))
+	return append(lines, ansi.Truncate(strings.Join(FooterHints(m.actions()), "  "), m.width, "…"))
 }
 
 // View is Bubble Tea's.
@@ -1400,7 +1305,7 @@ func (m *Model) panelText(n node, width int) []string {
 func (m *Model) keysOverlay(height int) []string {
 	lines := []string{m.painter.bold("Keys, any key closes this")}
 	for _, action := range m.actions() {
-		lines = append(lines, "  "+fit(strings.Join(action.Keys, " "), 16, false)+"  "+action.Label)
+		lines = append(lines, keyLine(action))
 	}
 	lines = append(lines, m.readLines()...)
 	for len(lines) < height {
