@@ -2,7 +2,6 @@ package chart
 
 import (
 	"math"
-	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -37,10 +36,8 @@ var shades = []rune("░▒▓█")
 // the names first, then ends on a +N line counting the rows that did not fit.
 func (h Heatmap) Lines(width, height int) []gotermboard.Line {
 	n, top := len(h.Columns), h.Max
-	labelWidth := 0
 	for _, row := range h.Rows {
 		n = max(n, len(row.Values))
-		labelWidth = max(labelWidth, ansi.StringWidth(row.Label))
 		for _, v := range row.Values {
 			top = max(top, v)
 		}
@@ -51,22 +48,18 @@ func (h Heatmap) Lines(width, height int) []gotermboard.Line {
 	if width < 1 || height < 1 || n == 0 || len(h.Rows) == 0 {
 		return blank(width, height)
 	}
-	if labelWidth > 0 {
-		labelWidth++
-	}
+	labelWidth := labelColumn(h.Rows, func(row HeatRow) string { return row.Label })
 	share := max(1, (width-labelWidth)/n)
 	mark := share
 	if share >= 3 {
 		mark--
 	}
 	var out []gotermboard.Line
-	if len(h.Columns) > 0 && height > len(h.Rows) {
+	shown, namesFit := fitRows(len(h.Rows), height, len(h.Columns) > 0)
+	if namesFit {
 		out = append(out, h.names(labelWidth, share))
 	}
-	rows := h.Rows
-	if room := height - len(out); len(rows) > room {
-		rows = rows[:room-1]
-	}
+	rows := h.Rows[:shown]
 	rowHeight := (height - len(out)) / max(len(rows), 1)
 	for _, row := range rows {
 		for i := range rowHeight {
@@ -83,7 +76,7 @@ func (h Heatmap) Lines(width, height int) []gotermboard.Line {
 		}
 	}
 	if cut := len(h.Rows) - len(rows); cut > 0 {
-		out = append(out, gotermboard.Line{gotermboard.C("+"+strconv.Itoa(cut), "")})
+		out = append(out, overflow(cut))
 	}
 	for i := range out {
 		out[i] = padded(out[i], width)

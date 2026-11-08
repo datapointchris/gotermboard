@@ -41,35 +41,20 @@ const milestone = "◆"
 // eighth of a cell, and a span lasting any time at all draws at least ▏.
 func (t Timeline) Lines(width, height int) []gotermboard.Line {
 	from, to := t.span()
-	labelWidth := 0
-	for _, s := range t.Spans {
-		labelWidth = max(labelWidth, ansi.StringWidth(s.Label))
-	}
-	if labelWidth > 0 {
-		labelWidth++
-	}
+	labelWidth := labelColumn(t.Spans, func(s Span) string { return s.Label })
 	plot := width - labelWidth
 	if plot < 2 || height < 1 || len(t.Spans) == 0 || from.IsZero() {
 		return blank(width, height)
 	}
-	rows, room := t.Spans, height
-	withAxis := height > len(rows)
-	if withAxis {
-		room--
-	}
-	cut := 0
-	if len(rows) > room {
-		cut = len(rows) - (room - 1)
-		rows = rows[:room-1]
-	}
+	shown, axisFits := fitRows(len(t.Spans), height, true)
 	out := make([]gotermboard.Line, 0, height)
-	for _, s := range rows {
+	for _, s := range t.Spans[:shown] {
 		out = append(out, padded(t.row(s, from, to, labelWidth, plot), width))
 	}
-	if cut > 0 {
-		out = append(out, padded(gotermboard.Line{gotermboard.C("+"+strconv.Itoa(cut), "")}, width))
+	if cut := len(t.Spans) - shown; cut > 0 {
+		out = append(out, padded(overflow(cut), width))
 	}
-	if withAxis {
+	if axisFits {
 		out = append(out, padded(t.axis(to.Sub(from), labelWidth, plot), width))
 	}
 	return append(out, blank(width, height-len(out))...)
@@ -113,11 +98,7 @@ func (t Timeline) row(s Span, from, to time.Time, labelWidth, plot int) gotermbo
 	startCell := min(eighth(s.Start)/8, plot-1)
 	bar := milestone
 	if s.End.After(s.Start) {
-		filled := max(eighth(s.End)-8*startCell, 1)
-		bar = strings.Repeat("█", min(filled/8, plot-startCell))
-		if part := filled % 8; part > 0 && filled/8 < plot-startCell {
-			bar += string(eighths[part])
-		}
+		bar = run(max(eighth(s.End)-8*startCell, 1), plot-startCell)
 	}
 	barWidth := ansi.StringWidth(bar)
 	text := ansi.StringWidth(s.Text)
