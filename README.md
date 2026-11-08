@@ -305,7 +305,10 @@ whole screen on every frame that changed.
 The `chart` package draws plain series as lines of cells:
 
 - `TimeSeries` draws braille lines over a time axis and a value axis. A `Dotted` series reads as a
-  forecast, a `Band` shades the cells between two edges, and `Legend` names each beside its mark.
+  forecast, a `Columns` series draws each reading as an eighth-block column until the next, as a
+  count per day reads, a `Band` shades the cells between two edges, and `Legend` names each beside
+  its mark. A column three or more cells wide ends a cell short, so neighbors read apart, and
+  readings sharing a cell draw their mean.
   Readings that all share one time draw an hour either side of it. An axis under six hours names
   round minutes, every five on an axis of half an hour.
 - `Heatmap` shades a grid such as hour against weekday, from `░` to `█` in one color. A shade orders
