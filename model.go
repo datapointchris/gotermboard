@@ -138,7 +138,8 @@ type Model struct {
 
 // NewModel is a model reading board, sized until the terminal says otherwise. It draws in
 // the TUI theme file gotermstyle's tuitheme finds, and reads it again on SIGUSR2 while it runs
-// as the program. A file that will not load leaves ANSI 0-15, and the footer says why.
+// as the program. A file that will not load at start leaves ANSI 0-15, and on a reload keeps
+// the colors on screen. The footer says why.
 func NewModel(board Board, pal gotermstyle.Palette) *Model {
 	ctx, cancel := context.WithCancel(context.Background())
 	theme, err := loadTheme()
@@ -377,8 +378,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		m.rebuild(time.Now())
 		m.relayReading()
 	case themeLoadedMsg:
-		m.sayThemeFault(m.theme.take(msg))
-		return m.theme.watch()
+		return m.theme.reloaded(msg, m.sayThemeFault)
 	case tea.PasteMsg:
 		switch m.mode() {
 		case readingMode:

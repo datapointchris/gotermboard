@@ -10,7 +10,7 @@ require (
 	github.com/NimbleMarkets/ntcharts/v2 v2.9.0
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/charmbracelet/x/ansi v0.11.9
-	github.com/datapointchris/gotermstyle v0.3.0
+	github.com/datapointchris/gotermstyle v0.4.0
 	github.com/yuin/goldmark v1.8.7
 	golang.org/x/term v0.47.0
 )

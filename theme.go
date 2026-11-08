@@ -2,7 +2,6 @@ package gotermboard
 
 import (
 	"os"
-	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -38,8 +37,8 @@ type themeLoadedMsg struct {
 	err   error
 }
 
-// watch waits for the next request to read the theme file again, which a theme generator
-// sends as SIGUSR2, then reads it. Each themeLoadedMsg arms the next wait.
+// watch waits for tuitheme's next request to read the theme file again, then reads it. A
+// program's Init starts it, and reloaded starts each wait after.
 func (lt *liveTheme) watch() tea.Cmd {
 	if lt.path == "" {
 		return nil
@@ -56,14 +55,16 @@ func (lt *liveTheme) watch() tea.Cmd {
 	}
 }
 
-// take draws in a theme read again. One that would not load leaves the theme on screen, and
-// the error says why.
-func (lt *liveTheme) take(msg themeLoadedMsg) error {
+// reloaded is what every program root does with a theme read again: draw in it, or keep the
+// theme on screen and say why where it would not load, then wait for the next request. A
+// program root takes the message before handing any on, so a program holds one wait.
+func (lt *liveTheme) reloaded(msg themeLoadedMsg, say func(error)) tea.Cmd {
 	if msg.err != nil {
-		return msg.err
+		say(msg.err)
+	} else {
+		lt.current = msg.theme
 	}
-	lt.current = msg.theme
-	return nil
+	return lt.watch()
 }
 
 // code is role's color and style, as a Cell's Code.
@@ -79,29 +80,28 @@ func (lt *liveTheme) cursorLook(pal gotermstyle.Palette) cursorLook {
 	if !pal.On() || selection == builtInSelection {
 		return cursorLook{pal: pal}
 	}
-	return cursorLook{pal: pal, tint: background(selection.Bg)}
+	return cursorLook{pal: pal, tint: selection.Bg.BackgroundCode()}
 }
 
-// background is c as SGR background parameters, or "" where c is unset.
-func background(c tuitheme.Color) string {
-	if slot, ok := c.Slot(); ok {
-		if slot < 8 {
-			return strconv.Itoa(40 + slot)
-		}
-		return strconv.Itoa(100 + slot - 8)
+// matchCode is what a search match draws in on pal: the theme's match color in bold, over the
+// selection background where the theme sets one, else reversed. Either way it stands apart from
+// text that already wears the match color, as a code span can.
+func (lt *liveTheme) matchCode(pal gotermstyle.Palette) string {
+	match := emboldened(lt.code("ui.match"))
+	if tint := lt.cursorLook(pal).tint; tint != "" {
+		return match + tint
 	}
-	if r, g, b, ok := c.RGB(); ok {
-		return "48;2;" + strconv.Itoa(int(r)) + ";" + strconv.Itoa(int(g)) + ";" + strconv.Itoa(int(b))
-	}
-	return ""
+	return match + Reverse
 }
 
-// cursorLook is how the cursor's row is drawn: across the table's width in the theme file's
-// selection background where it gives one, else in bold behind ▌ in the pointer's column. Each
-// cell keeps its own color either way, so a state's color still reads on the cursor's row.
+// cursorLook is how the cursor's row is drawn: across the table's width in the theme's
+// selection background where it sets one other than the built-in, else behind ▌ in the
+// pointer's column, bold where there is color. Each cell keeps its own color either way, so a
+// state's color still reads on the cursor's row.
 type cursorLook struct {
 	pal gotermstyle.Palette
-	// tint is the selection background's SGR parameters, empty without a theme file.
+	// tint is the selection background's SGR sequence, empty where the theme's selection is
+	// the built-in one or there is no color.
 	tint string
 }
 
@@ -121,7 +121,7 @@ func (c cursorLook) wear(lines []drawn, width int) []drawn {
 	}
 	code, room := Bold, 0
 	if c.tint != "" {
-		code, room = "\033["+c.tint+"m", width
+		code, room = c.tint, width
 	}
 	for i := range lines {
 		lines[i].text = laidOver(lines[i].text, code, room)

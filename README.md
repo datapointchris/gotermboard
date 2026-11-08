@@ -62,9 +62,8 @@ imports nothing that draws.
 ## A theme file colors the cursor's row and the tab line, and SIGUSR2 recolors a running board
 
 `NewTabs`, `NewModel`, `NewReader` and `Once` read the TUI theme file that gotermstyle's
-`tuitheme` finds. That is `$TUI_THEME_FILE`, else `$XDG_CONFIG_HOME/tui-theme/current.json`,
-else `~/.config/tui-theme/current.json`. Without one, a board draws in the terminal's own 16
-colors. A file that will not load leaves those 16 too, and the footer says why.
+`tuitheme.DefaultPath` names. Without one, a board draws in the terminal's own 16 colors. A
+file that will not load at start leaves those 16 too, and the footer says why.
 
 - **The cursor's row takes the file's `ui.selection` background across the table's width**:
   its indent, its cells and the gaps between columns. Each cell keeps its own foreground, so a
@@ -72,14 +71,16 @@ colors. A file that will not load leaves those 16 too, and the footer says why.
   column. No column moves either way.
 - **The tab line marks the current tab by color and weight rather than a box**, as a tmux
   status line marks its window. The current tab is bold in `ui.warning` and the rest are in
-  `ui.muted`, which are the colors a theme gives tmux's current and other windows. Without a
-  file those are bright yellow and bright black. Each name is padded by a space, two spaces
-  apart.
-- **A reader's search matches draw in `ui.match`, bold.**
+  `ui.muted`, so the tab line reads like a tmux bar drawn from the same theme. Each name is
+  padded by a space, two spaces apart.
+- **A reader's search matches draw in `ui.match`, bold, over the `ui.selection` background**,
+  or reversed without a file, so a match inside a code span still stands out.
 - **SIGUSR2 reads the file again**, so a theme change recolors a running board with no
   restart. A file that will not load keeps the colors on screen. The program's `Init` starts
   the wait, so a model wrapping `Tabs` calls its `Init` and hands it the messages it does not
   handle itself.
+- **A test that draws a board sets `TUI_THEME_FILE` to a path that does not exist**, so it
+  draws the built-in theme whatever file the machine running it has.
 
 ## One line says how the reads stand
 

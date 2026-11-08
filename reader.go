@@ -68,10 +68,15 @@ type Reader struct {
 func NewReader(title string, document Document, pal gotermstyle.Palette) *Reader {
 	theme, err := loadTheme()
 	r := newReader(title, document, pal, theme)
+	r.sayThemeFault(err)
+	return r
+}
+
+// sayThemeFault puts why the theme file would not load on the footer.
+func (r *Reader) sayThemeFault(err error) {
 	if err != nil {
 		r.said = err.Error()
 	}
-	return r
 }
 
 func newReader(title string, document Document, pal gotermstyle.Palette, theme *liveTheme) *Reader {
@@ -99,10 +104,7 @@ func (r *Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		r.resize(msg.Width, msg.Height)
 	case themeLoadedMsg:
-		if err := r.theme.take(msg); err != nil {
-			r.said = err.Error()
-		}
-		return r, r.theme.watch()
+		return r, r.theme.reloaded(msg, r.sayThemeFault)
 	case tea.PasteMsg:
 		r.paste(msg.Content)
 	case tea.KeyPressMsg:
@@ -453,7 +455,7 @@ func (r *Reader) matchedIn(text string) []bool {
 	return matched
 }
 
-// marked is row with each match in the theme's match color and bold, its other cells as they were.
+// marked is row with each match in the theme's match code, its other cells as they were.
 func (r *Reader) marked(row Line) Line {
 	if r.query == "" {
 		return row
@@ -462,7 +464,7 @@ func (r *Reader) marked(row Line) Line {
 	if !slices.Contains(matched, true) {
 		return row
 	}
-	match := emboldened(r.theme.code("ui.match"))
+	match := r.theme.matchCode(r.pal)
 	var out Line
 	at := 0
 	for _, cell := range row {

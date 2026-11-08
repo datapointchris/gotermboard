@@ -117,8 +117,7 @@ func (t *Tabs) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd := t.active().Update(msg)
 		return t, cmd
 	case themeLoadedMsg:
-		t.active().sayThemeFault(t.theme.take(msg))
-		return t, t.theme.watch()
+		return t, t.theme.reloaded(msg, t.active().sayThemeFault)
 	}
 	cmds := make([]tea.Cmd, 0, len(t.models))
 	for _, model := range t.models {
@@ -141,8 +140,8 @@ func (t *Tabs) View() tea.View {
 
 // tabLine names the tabs, each padded by a space and two spaces apart. It marks the current
 // tab by color and weight rather than a box, as a tmux status line marks its window: bold in
-// ui.warning, and the rest in ui.muted, the colors a theme gives tmux's current and other
-// windows. Where there is no color, brackets take the current tab's padding, so no name moves.
+// ui.warning, and the rest in ui.muted, so it reads like a tmux bar drawn from the same theme.
+// Where there is no color, brackets take the current tab's padding, so no name moves.
 func (t *Tabs) tabLine() string {
 	parts := make([]string, 0, len(t.names))
 	for i, name := range t.names {
