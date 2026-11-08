@@ -41,9 +41,7 @@ func (b handingOver) Receive(m *Model, msg tea.Msg) tea.Cmd {
 	if !ok {
 		return b.handedBackTo.Receive(m, msg)
 	}
-	standIn := exec.Command("sh", "-c", start.script)
-	standIn.Stderr = io.Discard
-	return m.HandOver(standIn, func(_ *Model, err error, stderr []byte) tea.Cmd {
+	return m.HandOver(exec.Command("sh", "-c", start.script), func(_ *Model, err error, stderr []byte) tea.Cmd {
 		*b.said, *b.err = LastLine(stderr, err), err
 		return tea.Quit
 	})
@@ -51,16 +49,21 @@ func (b handingOver) Receive(m *Model, msg tea.Msg) tea.Cmd {
 
 func TestAHandoverKeepsStderrAndComesBackOnlyToTheTabThatHandedOver(t *testing.T) {
 	for _, tc := range []struct {
-		name, script, said string
-		failed             bool
+		name, script, said  string
+		failed, leavesChild bool
 	}{
 		{
 			name: "a failure says its last stderr line", script: "printf 'warming up\\nthe stand-in failed\\n' >&2; exit 3",
 			said: "the stand-in failed", failed: true,
 		},
-		{name: "a child left holding stderr holds nothing up", script: "sleep 10 & exit 0"},
+		{
+			// An editor that starts a server and exits leaves it writing to stderr.
+			name: "a child left writing stderr after the program exits holds nothing up and lives", leavesChild: true,
+			script: "(sleep 1; echo late >&2; touch ALIVE) >/dev/null & exit 0",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			alive := filepath.Join(t.TempDir(), "alive")
 			var said string
 			var err error
 			var handedOver, other []HandedBack
@@ -73,7 +76,7 @@ func TestAHandoverKeepsStderrAndComesBackOnlyToTheTabThatHandedOver(t *testing.T
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			program := tea.NewProgram(tabs, tea.WithInput(nil), tea.WithOutput(io.Discard), tea.WithContext(ctx))
-			go program.Send(startHandOver{tc.script})
+			go program.Send(startHandOver{strings.ReplaceAll(tc.script, "ALIVE", alive)})
 			if _, runErr := program.Run(); runErr != nil {
 				t.Fatalf("the board never came back from the stand-in: %v", runErr)
 			}
@@ -83,11 +86,20 @@ func TestAHandoverKeepsStderrAndComesBackOnlyToTheTabThatHandedOver(t *testing.T
 			if len(handedOver) != 1 || len(other) != 0 {
 				t.Errorf("the handback reached the tab that handed over %d times and the other %d, want once and never", len(handedOver), len(other))
 			}
+			for tc.leavesChild && ctx.Err() == nil {
+				if _, statErr := os.Stat(alive); statErr == nil {
+					return
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			if tc.leavesChild {
+				t.Error("the child the program left died writing to stderr after the handback")
+			}
 		})
 	}
 }
 
-func TestOpenWindowLooksForItsProgramThenRunsArgvInTmux(t *testing.T) {
+func TestOpenWindowLooksForItsProgramsAndDirectoryThenRunsArgvInTmux(t *testing.T) {
 	bin, dir := t.TempDir(), t.TempDir()
 	recorded := filepath.Join(t.TempDir(), "tmux-args")
 	standIn := func(name, body string) {
@@ -104,23 +116,33 @@ func TestOpenWindowLooksForItsProgramThenRunsArgvInTmux(t *testing.T) {
 		return string(out)
 	}
 
-	if err := OpenWindow("claude 12", dir, "claude", "a brief with spaces"); err == nil || !strings.Contains(err.Error(), "claude is not on PATH") {
+	brief := []string{"claude", "a brief with spaces"}
+	if err := OpenWindow("claude 12", dir, brief); err == nil || !strings.Contains(err.Error(), "not on PATH: claude") {
 		t.Errorf("a window whose program is not on PATH opened, or said %v", err)
 	}
+	standIn("claude", "")
+	// A checkout deleted since the board read it, where tmux would open the window elsewhere.
+	if err := OpenWindow("claude 12", filepath.Join(dir, "gone"), brief); err == nil || !strings.Contains(err.Error(), "is not a directory") {
+		t.Errorf("a window whose directory is gone opened, or said %v", err)
+	}
 	if got := ran(); got != "" {
-		t.Errorf("tmux ran for a program not on PATH:\n%s", got)
+		t.Errorf("tmux ran for a window refused:\n%s", got)
 	}
 
-	standIn("claude", "")
-	if err := OpenWindow("claude 12", dir, "claude", "a brief with spaces"); err != nil {
+	if err := OpenWindow("claude 12", dir, brief); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := ran(), strings.Join([]string{"new-window", "-n", "claude 12", "-c", dir, "claude", "a brief with spaces"}, "\n")+"\n"; got != want {
 		t.Errorf("tmux ran\n%s\nwant\n%s", got, want)
 	}
 
-	if err := OpenWindow("review", "", "unlisted '/review-pr 12'"); err != nil {
-		t.Errorf("a lone shell command was looked for on PATH: %v", err)
+	shellCommand := []string{"unlisted '/review-pr 12'"}
+	if err := OpenWindow("review", "", shellCommand, "unlisted"); err == nil || !strings.Contains(err.Error(), "not on PATH: unlisted") {
+		t.Errorf("a shell command whose needs are not on PATH opened, or said %v", err)
+	}
+	standIn("unlisted", "")
+	if err := OpenWindow("review", "", shellCommand, "unlisted"); err != nil {
+		t.Errorf("a lone shell command was looked for on PATH whole: %v", err)
 	}
 	if got, want := ran(), "new-window\n-n\nreview\nunlisted '/review-pr 12'\n"; got != want {
 		t.Errorf("tmux ran\n%s\nwant\n%s", got, want)

@@ -125,9 +125,7 @@ type editedMsg struct {
 // edit hands the terminal to the editor. A Reader runs as a program of its own too, with no
 // Model to hand over through.
 func (r *Reader) edit() tea.Cmd {
-	editor := EditorCommand(r.EditFile)
-	stderr := keepStderr(editor)
-	return tea.ExecProcess(editor, func(err error) tea.Msg { return editedMsg{exitOf(err), stderr.Bytes()} })
+	return handOver(EditorCommand(r.EditFile), func(err error, stderr []byte) tea.Msg { return editedMsg{err, stderr} })
 }
 
 func (r *Reader) copyToClipboard() tea.Cmd {

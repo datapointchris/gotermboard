@@ -371,10 +371,15 @@ func (b *board) Receive(m *gotermboard.Model, msg tea.Msg) tea.Cmd {
 
 ## A key leaves the board for another program and comes back
 
-`Model.HandOver(cmd, then)` gives the terminal to `cmd` until it exits. Its stderr still reaches
-the terminal, and a copy comes back to `then` with how it ended. `LastLine(stderr, err)` is the
-sentence a failure says: the last line it wrote, or its exit status where it wrote nothing. A child
-the program leaves running with stderr open holds the board a second at most.
+`Model.HandOver(cmd, then)` gives the terminal to `cmd` until it exits, and `then` gets how it ended
+and the end of what it wrote to stderr. `LastLine(stderr, err)` is the sentence a failure says: the
+last line it wrote, or its error where it wrote nothing.
+
+To keep stderr, the program's fd 2 is a pipe, drained to the terminal as bytes arrive. So a program
+that asks whether stderr is a terminal hears no, as `git` does before drawing progress. A caller
+handing over such a program sets `cmd.Stderr`, such as to `os.Stderr`, and keeps nothing. The pipe
+drains for as long as anything holds it open, so a child the program leaves running keeps writing
+to the terminal, and the board does not wait for it to exit.
 
 Before `then` runs, the board receives a `HandedBack` through `ReceivingBoard`, to read again what
 the program may have changed. Only the tab whose key handed the terminal over receives it, hidden or
@@ -398,8 +403,9 @@ func (b *board) Receive(m *gotermboard.Model, msg tea.Msg) tea.Cmd {
 }
 ```
 
-`OpenWindow(name, dir, argv...)` opens `argv` in a new tmux window and leaves the terminal with the
-board. Several arguments run with no shell, so none needs quoting. tmux opens a window whether or
-not its program starts, so `OpenWindow` looks for tmux and `argv[0]` on `PATH` first. A lone
-argument holding a space is a shell command, which tmux runs through its default shell, so the
-caller looks for what it runs. Outside tmux it opens nothing and says why.
+`OpenWindow(name, dir, argv, needs...)` opens `argv` in a new tmux window, which tmux makes current,
+while the board keeps running in its own. Several arguments run with no shell, so none needs
+quoting. tmux opens a window whether or not its program starts, and in another directory where
+`dir` is gone. So `OpenWindow` first looks for `dir`, and for tmux, `argv[0]` and each of `needs`
+on `PATH`. A lone argument holding a space is a shell command, which tmux runs through its default
+shell, so `needs` names the programs it runs. Outside tmux it opens nothing and says why.
