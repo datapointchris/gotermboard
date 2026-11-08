@@ -43,6 +43,9 @@ type Reader struct {
 	// back is what esc does once nothing is left to clear. Nil means esc stays put.
 	back func()
 	quit func() tea.Cmd
+	// follows keeps the reader on the document's last line as the document grows, while that
+	// line shows.
+	follows bool
 
 	width, height int
 	rows          []Line
@@ -155,9 +158,11 @@ func (r *Reader) View() tea.View {
 	return v
 }
 
-// resize lays the text out again and keeps the same words at the top of the screen.
+// resize lays the text out again and keeps the same words at the top of the screen. A reader
+// that follows and showed the last line shows the last line again.
 func (r *Reader) resize(width, height int) {
 	above := lettersIn(r.rows[:min(r.top, len(r.rows))])
+	toEnd := r.follows && r.atEnd()
 	r.width, r.height = width, height
 	r.rows = r.document(min(max(width-2, 1), ReadingWidth))
 	r.sections = r.sections[:0]
@@ -167,6 +172,9 @@ func (r *Reader) resize(width, height int) {
 		}
 	}
 	r.scrollTo(rowAfterLetters(r.rows, above))
+	if toEnd {
+		r.scrollTo(len(r.rows))
+	}
 	r.findHits()
 	r.hit = max(slices.IndexFunc(r.hits, func(row int) bool { return row >= r.top }), 0)
 }
@@ -250,6 +258,9 @@ func (r *Reader) margin() string { return strings.Repeat(" ", max((r.width-Readi
 func (r *Reader) scrollTo(top int) {
 	r.top = max(min(top, len(r.rows)-r.bodyHeight()), 0)
 }
+
+// atEnd says the document's last line shows.
+func (r *Reader) atEnd() bool { return r.top >= len(r.rows)-r.bodyHeight() }
 
 // readerAction is one row of the key table the handler, the footer and the ? overlay read.
 type readerAction struct {
@@ -503,6 +514,12 @@ func (r *Reader) screen() string {
 
 func (r *Reader) footer() string {
 	parts := []string{fmt.Sprintf("%d/%d", min(r.top+r.bodyHeight(), len(r.rows)), len(r.rows))}
+	switch {
+	case r.follows && r.atEnd():
+		parts = append(parts, "following")
+	case r.follows:
+		parts = append(parts, "G follows")
+	}
 	switch {
 	case r.searching:
 		// The search being typed goes last, so a narrow screen cuts it from the left and keeps the cursor.

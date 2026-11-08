@@ -483,12 +483,15 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 }
 
 // receive hands msg to a ReceivingBoard, then runs a HandedBack's then, so what the board
-// reads again is due before then says what came of the program.
+// reads again is due before then says what came of the program. An open reader lays its
+// document out again after the board's Receive, because what the board received may be more
+// of that document.
 func (m *Model) receive(msg tea.Msg) tea.Cmd {
 	footer := len(m.footer())
 	var cmds []tea.Cmd
 	if board, ok := m.board.(ReceivingBoard); ok {
 		cmds = append(cmds, board.Receive(m, msg))
+		m.relayReading()
 	}
 	if back, ok := msg.(HandedBack); ok && back.then != nil {
 		cmds = append(cmds, back.then(m, back.Err, back.Stderr))
@@ -764,6 +767,16 @@ func (m *Model) Read(title string, document Document) {
 		return tea.Quit
 	}
 	m.reading.resize(m.width, m.height)
+}
+
+// Follow opens document on a full-screen Reader over the board at its last line, and keeps it
+// there as the document grows, as tail -f and less +F do, until esc or space closes it.
+// Scrolling up holds the reader where it is, and G follows again. Lines a board's command
+// streams into the document show as each message the board receives lands.
+func (m *Model) Follow(title string, document Document) {
+	m.Read(title, document)
+	m.reading.follows = true
+	m.reading.scrollTo(len(m.reading.rows))
 }
 
 // relayReading lays an open reader out again after a read lands, keeping its place, so text a

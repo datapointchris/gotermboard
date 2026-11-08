@@ -150,6 +150,51 @@ func TestAnOpenReaderShowsTheTextAReadBringsWhereItStands(t *testing.T) {
 	}
 }
 
+// streamingBoard adds a line to its log for each lineLanded it receives.
+type streamingBoard struct {
+	fixedBoard
+	log *[]string
+}
+
+type lineLanded string
+
+func (b streamingBoard) Receive(_ *Model, msg tea.Msg) tea.Cmd {
+	if line, ok := msg.(lineLanded); ok {
+		*b.log = append(*b.log, string(line))
+	}
+	return nil
+}
+
+func TestAFollowingReaderKeepsToTheLastLineUntilScrolledUpAndGFollowsAgain(t *testing.T) {
+	log := []string{}
+	document := func(int) []Line {
+		lines := make([]Line, len(log))
+		for i, text := range log {
+			lines[i] = Line{C(text, "")}
+		}
+		return lines
+	}
+	m := NewModel(streamingBoard{fixedBoard{Frame{Columns: []Column{{Title: "ROW"}}}}, &log}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
+	m.Follow("output", document)
+	for i := range 30 {
+		m.Update(lineLanded("line " + strconv.Itoa(i)))
+	}
+	if got := m.screen(); !strings.Contains(got, "line 29") || !strings.Contains(got, "following") {
+		t.Fatalf("a following reader should show the newest line and say it follows:\n%s", got)
+	}
+	m.Update(typedKey("k"))
+	m.Update(lineLanded("line 30"))
+	if got := m.screen(); strings.Contains(got, "line 30") || !strings.Contains(got, "G follows") {
+		t.Fatalf("a reader scrolled up should hold its place and say G follows:\n%s", got)
+	}
+	m.Update(typedKey("G"))
+	m.Update(lineLanded("line 31"))
+	if got := m.screen(); !strings.Contains(got, "line 31") {
+		t.Errorf("G should follow the newest line again:\n%s", got)
+	}
+}
+
 func TestTheReadersTopLineNamesWhatHeldTheRowThenTheSectionScrolledInto(t *testing.T) {
 	frame := Frame{Columns: []Column{{Title: "ROW"}}, Groups: []Group{{Key: "outer", Title: Line{C("OUTER", "")}, Rows: []Row{
 		{Key: "tall", Cells: []Cell{C("the tall row", "")}, Document: wrappedDocument},
