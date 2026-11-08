@@ -1,6 +1,7 @@
 package chart
 
 import (
+	"math"
 	"time"
 
 	"charm.land/lipgloss/v2"
@@ -24,6 +25,11 @@ type Series struct {
 	Code   string
 	// Dotted draws every other dot along the line, as a forecast reads.
 	Dotted bool
+	// Columns draws each reading as an eighth-block column up from the axis's foot, across the
+	// time until the next reading, or until the axis's end for the last, rather than as a line.
+	// A count per day reads this way. A reading's column ends a cell short where it is three or
+	// more cells wide, so neighbors read apart, and readings sharing a cell draw their mean.
+	Columns bool
 }
 
 // Band is the range between two edges, oldest first, shaded where no line runs, as the range a
@@ -40,7 +46,8 @@ type TimeSeries struct {
 	Series []Series
 	Bands  []Band
 	// From and To bound the time axis. A zero one takes the readings' first or last time, moved an
-	// hour out where every reading shares one time.
+	// hour out where every reading shares one time. A zero To reaches a Columns series' last
+	// reading plus the step before it, so that reading's column shows.
 	From, To time.Time
 	// Min and Max bound the value axis, which reaches further where a reading goes past. Where
 	// Max is not above Min, the axis runs from zero, or the lowest reading below it, to the largest
@@ -65,6 +72,10 @@ func (c TimeSeries) Lines(width, height int) []gotermboard.Line {
 		return blank(width, height)
 	}
 	for _, s := range c.Series {
+		if s.Columns {
+			drawColumns(&lc, s, cs.style(s.Code))
+			continue
+		}
 		drawLine(&lc, s, cs.style(s.Code))
 	}
 	for _, b := range c.Bands {
@@ -87,7 +98,10 @@ func (c TimeSeries) Legend() gotermboard.Line {
 	}
 	for _, s := range c.Series {
 		mark := "──"
-		if s.Dotted {
+		switch {
+		case s.Columns:
+			mark = "██"
+		case s.Dotted:
 			mark = "··"
 		}
 		add(mark, s.Code, s.Name)
@@ -109,6 +123,14 @@ func (c TimeSeries) axes(width, height int, cs *codes) (linechart.Model, bool) {
 		sets = append(sets, b.Low, b.High)
 	}
 	from, to := spanOver(c.From, c.To, sets)
+	for _, s := range c.Series {
+		if n := len(s.Points); s.Columns && c.To.IsZero() && n > 1 {
+			last := s.Points[n-1].At
+			if end := last.Add(last.Sub(s.Points[n-2].At)); end.After(to) {
+				to = end
+			}
+		}
+	}
 	low, high := c.valueRange()
 	return timeAxes(width, height, from, to, low, high, c.TimeLabel, c.ValueLabel, cs)
 }
@@ -270,6 +292,49 @@ func drawLine(lc *linechart.Model, s Series, style lipgloss.Style) {
 		last = at
 	}
 	graph.DrawBraillePatterns(&lc.Canvas, canvas.Point{X: plotLeft(lc)}, grid.BraillePatterns(), style)
+}
+
+
+// drawColumns draws a series' readings as columns up from the axis's foot over the plotting area.
+func drawColumns(lc *linechart.Model, s Series, style lipgloss.Style) {
+	width, height := lc.GraphWidth(), lc.GraphHeight()
+	span, rise := lc.MaxX()-lc.MinX(), lc.MaxY()-lc.MinY()
+	if span <= 0 || rise <= 0 {
+		return
+	}
+	cellOf := func(at time.Time) int {
+		return int(math.Floor((seconds(at) - lc.MinX()) / span * float64(width)))
+	}
+	sum, readings := make([]float64, width), make([]int, width)
+	for i, p := range s.Points {
+		from, to := cellOf(p.At), width
+		if i+1 < len(s.Points) {
+			to = cellOf(s.Points[i+1].At)
+		}
+		to = max(to, from+1)
+		if to-from >= 3 {
+			to--
+		}
+		for col := max(from, 0); col < min(to, width); col++ {
+			sum[col] += p.Value
+			readings[col]++
+		}
+	}
+	for col := range width {
+		if readings[col] == 0 {
+			continue
+		}
+		v := sum[col] / float64(readings[col])
+		filled := int(math.Round((v - lc.MinY()) / rise * float64(height*8)))
+		if v > lc.MinY() {
+			filled = max(filled, 1)
+		}
+		filled = min(max(filled, 0), height*8)
+		for row := 0; row*8 < filled; row++ {
+			block := upTo[min(filled-row*8, 8)]
+			lc.Canvas.SetCell(canvas.Point{X: plotLeft(lc) + col, Y: height - 1 - row}, canvas.NewCellWithStyle(block, style))
+		}
+	}
 }
 
 // fillBand fills the cells between a band's edges that no line or label holds.

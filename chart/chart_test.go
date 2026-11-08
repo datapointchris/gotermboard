@@ -135,6 +135,13 @@ func TestChartsDrawTheShapesTheirDocsPromise(t *testing.T) {
 		{"a filled sparkline spreads its values evenly", chart.Sparkline{Values: []float64{1, 2, 4}, Fill: true}, 12, 1, []string{
 			"▂▂▂▂▄▄▄▄████",
 		}},
+		{"a column series draws each reading until the next, a cell short of it", chart.TimeSeries{Min: 0, Max: 8, Series: []chart.Series{{Columns: true, Points: []chart.Point{
+			{At: t0, Value: 0}, {At: t0.Add(time.Hour), Value: 4}, {At: t0.Add(2 * time.Hour), Value: 8},
+		}}}}, 11, 3, []string{
+			"       ███ ",
+			"   ▄▄▄ ███ ",
+			"   ███ ███ ",
+		}},
 	}
 	for _, c := range cases {
 		var got []string
