@@ -1,6 +1,7 @@
 package gotermboard
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -9,11 +10,11 @@ import (
 	"github.com/datapointchris/gotermstyle"
 )
 
-func newThingTabs(t *testing.T, tabs ...[]string) *Tabs {
+func newThingTabs(t *testing.T, boards ...*thingsBoard) *Tabs {
 	t.Helper()
 	var list []Tab
-	for i, ids := range tabs {
-		list = append(list, Tab{Name: []string{"one", "two", "three"}[i], Board: &thingsBoard{ids: ids}})
+	for i, board := range boards {
+		list = append(list, Tab{Name: []string{"one", "two", "three", "four"}[i], Board: board})
 	}
 	program, err := NewTabs(list, gotermstyle.NewPalette(false), "")
 	if err != nil {
@@ -25,7 +26,7 @@ func newThingTabs(t *testing.T, tabs ...[]string) *Tabs {
 }
 
 func TestALockKeepsOnlyTheRowsNamingTheLockedThingUntilItLifts(t *testing.T) {
-	tabs := newThingTabs(t, []string{"1", "2", "3"}, []string{"3", "2"})
+	tabs := newThingTabs(t, &thingsBoard{ids: []string{"1", "2", "3"}}, &thingsBoard{ids: []string{"3", "2"}})
 	press(tabs, downKey)
 
 	press(tabs, typedKey(LockKey))
@@ -41,20 +42,24 @@ func TestALockKeepsOnlyTheRowsNamingTheLockedThingUntilItLifts(t *testing.T) {
 }
 
 func TestTheTabLineLeavesOutATabHoldingNothingLockedAndTabSkipsIt(t *testing.T) {
-	tabs := newThingTabs(t, []string{"1", "2"}, []string{"2"}, []string{"3"})
-	press(tabs, tea.KeyPressMsg{Code: tea.KeyTab})
-	press(tabs, tea.KeyPressMsg{Code: tea.KeyTab})
-	press(tabs, tea.KeyPressMsg{Code: tea.KeyTab})
+	late := NewSource("late", time.Hour, func(context.Context) (int, string, error) { return 0, "", nil })
+	tabs := newThingTabs(t, &thingsBoard{ids: []string{"1", "2"}}, &thingsBoard{ids: []string{"2"}}, &thingsBoard{ids: []string{"3"}},
+		&thingsBoard{sources: []Refresher{late}})
+	for range 4 {
+		press(tabs, tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	late.Refresh(t.Context())
 	press(tabs, downKey)
 
 	press(tabs, typedKey(LockKey))
-	if line := tabs.tabLine(); !strings.Contains(line, "two") || strings.Contains(line, "three") {
-		t.Fatalf("locked to thing 2, the tab line should name two and leave out three: %q", line)
+	if line := tabs.tabLine(); !strings.Contains(line, "two") || strings.Contains(line, "three") || !strings.Contains(line, "four") {
+		t.Fatalf("locked to thing 2, the tab line should name two, leave out three, and keep four, drawn before its read landed: %q", line)
 	}
 	press(tabs, tea.KeyPressMsg{Code: tea.KeyTab})
 	press(tabs, tea.KeyPressMsg{Code: tea.KeyTab})
+	press(tabs, tea.KeyPressMsg{Code: tea.KeyTab})
 	if tabs.at != 0 {
-		t.Errorf("tab should cycle one and two only, and twice lands back on one, not on %s", tabs.names[tabs.at])
+		t.Errorf("tab should cycle one, two and four, and three times lands back on one, not on %s", tabs.names[tabs.at])
 	}
 
 	press(tabs, typedKey(LockKey))

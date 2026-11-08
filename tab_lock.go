@@ -75,18 +75,13 @@ func (t *Tabs) lock(ref *EntityRef) {
 }
 
 // holdsNothingLocked says a tab other than the one showing has nothing of what is locked, so the
-// tab line leaves it out. Only a frame built from reads that all landed answers that. A tab never
-// shown, with a read under way or with a failed read may still hold it, so it stays.
+// tab line leaves it out. Only a frame built from reads that had all landed answers that. A tab
+// never shown, or last drawn while a read was under way or failing, may still hold it, so it
+// stays. A hidden tab builds no frames, so a read landing after it hid does not change that.
 func (t *Tabs) holdsNothingLocked(at int) bool {
 	m := t.models[at]
-	if t.locked == nil || at == t.at || !m.built {
+	if t.locked == nil || at == t.at || !m.whole {
 		return false
-	}
-	for _, source := range m.board.Sources() {
-		status := source.Status()
-		if status.Reading || status.Fault != "" || status.ReadAt.IsZero() {
-			return false
-		}
 	}
 	_, _, holds := entityLine(m.frame.Groups, *t.locked, nil)
 	return !holds

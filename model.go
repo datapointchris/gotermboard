@@ -126,8 +126,9 @@ type Model struct {
 	cancel  context.CancelFunc
 
 	frame Frame
-	// built says a frame was built, so frame is the board's answer rather than nothing yet.
-	built bool
+	// whole says frame was built from reads that had all landed, so it is the board's whole
+	// answer rather than nothing yet or a part of one.
+	whole bool
 	// width and height are what the board draws in, inside its Look's margin, and margin is
 	// that margin: Sides and Ends as the screen's size leaves them.
 	width    int
@@ -950,9 +951,20 @@ func (m *Model) currentGrouping() string {
 	return ""
 }
 
+// readsLanded says every source has read at least once, has no read under way and is not failing.
+func (m *Model) readsLanded() bool {
+	for _, source := range m.board.Sources() {
+		status := source.Status()
+		if status.Reading || status.Fault != "" || status.ReadAt.IsZero() {
+			return false
+		}
+	}
+	return true
+}
+
 func (m *Model) rebuild(now time.Time) {
 	wasLast := m.tails() && m.placed && m.onLastRow()
-	m.frame, m.built = m.board.Frame(now, m.currentGrouping()), true
+	m.frame, m.whole = m.board.Frame(now, m.currentGrouping()), m.readsLanded()
 	m.layout = nil
 	m.display.matched.newFrame()
 	m.drawStrip(now)

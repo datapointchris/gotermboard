@@ -95,10 +95,12 @@ and `*` again from any tab lifts it.
 - **Each tab keeps only the lines naming the locked thing,** and every line under a group that
   names it. A group holding such a line stays, open, as a filter holds a match's groups open.
   Each row naming it directly wears `LockGlyph` in its indent, ahead of `MarkGlyph`.
-- **The tab line leaves out a tab holding nothing locked, and tab skips it.** Only a frame built
-  from reads that all landed answers that. A tab never shown, with a read under way or with a
-  failed read may still hold the thing, so it stays listed, and a hidden tab still reads nothing.
-  The tab showing always stays. The line names the lock after the tabs.
+- **The tab line leaves out a tab holding nothing locked, and tab skips it.** Only a tab's last
+  frame answers that, and only where every read behind it had landed when it was drawn. A tab
+  never shown, or last drawn with a read under way or failing, may still hold the thing, so it
+  stays listed. A hidden tab reads nothing and draws nothing, so a read landing after it hid
+  leaves it listed until it shows again. The tab showing always stays. The line names the lock
+  after the tabs.
 - **A tab shown under a lock puts its cursor on the first line naming the thing** once its reads
   land, as a jump does, and the footer says what is locked and that `*` lifts it.
 - **The lock filters what each board draws, and changes no board's reads.**
