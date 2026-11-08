@@ -144,15 +144,26 @@ func TestNoLineOfAFrameIsWiderThanItsScreen(t *testing.T) {
 			}},
 		}},
 	}
+	pal := gotermstyle.NewPalette(true)
 	for _, size := range []struct{ width, height int }{{188, 88}, {120, 40}, {PanelFrom, 20}, {60, 10}} {
-		screen := Once(fixedBoard{frame}, gotermstyle.NewPalette(true), size.width, size.height)
-		lines := strings.Split(screen, "\n")
-		if len(lines) > size.height {
-			t.Errorf("%dx%d: %d lines", size.width, size.height, len(lines))
+		// A long Say and a long filter being typed each grow the footer.
+		said, filtering := NewModel(fixedBoard{frame}, pal), NewModel(fixedBoard{frame}, pal)
+		for _, m := range []*Model{said, filtering} {
+			m.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
 		}
-		for _, line := range lines {
-			if w := ansi.StringWidth(line); w > size.width {
-				t.Errorf("%dx%d: a line %d wide: %q", size.width, size.height, w, ansi.Strip(line))
+		said.Say(strings.Repeat(long, 3))
+		filtering.Update(typedKey("/"))
+		filtering.Update(tea.PasteMsg{Content: long})
+		screens := map[string]string{"once": Once(fixedBoard{frame}, pal, size.width, size.height), "said": said.screen(), "filtering": filtering.screen()}
+		for name, screen := range screens {
+			lines := strings.Split(screen, "\n")
+			if len(lines) > size.height {
+				t.Errorf("%s %dx%d: %d lines", name, size.width, size.height, len(lines))
+			}
+			for _, line := range lines {
+				if w := ansi.StringWidth(line); w > size.width {
+					t.Errorf("%s %dx%d: a line %d wide: %q", name, size.width, size.height, w, ansi.Strip(line))
+				}
 			}
 		}
 	}
@@ -446,26 +457,37 @@ type askingBoard struct {
 }
 
 func (b askingBoard) Actions() []Action {
+	heard := func(said string) tea.Cmd {
+		*b.answers = append(*b.answers, said)
+		return nil
+	}
 	return []Action{{Keys: []string{"m"}, Run: func(m *Model) tea.Cmd {
-		m.Ask("merge into:", func(typed string) tea.Cmd {
-			*b.answers = append(*b.answers, typed)
-			return nil
-		})
+		m.Ask(Question{Text: "merge into:", Typed: true, Answer: heard, Cancel: func() tea.Cmd { return heard("canceled") }})
 		return nil
 	}}}
 }
 
 func TestAQuestionTakesEveryKeyUntilEnterHandsItTheLineOrEscClosesIt(t *testing.T) {
+	var rows []Row
+	for i := range 20 {
+		key := "row-" + strconv.Itoa(i)
+		rows = append(rows, Row{Key: key, Cells: []Cell{C(key, "")}})
+	}
 	var answers []string
-	m := NewModel(askingBoard{fixedBoard{Frame{Columns: []Column{{Title: ""}}}}, &answers}, gotermstyle.NewPalette(false))
-	for _, key := range []tea.KeyPressMsg{typedKey("m"), typedKey("q"), spaceKey, typedKey("x"), spaceKey, enterKey} {
+	frame := Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "g", Rows: rows}}}
+	m := NewModel(askingBoard{fixedBoard{frame}, &answers}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m.Update(typedKey("G"))
+	m.Update(typedKey("m"))
+	if !strings.Contains(m.screen(), "row-19") {
+		t.Errorf("the question's lines hid the cursor's row:\n%s", m.screen())
+	}
+	for _, key := range []tea.KeyPressMsg{typedKey("q"), spaceKey, typedKey("x"), spaceKey, enterKey, typedKey("m"), typedKey("y")} {
 		m.Update(key)
 	}
-	m.Update(typedKey("m"))
-	m.Update(typedKey("y"))
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	if strings.Join(answers, ",") != "q x" {
-		t.Errorf("answers %q, want the one line enter handed over, trimmed", answers)
+	if strings.Join(answers, ",") != "q x,canceled" {
+		t.Errorf("answers %q, want the one line enter handed over, trimmed, then the cancel", answers)
 	}
 	if strings.Contains(m.screen(), "merge into:") {
 		t.Errorf("esc left the question on the footer:\n%s", m.screen())

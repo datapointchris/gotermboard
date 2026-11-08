@@ -237,25 +237,26 @@ shrink, reads on `Toggle` and closes only on the table's `space`.
 
 ## A key can ask for a line of text on the footer
 
-`Model.Ask` puts a question on the footer's lines and takes one line typed under it. `enter` hands
-the answer function what was typed, trimmed. `esc` or `ctrl+c` takes the question away and never
-calls it. `Model.Confirm` is the same question with nothing to type, for an act `enter` alone
-approves. Until one of them every key goes to the question, so `q`, `tab` and `?` type themselves,
-and a paste lands as one line.
+`Model.Ask` puts a `Question` on the footer's lines. With `Typed` set it takes one line typed under
+the question, and `enter` hands `Answer` what was typed, trimmed. Without it `enter` alone answers,
+for an act that takes no text. `esc` or `ctrl+c` takes the question away and runs `Cancel` where it
+is set, so a board can say that nothing was done. Until one of them every key goes to the question:
+`q` and `?` type themselves, `tab` does nothing, and a paste lands as one line.
 
 ```go
 {Keys: []string{"m"}, Label: "merge the row into a key you type", Footer: "m merge", Run: func(m *gotermboard.Model) tea.Cmd {
  key := m.Cursor()
- m.Ask("merge "+key+" into:", func(into string) tea.Cmd {
+ m.Ask(gotermboard.Question{Text: "merge " + key + " into:", Typed: true, Answer: func(into string) tea.Cmd {
   m.Say(merge(key, into))
   return nil
- })
+ }})
  return nil
 }}
 ```
 
 The question draws in bold as written, so its own punctuation ends it. It wraps rather than being
-cut, and so does what `Say` puts on the footer, each up to four lines. The typed line is cut from the
-left, so its end and the cursor stay on the screen. A footer that grows keeps the cursor's row in
+cut, and so does what `Say` puts on the footer. Each stops at a few lines, the last ending in `…`
+where more was left. The typed line is cut from the left, so its end and the cursor stay on the
+screen, as the filter and the reader's search are. A footer that grows keeps the cursor's row in
 view. The answer runs after the question closes, so it can `Say` what it did, ask another question,
 or return a command, such as one that opens an editor.

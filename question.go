@@ -7,76 +7,65 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// question is what a key asked on the footer's lines, and what enter does with the answer.
-type question struct {
-	text string
-	// typing says the answer is a line typed under the question. Without it enter alone answers.
-	typing bool
-	typed  []rune
-	answer func(typed string) tea.Cmd
+// Question is what a key asks on the footer's lines, until enter answers it or esc takes it away.
+type Question struct {
+	// Text draws in bold as written, so its own punctuation ends it.
+	Text string
+	// Typed takes one line typed under the question as the answer. Without it enter alone
+	// answers, for an act that takes no text, and Answer is handed an empty string.
+	Typed bool
+	// Answer runs on enter with what was typed, trimmed. The question has closed by then, so it
+	// can Say what it did, ask another question, or return a command such as an editor.
+	Answer func(typed string) tea.Cmd
+	// Cancel, where set, runs on esc or ctrl+c, so a board can say that nothing was done.
+	Cancel func() tea.Cmd
 }
 
-// Ask puts text on the footer's lines as a question, and takes one line typed under it as the
-// answer. enter hands answer what was typed, trimmed, and esc or ctrl+c takes the question
-// away with answer never called. Until then every key and paste goes to the question. The
-// text is drawn as written, so its own punctuation ends it.
-func (m *Model) Ask(text string, answer func(typed string) tea.Cmd) {
-	m.asking = &question{text: text, typing: true, answer: answer}
+// Ask puts q on the footer's lines. Until enter or esc every key and paste goes to it, so q
+// and ? type themselves and tab changes no tab.
+func (m *Model) Ask(q Question) {
+	m.asking, m.answer = &q, typedLine{}
 }
 
-// Confirm puts text on the footer's lines as a question enter alone answers, for a key whose act
-// takes no text. esc or ctrl+c takes it away with yes never called.
-func (m *Model) Confirm(text string, yes func() tea.Cmd) {
-	m.asking = &question{text: text, answer: func(string) tea.Cmd { return yes() }}
-}
-
-// answering is a key while a question is open. The question closes before its answer runs, so
-// the answer can ask another.
+// answering is a key while a question is open.
 func (m *Model) answering(key tea.KeyPressMsg) tea.Cmd {
 	q := m.asking
-	switch key.String() {
-	case "enter":
+	switch m.answer.press(key) {
+	case lineEntered:
 		m.asking = nil
-		return q.answer(strings.TrimSpace(string(q.typed)))
-	case "esc", "ctrl+c":
-		m.asking = nil
-	case "backspace":
-		if n := len(q.typed); n > 0 {
-			q.typed = q.typed[:n-1]
+		typed := ""
+		if q.Typed {
+			typed = strings.TrimSpace(m.answer.String())
 		}
-	case "ctrl+u":
-		q.typed = nil
-	default:
-		if q.typing && key.Mod&^tea.ModShift == 0 {
-			q.typed = append(q.typed, []rune(key.Text)...)
+		if q.Answer != nil {
+			return q.Answer(typed)
+		}
+	case lineCanceled:
+		m.asking = nil
+		if q.Cancel != nil {
+			return q.Cancel()
 		}
 	}
 	return nil
 }
 
-// pasteAnswer adds a paste to what is typed as one line, so a newline in it answers nothing.
-func (m *Model) pasteAnswer(content string) {
-	if m.asking.typing {
-		m.asking.typed = append(m.asking.typed, []rune(strings.Join(strings.Fields(content), " "))...)
-	}
-}
-
 // questionLines is the open question in bold, then the line being typed, and the keys that answer.
 func (m *Model) questionLines() (lines []string, keys string) {
-	for _, line := range m.wrapped(m.asking.text) {
+	for _, line := range m.wrapped(m.asking.Text) {
 		lines = append(lines, m.pal.Bold(line))
 	}
-	if !m.asking.typing {
+	if !m.asking.Typed {
 		return lines, "enter confirms  esc cancels"
 	}
-	return append(lines, m.typingLine("› ", string(m.asking.typed))), "enter answers  esc cancels  ctrl+u clears"
+	return append(lines, m.answer.draw("› ", m.width)), "enter answers  esc cancels  ctrl+u clears"
 }
 
 // footerTextLines bounds the lines a question or what a key did may take, so a long one never
 // pushes every row off the screen.
 const footerTextLines = 4
 
-// wrapped is text wrapped to the screen rather than cut, so a long key or reason stays whole.
+// wrapped is text wrapped to the screen, stopping at footerTextLines lines with the last one
+// ending in … where more was left.
 func (m *Model) wrapped(text string) []string {
 	lines := strings.Split(ansi.Wrap(text, m.width, "/"), "\n")
 	if len(lines) > footerTextLines {
@@ -84,14 +73,4 @@ func (m *Model) wrapped(text string) []string {
 		lines[footerTextLines-1] = ansi.Truncate(lines[footerTextLines-1]+"…", m.width, "…")
 	}
 	return lines
-}
-
-// typingLine is text being typed after prefix, with the cursor at its end. It is cut from the
-// left, so the end being typed stays on the screen.
-func (m *Model) typingLine(prefix, text string) string {
-	text += "█"
-	if over := ansi.StringWidth(prefix+text) - m.width; over > 0 {
-		text = ansi.TruncateLeft(text, over+1, "…")
-	}
-	return prefix + text
 }

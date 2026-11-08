@@ -49,9 +49,11 @@ type Reader struct {
 
 	searching    bool
 	searchedFrom int
-	query        string
-	hits         []int
-	hit          int
+	// searchLine is the search as it is typed, and query the one the hits are for.
+	searchLine typedLine
+	query      string
+	hits       []int
+	hit        int
 }
 
 // NewReader is a Reader over document, sized until the terminal says otherwise.
@@ -300,6 +302,7 @@ func readerActions() []readerAction {
 		}, applies: hasSections},
 		{keys: []string{"/"}, label: "search the text", footer: "/ search", run: func(r *Reader) tea.Cmd {
 			r.searching, r.searchedFrom = true, r.top
+			r.searchLine.set("")
 			r.setQuery("")
 			return nil
 		}},
@@ -360,30 +363,27 @@ func (r *Reader) pressed(key tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+// typed is a key while the search is typed: enter keeps it, and esc clears it and goes back to
+// where it began.
 func (r *Reader) typed(key tea.KeyPressMsg) {
-	switch key.String() {
-	case "enter":
+	switch r.searchLine.press(key) {
+	case lineEntered:
 		r.searching = false
-	case "esc", "ctrl+c":
+	case lineCanceled:
 		r.searching = false
 		r.setQuery("")
 		r.scrollTo(r.searchedFrom)
-	case "backspace":
-		if query := []rune(r.query); len(query) > 0 {
-			r.setQuery(string(query[:len(query)-1]))
-		}
-	case "ctrl+u":
-		r.setQuery("")
 	default:
-		if key.Mod&^tea.ModShift == 0 && key.Text != "" {
-			r.setQuery(r.query + key.Text)
+		if query := r.searchLine.String(); query != r.query {
+			r.setQuery(query)
 		}
 	}
 }
 
 func (r *Reader) paste(content string) {
 	if r.searching {
-		r.setQuery(r.query + strings.Join(strings.Fields(content), " "))
+		r.searchLine.paste(content)
+		r.setQuery(r.searchLine.String())
 	}
 }
 
@@ -506,7 +506,12 @@ func (r *Reader) footer() string {
 	parts := []string{fmt.Sprintf("%d/%d", min(r.top+r.bodyHeight(), len(r.rows)), len(r.rows))}
 	switch {
 	case r.searching:
-		parts = append(parts, "/"+r.query+"█", r.hitsSaid())
+		// The search being typed goes last, so a narrow screen cuts it from the left and keeps the cursor.
+		if hits := r.hitsSaid(); hits != "" {
+			parts = append(parts, hits)
+		}
+		lead := strings.Join(parts, "  ") + "  "
+		return lead + r.searchLine.draw("/", r.width-ansi.StringWidth(lead))
 	case r.query != "":
 		parts = append(parts, "/"+r.query, r.hitsSaid(), "n/N match", "esc clears")
 	case r.said != "":
