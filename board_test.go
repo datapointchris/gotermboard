@@ -440,6 +440,38 @@ type followingBoard struct {
 
 func (b followingBoard) CursorOn(key string) { *b.heard = append(*b.heard, key) }
 
+type askingBoard struct {
+	fixedBoard
+	answers *[]string
+}
+
+func (b askingBoard) Actions() []Action {
+	return []Action{{Keys: []string{"m"}, Run: func(m *Model) tea.Cmd {
+		m.Ask("merge into:", func(typed string) tea.Cmd {
+			*b.answers = append(*b.answers, typed)
+			return nil
+		})
+		return nil
+	}}}
+}
+
+func TestAQuestionTakesEveryKeyUntilEnterHandsItTheLineOrEscClosesIt(t *testing.T) {
+	var answers []string
+	m := NewModel(askingBoard{fixedBoard{Frame{Columns: []Column{{Title: ""}}}}, &answers}, gotermstyle.NewPalette(false))
+	for _, key := range []tea.KeyPressMsg{typedKey("m"), typedKey("q"), spaceKey, typedKey("x"), spaceKey, enterKey} {
+		m.Update(key)
+	}
+	m.Update(typedKey("m"))
+	m.Update(typedKey("y"))
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if strings.Join(answers, ",") != "q x" {
+		t.Errorf("answers %q, want the one line enter handed over, trimmed", answers)
+	}
+	if strings.Contains(m.screen(), "merge into:") {
+		t.Errorf("esc left the question on the footer:\n%s", m.screen())
+	}
+}
+
 func TestACursorBoardHearsEachKeyTheCursorLandsOnOnce(t *testing.T) {
 	frame := Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "g", Rows: []Row{
 		{Key: "one", Cells: []Cell{C("one", "")}}, {Key: "two", Cells: []Cell{C("two", "")}},

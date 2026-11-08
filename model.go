@@ -81,6 +81,8 @@ type Model struct {
 	filtering    bool
 	overlay      bool
 	said         string
+	// asking is the question a key put on the footer, until enter or esc closes it.
+	asking *question
 	// scrolled holds top where ScrollBy put it, until the cursor moves or a key changes what
 	// shows, so a row's detail taller than the screen can be read through.
 	scrolled bool
@@ -274,11 +276,19 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		switch {
 		case m.reading != nil:
 			m.reading.paste(msg.Content)
+		case m.asking != nil:
+			m.pasteAnswer(msg.Content)
 		case m.filtering:
 			m.setFilter(m.display.filter + strings.Join(strings.Fields(msg.Content), " "))
 		}
 	case tea.KeyPressMsg:
-		return tea.Batch(m.pressed(msg), m.nextMove())
+		// A footer that grew, as a question or a long answer makes it, keeps the cursor in view.
+		footer := len(m.footer())
+		cmd := m.pressed(msg)
+		if len(m.footer()) != footer {
+			m.follow()
+		}
+		return tea.Batch(cmd, m.nextMove())
 	}
 	return nil
 }
@@ -517,6 +527,9 @@ func (m *Model) Tall(document Document) bool {
 func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
 	if m.reading != nil {
 		return m.reading.pressed(key)
+	}
+	if m.asking != nil {
+		return m.answering(key)
 	}
 	name := key.String()
 	if m.overlay {
@@ -886,16 +899,21 @@ func (m *Model) clearOfBand(lines []drawn, at, height int) {
 	}
 }
 
-// footer is what the last key did or the filter being typed, then the keys.
+// footer is an open question and the keys that answer it, or else what the last key did or the
+// filter being typed, then the keys.
 func (m *Model) footer() []string {
+	if m.asking != nil {
+		lines, keys := m.questionLines()
+		return append(lines, ansi.Truncate(keys, m.width, "…"))
+	}
 	var lines []string
 	switch {
 	case m.filtering:
-		lines = append(lines, "/"+m.display.filter+"█")
+		lines = append(lines, m.typingLine("/", m.display.filter))
 	case m.display.filter != "":
-		lines = append(lines, "filter: "+m.display.filter+"  (esc clears)")
+		lines = append(lines, ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…"))
 	case m.said != "":
-		lines = append(lines, m.said)
+		lines = m.wrapped(m.said)
 	}
 	var keys []string
 	for _, action := range m.actions() {
