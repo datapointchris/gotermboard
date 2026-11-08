@@ -401,6 +401,48 @@ type display struct {
 	opened map[string]bool
 	under  bool
 	filter string
+	// matched keeps what the filter reads of each row, because one draw walks the rows several
+	// times, the clock draws a frame a second, and a row's text can run to pages.
+	matched *rowMatches
+}
+
+// rowMatches is each row's answer to the filter and its text lowercased. Answers and the rows
+// they belong to are this frame's. The lowercased text is keyed by the text, so a new frame
+// whose rows say the same thing lowercases nothing, and it is kept for two frames.
+type rowMatches struct {
+	filter     string
+	answers    map[*Row]bool
+	lowered    map[*Row]string
+	kept, last map[string]string
+}
+
+func newRowMatches() *rowMatches {
+	return &rowMatches{answers: map[*Row]bool{}, lowered: map[*Row]string{}, kept: map[string]string{}}
+}
+
+func (rm *rowMatches) newFrame() {
+	if rm == nil {
+		return
+	}
+	clear(rm.answers)
+	clear(rm.lowered)
+	rm.last, rm.kept = rm.kept, map[string]string{}
+}
+
+func (rm *rowMatches) lowercase(r *Row) string {
+	if low, known := rm.lowered[r]; known {
+		return low
+	}
+	text := rowText(r)
+	low, known := rm.kept[text]
+	if !known {
+		if low, known = rm.last[text]; !known {
+			low = strings.ToLower(text)
+		}
+		rm.kept[text] = low
+	}
+	rm.lowered[r] = low
+	return low
 }
 
 func (d display) contains(text string) bool {
@@ -411,6 +453,23 @@ func (d display) matches(r *Row) bool {
 	if d.filter == "" {
 		return true
 	}
+	if d.matched == nil {
+		return d.contains(rowText(r))
+	}
+	if d.matched.filter != d.filter {
+		d.matched.filter = d.filter
+		clear(d.matched.answers)
+	}
+	got, known := d.matched.answers[r]
+	if !known {
+		got = strings.Contains(d.matched.lowercase(r), strings.ToLower(d.filter))
+		d.matched.answers[r] = got
+	}
+	return got
+}
+
+// rowText is everything of a row the filter reads.
+func rowText(r *Row) string {
 	var b strings.Builder
 	b.WriteString(r.Span.Text() + " " + r.Under.Text + " " + r.Text)
 	for _, c := range r.Cells {
@@ -419,7 +478,7 @@ func (d display) matches(r *Row) bool {
 	for _, c := range r.Detail {
 		b.WriteString(" " + c.Text)
 	}
-	return d.contains(b.String())
+	return b.String()
 }
 
 func (d display) groupMatches(g *Group) bool {

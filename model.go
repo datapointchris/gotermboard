@@ -122,7 +122,7 @@ func NewModel(board Board, pal gotermstyle.Palette) *Model {
 func newModel(board Board, pal gotermstyle.Palette, ctx context.Context, cancel context.CancelFunc) *Model {
 	return &Model{
 		board: board, pal: pal, ctx: ctx, cancel: cancel, width: 80, height: 24, cue: newChangeCue(),
-		display: display{folded: map[string]bool{}, opened: map[string]bool{}},
+		display: display{folded: map[string]bool{}, opened: map[string]bool{}, matched: newRowMatches()},
 	}
 }
 
@@ -739,6 +739,7 @@ func (m *Model) currentGrouping() string {
 func (m *Model) rebuild(now time.Time) {
 	wasLast := m.tails() && m.placed && m.onLastRow()
 	m.frame = m.board.Frame(now, m.currentGrouping())
+	m.display.matched.newFrame()
 	m.drawStrip(now)
 	m.layOutCharts()
 	m.panelHasText = anyPanelText(m.frame.Groups)
