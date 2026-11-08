@@ -150,8 +150,6 @@ type Model struct {
 	// ahead of the board's own, which take their keys only while they apply.
 	hosted []Action
 	ahead  []Action
-	// tabs holds this model where it is one of several, for a jump to another tab.
-	tabs *Tabs
 	// seeking is what a jump came for, until a line names it or the reads say none does.
 	seeking *seek
 	cue     changeCue
@@ -484,10 +482,6 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if msg.model == m {
 			return m.receive(msg)
 		}
-	case outsideEnded:
-		if msg.model == m && msg.err != nil {
-			m.said = msg.name + " ended: " + msg.err.Error()
-		}
 	default:
 		return m.receive(msg)
 	}
@@ -523,12 +517,11 @@ type Action struct {
 	Applies func(*Model) bool
 }
 
-// TableKeys is every key the built-in table binds, tab and shift+tab, which Tabs binds where it
-// shows more than one board, and JumpKey, which Tabs binds where a row names an entity another
-// tab or program shows. A board's key hides the table's, so a board taking keys from its own
-// config asks this which ones would take a key from the table.
+// TableKeys is every key the built-in table binds. A board's key hides the table's, so a board
+// taking keys from its own config asks this which ones would take a key from the table, and
+// Tabs.Keys where it is one of several tabs.
 func TableKeys() []string {
-	keys := []string{"tab", "shift+tab", JumpKey}
+	var keys []string
 	for _, action := range actionTable() {
 		keys = append(keys, action.Keys...)
 	}
@@ -638,15 +631,30 @@ func (m *Model) actions() []Action {
 	})
 }
 
-// boardThenTableActions is the holder's keys that apply now, then the board's keys, then the
-// table's, each less the keys one before it took.
+// boardThenTableActions is clearing a kept filter, then the holder's keys, while each applies,
+// then the board's keys, then the table's, each less the keys one before it took.
 func (m *Model) boardThenTableActions() []Action {
-	ahead := slices.DeleteFunc(slices.Clone(m.ahead), func(action Action) bool { return action.Applies != nil && !action.Applies(m) })
+	applying := func(actions []Action) []Action {
+		return slices.DeleteFunc(slices.Clone(actions), func(action Action) bool { return action.Applies != nil && !action.Applies(m) })
+	}
 	var own []Action
 	if keyed, ok := m.board.(Keyed); ok {
 		own = keyed.Actions()
 	}
-	return keysTakenInOrder(ahead, own, m.tableActions())
+	return keysTakenInOrder(applying(filterClearing()), applying(m.ahead), own, m.tableActions())
+}
+
+// filterClearing is esc while a filter is kept, ahead of every other esc, because a filter is the
+// nearest level to back out of. The filter's own line names the key, so it has no footer.
+func filterClearing() []Action {
+	return []Action{{
+		Keys: []string{"esc"}, Label: "clear the filter",
+		Run: func(m *Model) tea.Cmd {
+			m.setFilter("")
+			return nil
+		},
+		Applies: func(m *Model) bool { return m.display.filter != "" },
+	}}
 }
 
 // keysTakenInOrder is each layer's actions less the keys a layer before it took. An action losing
@@ -724,11 +732,16 @@ func (m *Model) Say(text string) { m.said = text }
 // Restart puts the cursor back at the top and reads every source now, for a board's
 // key that changes what the view shows.
 func (m *Model) Restart() tea.Cmd {
+	m.toTop()
+	return m.reveal(time.Now())
+}
+
+// toTop puts the cursor back at the top and has every source read at the next reveal.
+func (m *Model) toTop() {
 	m.cursor, m.cursorAt, m.top, m.placed, m.scrolled = "", 0, 0, false, false
 	for _, source := range m.board.Sources() {
 		source.Force()
 	}
-	return m.reveal(time.Now())
 }
 
 // Rebuild is for a key that changed what the board shows from what it already holds.
@@ -846,10 +859,6 @@ func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
 	}
 	m.said = ""
 	name := key.String()
-	if name == "esc" && m.display.filter != "" {
-		m.setFilter("")
-		return nil
-	}
 	for _, action := range m.actions() {
 		if slices.Contains(action.Keys, name) {
 			return action.Run(m)

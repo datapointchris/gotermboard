@@ -55,11 +55,31 @@ func NewTabs(tabs []Tab, pal gotermstyle.Palette, open string) (*Tabs, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.models = hiddenModels(tabs, pal, theme, ctx, cancel)
-	for _, model := range t.models {
-		model.tabs, model.ahead, model.hosted = t, t.backActions(), append(t.cycleActions(), t.jumpActions()...)
-	}
+	t.hostActions()
 	t.active().sayThemeFault(themeErr)
 	return t, nil
+}
+
+// hostActions gives each tab's model the keys Tabs binds: esc back ahead of the board's own keys,
+// and the rest beside the table's.
+func (t *Tabs) hostActions() {
+	for _, model := range t.models {
+		model.ahead, model.hosted = t.backActions(), t.besideTable()
+	}
+}
+
+// besideTable is the keys Tabs binds beside the table's: tab's, then t's.
+func (t *Tabs) besideTable() []Action { return append(t.cycleActions(), t.jumpActions()...) }
+
+// Keys is every key Tabs binds beside the table's, which a board's own key would hide: tab and
+// shift+tab where there are tabs to cycle, and JumpKey where a row could go somewhere. A board
+// taking keys from its own config asks this and TableKeys which ones it would take.
+func (t *Tabs) Keys() []string {
+	var keys []string
+	for _, action := range t.besideTable() {
+		keys = append(keys, action.Keys...)
+	}
+	return keys
 }
 
 // hiddenModels share one context, so quitting from any tab ends every tab's reads, and one
@@ -94,6 +114,7 @@ func (t *Tabs) cycleActions() []Action {
 	}
 }
 
+// show hides the tab showing and shows the one at at, from its last good reads.
 func (t *Tabs) show(at int) tea.Cmd {
 	t.active().hide()
 	t.at = (at + len(t.models)) % len(t.models)

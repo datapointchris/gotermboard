@@ -52,15 +52,24 @@ type HandedBack struct {
 // a program that asks whether stderr is a terminal hears no. A caller handing over such a
 // program sets cmd.Stderr, such as to os.Stderr, and keeps nothing.
 func (m *Model) HandOver(cmd *exec.Cmd, then func(m *Model, err error, stderr []byte) tea.Cmd) tea.Cmd {
-	return handOver(cmd, func(err error, stderr []byte) tea.Msg {
+	return m.handOverProgram(&handedOver{cmd: cmd}, then)
+}
+
+// handOverProgram is HandOver for any program that keeps its stderr.
+func (m *Model) handOverProgram(program stderrKeeper, then func(m *Model, err error, stderr []byte) tea.Cmd) tea.Cmd {
+	return handOver(program, func(err error, stderr []byte) tea.Msg {
 		return HandedBack{Err: err, Stderr: stderr, model: m, then: then}
 	})
 }
 
-// handOver runs cmd on the terminal through Bubble Tea, keeping its stderr, and ends in the
-// message done makes.
-func handOver(cmd *exec.Cmd, done func(err error, stderr []byte) tea.Msg) tea.Cmd {
-	program := &handedOver{cmd: cmd}
+// stderrKeeper is a program Bubble Tea's Exec runs that keeps the end of its stderr.
+type stderrKeeper interface {
+	tea.ExecCommand
+	kept() []byte
+}
+
+// handOver runs program on the terminal through Bubble Tea and ends in the message done makes.
+func handOver(program stderrKeeper, done func(err error, stderr []byte) tea.Msg) tea.Cmd {
 	return tea.Exec(program, func(err error) tea.Msg { return done(err, program.kept()) })
 }
 
@@ -77,9 +86,7 @@ const stderrDrainWait = 250 * time.Millisecond
 type handedOver struct {
 	cmd      *exec.Cmd
 	terminal io.Writer
-
-	mu   sync.Mutex
-	tail []byte
+	tail     stderrTail
 }
 
 // SetStdin is tea.ExecCommand's, and keeps a stdin the caller set.
@@ -132,12 +139,7 @@ func (h *handedOver) drain(pipe *os.File, drained chan<- struct{}) {
 		n, err := pipe.Read(buf)
 		if n > 0 {
 			_, _ = h.terminal.Write(buf[:n])
-			h.mu.Lock()
-			h.tail = append(h.tail, buf[:n]...)
-			if over := len(h.tail) - keptStderr; over > 0 {
-				h.tail = h.tail[over:]
-			}
-			h.mu.Unlock()
+			_, _ = h.tail.Write(buf[:n])
 		}
 		if err != nil {
 			return
@@ -145,10 +147,28 @@ func (h *handedOver) drain(pipe *os.File, drained chan<- struct{}) {
 	}
 }
 
-func (h *handedOver) kept() []byte {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return slices.Clone(h.tail)
+func (h *handedOver) kept() []byte { return h.tail.kept() }
+
+// stderrTail keeps the last keptStderr bytes written to it.
+type stderrTail struct {
+	mu   sync.Mutex
+	held []byte
+}
+
+func (s *stderrTail) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.held = append(s.held, p...)
+	if over := len(s.held) - keptStderr; over > 0 {
+		s.held = s.held[over:]
+	}
+	return len(p), nil
+}
+
+func (s *stderrTail) kept() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.held)
 }
 
 // windowTimeout bounds tmux opening a window, which answers at once on a live server.

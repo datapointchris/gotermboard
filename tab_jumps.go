@@ -2,6 +2,7 @@ package gotermboard
 
 import (
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 
@@ -36,7 +37,10 @@ type Outside struct {
 	Kind string
 	// Name names it among the places a row goes, as a tab's name does.
 	Name string
-	// Command is the program opened on one entity's id, which Bubble Tea's Exec runs.
+	// Command is the program opened on one entity's id, which the caller's own runner starts,
+	// or nil where it cannot open that id. It ends as Model.HandOver's program does: the end
+	// of its stderr is kept, the board whose row it left receives the HandedBack, and a
+	// failure says its last line.
 	Command func(id string) tea.ExecCommand
 }
 
@@ -46,6 +50,7 @@ const JumpKey = "t"
 // OpensOutside adds programs that a row's entity can jump to, after the tabs that show its kind.
 func (t *Tabs) OpensOutside(programs ...Outside) {
 	t.outside = append(t.outside, programs...)
+	t.hostActions()
 }
 
 // jumpTarget is one place an entity goes: a tab, or a program outside.
@@ -82,9 +87,21 @@ func (t *Tabs) jumpTargets(m *Model) []jumpTarget {
 	return targets
 }
 
+// canJump says some row could go somewhere: a program outside shows a kind, or a tab does with
+// another tab to jump from.
+func (t *Tabs) canJump() bool {
+	return len(t.outside) > 0 || len(t.models) > 1 && slices.ContainsFunc(t.models, func(m *Model) bool {
+		_, ok := m.board.(EntityBoard)
+		return ok
+	})
+}
+
 // jumpActions is t, which goes straight to the one place the cursor's row names, or asks which
-// where it names several.
+// where it names several. Where no row could go anywhere, Tabs binds no t.
 func (t *Tabs) jumpActions() []Action {
+	if !t.canJump() {
+		return nil
+	}
 	return []Action{{
 		Keys: []string{JumpKey}, Label: "go to what the row names, in another tab or program; esc comes back", Footer: "t go to",
 		Run:     t.pickJump,
@@ -98,7 +115,7 @@ func (t *Tabs) backActions() []Action {
 	return []Action{{
 		Keys: []string{"esc"}, Label: "go back to the tab the jump left, on the row it left", Footer: "esc back",
 		Run:     func(*Model) tea.Cmd { return t.goBack() },
-		Applies: func(m *Model) bool { return len(t.back) > 0 && m.display.filter == "" },
+		Applies: func(*Model) bool { return len(t.back) > 0 },
 	}}
 }
 
@@ -131,41 +148,54 @@ func (t *Tabs) pickJump(m *Model) tea.Cmd {
 	return nil
 }
 
-// JumpTo goes to ref in the tab or the program outside named where, as JumpKey does, for a
-// board's own key. Esc at that tab's top comes back. It says on the footer where nothing named
-// where shows ref's kind.
-func (m *Model) JumpTo(where string, ref EntityRef) tea.Cmd {
-	if m.tabs != nil {
-		for _, target := range m.tabs.jumpTargets(m) {
-			if target.ref.Kind == ref.Kind && target.where(m.tabs) == where {
-				target.ref = ref
-				return m.tabs.jump(target)
-			}
-		}
-	}
-	m.Say(fmt.Sprintf("no tab or program named %s shows a %s here", where, ref.Kind))
-	return nil
-}
-
 // jump goes to target. A program outside is handed the terminal. A tab is shown at the entity,
 // with the tab it left pushed for esc, and its cursor goes where the board says.
 func (t *Tabs) jump(target jumpTarget) tea.Cmd {
-	from := t.active()
 	if outside := target.outside; outside != nil {
-		return tea.Exec(outside.Command(target.ref.ID), func(err error) tea.Msg {
-			return outsideEnded{model: from, name: outside.Name, err: err}
-		})
+		return t.active().openOutside(outside, target.ref)
 	}
 	to := t.models[target.tab]
 	whole := to.board.(EntityBoard).ShowEntity(target.ref)
-	t.back = append(t.back, t.at)
-	from.hide()
-	t.at = target.tab
+	to.toTop()
 	if !whole {
-		to.seeking = &seek{ref: target.ref, none: fmt.Sprintf("%s holds no %s %s", t.names[target.tab], target.ref.Kind, target.ref.ID)}
+		to.seeking = &seek{ref: target.ref, tab: t.names[target.tab]}
 	}
-	return to.Restart()
+	t.back = append(t.back, t.at)
+	return t.show(target.tab)
 }
+
+// openOutside hands the terminal to the program outside on ref, as HandOver does.
+func (m *Model) openOutside(outside *Outside, ref EntityRef) tea.Cmd {
+	program := outside.Command(ref.ID)
+	if program == nil {
+		m.Say(fmt.Sprintf("%s cannot open %s %s", outside.Name, ref.Kind, ref.ID))
+		return nil
+	}
+	return m.handOverProgram(&runnerHandedOver{ExecCommand: program}, func(m *Model, err error, stderr []byte) tea.Cmd {
+		if err != nil {
+			m.Say(fmt.Sprintf("%s on %s %s: %s", outside.Name, ref.Kind, ref.ID, LastLine(stderr, err)))
+		}
+		return nil
+	})
+}
+
+// runnerHandedOver is a program its caller's own runner starts, as Bubble Tea's Exec runs it for
+// handOver. What it writes to stderr reaches the terminal, and the end of it is kept.
+type runnerHandedOver struct {
+	tea.ExecCommand
+	tail stderrTail
+}
+
+// SetStderr is tea.ExecCommand's.
+func (r *runnerHandedOver) SetStderr(w io.Writer) {
+	if w == nil {
+		r.ExecCommand.SetStderr(&r.tail)
+		return
+	}
+	r.ExecCommand.SetStderr(io.MultiWriter(w, &r.tail))
+}
+
+func (r *runnerHandedOver) kept() []byte { return r.tail.kept() }
 
 // goBack shows the tab the newest jump left, whose cursor stayed where it was.
 func (t *Tabs) goBack() tea.Cmd {
@@ -174,19 +204,11 @@ func (t *Tabs) goBack() tea.Cmd {
 	return t.show(from)
 }
 
-// outsideEnded is what a program a jump handed the terminal to sends once it exits, for the model
-// whose row it left.
-type outsideEnded struct {
-	model *Model
-	name  string
-	err   error
-}
-
-// seek is the entity a jump came for, which the cursor goes to once a line names it, and what the
-// footer says where none does once the reads land.
+// seek is the entity a jump came for, which the cursor goes to once a line names it, and the
+// tab it went to, which the footer names where none does once the reads land.
 type seek struct {
-	ref  EntityRef
-	none string
+	ref EntityRef
+	tab string
 }
 
 // CursorEntities is what the group or row under the cursor names.
@@ -203,16 +225,24 @@ func (m *Model) CursorEntities() []EntityRef {
 
 // seekEntity puts the cursor on the first line naming what a jump came for, opening the groups
 // that hold it and clearing a filter that hides it. Where no line names it and no read is under
-// way, the footer says so and the cursor stays where the tab starts.
+// way, the footer says so, and the cursor stays where the tab starts. A read that failed is no
+// answer, so the footer then says the tab may hold it.
 func (m *Model) seekEntity() {
 	if m.seeking == nil {
 		return
 	}
 	key, holding, found := entityLine(m.frame.Groups, m.seeking.ref, nil)
 	if !found {
-		if !slices.ContainsFunc(m.board.Sources(), func(source Refresher) bool { return source.Status().Reading }) {
-			m.said, m.seeking = m.seeking.none, nil
+		sources := m.board.Sources()
+		if slices.ContainsFunc(sources, func(source Refresher) bool { return source.Status().Reading }) {
+			return
 		}
+		ref := m.seeking.ref
+		m.said = fmt.Sprintf("%s holds no %s %s", m.seeking.tab, ref.Kind, ref.ID)
+		if slices.ContainsFunc(sources, func(source Refresher) bool { return source.Status().Fault != "" }) {
+			m.said = fmt.Sprintf("%s could not read, so it may still hold %s %s", m.seeking.tab, ref.Kind, ref.ID)
+		}
+		m.seeking = nil
 		return
 	}
 	m.seeking = nil
