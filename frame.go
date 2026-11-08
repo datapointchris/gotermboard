@@ -151,6 +151,9 @@ type Row struct {
 	Detail []Cell
 	// Document is what opens under the row and the side panel shows, in Detail's place.
 	Document Document
+	// ReaderTitle heads the Reader enter opens on a tall Document. Empty, the row's own
+	// words head it.
+	ReaderTitle string
 	// StartsOpen shows the row's Detail or Document under it until a key closes it, so a
 	// view can draw its newest entry whole and still fold it to its first line.
 	StartsOpen bool
