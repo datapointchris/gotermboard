@@ -106,6 +106,7 @@ func (c *changeCue) groupPrint(g *Group) uint64 {
 func printCells(b *strings.Builder, cells []Cell) {
 	for _, cell := range cells {
 		b.WriteString(cell.Code)
+		b.WriteString(cell.Role)
 		b.WriteByte(0)
 		if !cell.Ticks {
 			b.WriteString(cell.Text)

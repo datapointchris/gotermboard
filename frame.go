@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/datapointchris/gotermstyle"
+	"github.com/datapointchris/gotermstyle/tuitheme"
 )
 
 // The codes a view colors a cell with, all in ANSI 0-15 so they follow the theme.
@@ -35,8 +36,12 @@ const columnGap = "  "
 // Cell is text and its color. Ticks says the text follows the clock, as an age does,
 // so its changing is no change to the row, though its color changing still is.
 type Cell struct {
-	Text  string
-	Code  string
+	Text string
+	Code string
+	// Role is the TUI theme role the cell draws in, such as syntax.keyword, with Code's
+	// attributes over it. Only a Document's or a Panel's lines read it so far: a board and a
+	// Reader draw it in their theme, which a reload recolors, and Line.Paint in the built-in one.
+	Role  string
 	Ticks bool
 	// Section says this cell starts the words of a heading, where a Reader's [ and ] land, and
 	// how deep the heading sits: 1 is outermost, and 0 is no heading. A heading closes every
@@ -95,13 +100,29 @@ func (l Line) elided(room int) Line {
 	return more(0)
 }
 
-// Paint is the line as text in its cells' colors, so a TallyBar can print outside a board.
-func (l Line) Paint(pal gotermstyle.Palette) string {
+// Paint is the line as text in its cells' colors, so a TallyBar can print outside a board. A
+// cell's Role draws in the built-in theme.
+func (l Line) Paint(pal gotermstyle.Palette) string { return l.paint(pal, builtInTheme) }
+
+// paint is the line as text in its cells' colors, each Role drawn in theme.
+func (l Line) paint(pal gotermstyle.Palette, theme *tuitheme.Theme) string {
 	var b strings.Builder
 	for _, c := range l {
-		b.WriteString(pal.Paint(c.Code, c.Text))
+		b.WriteString(pal.Paint(c.code(theme), c.Text))
 	}
 	return b.String()
+}
+
+// withText is a piece of the cell, in the cell's color and role.
+func (c Cell) withText(text string) Cell { return Cell{Text: text, Code: c.Code, Role: c.Role} }
+
+// code is what the cell draws in: its Role in theme, then its Code. The role's code leads,
+// because it opens with a reset that would undo an attribute set before it.
+func (c Cell) code(theme *tuitheme.Theme) string {
+	if c.Role == "" {
+		return c.Code
+	}
+	return theme.Code(c.Role) + c.Code
 }
 
 // emboldened is a color in bold. The color leads, because each code opens with a reset
@@ -837,7 +858,7 @@ func stickyBand(lines []drawn, top, height int) []string {
 // draw lays the nodes out to width. The first group holding rows and left open
 // carries the one header row, so every group shares its columns. A group with cells
 // of its own has no room for the titles, so they take a line of their own at the top.
-func draw(pal gotermstyle.Palette, columns []Column, nodes []node, widths []int, width int, cursor string, look cursorLook) []drawn {
+func draw(pal gotermstyle.Palette, theme *tuitheme.Theme, columns []Column, nodes []node, widths []int, width int, cursor string, look cursorLook) []drawn {
 	titled := false
 	lines := make([]drawn, 0, len(nodes))
 	if slices.ContainsFunc(nodes, func(n node) bool { return n.kind == nodeGroup && len(n.group.Cells) > 0 }) {
@@ -850,7 +871,7 @@ func draw(pal gotermstyle.Palette, columns []Column, nodes []node, widths []int,
 		from := len(lines)
 		wantsTitles := n.kind == nodeGroup && n.depth == 0 && n.open && n.drawsRows && !titled
 		titled = titled || wantsTitles
-		lines = append(lines, drawNode(pal, n, columns, widths, width, cursor, look, wantsTitles)...)
+		lines = append(lines, drawNode(pal, theme, n, columns, widths, width, cursor, look, wantsTitles)...)
 		var owners []string
 		if n.parent >= 0 {
 			owners = inside[n.parent]
@@ -880,8 +901,8 @@ func firstLine(lines []drawn, n node) string {
 }
 
 // drawNode is the lines one node takes.
-func drawNode(pal gotermstyle.Palette, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
-	lines := drawNodeBody(pal, n, columns, widths, width, cursor, look, wantsTitles)
+func drawNode(pal gotermstyle.Palette, theme *tuitheme.Theme, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
+	lines := drawNodeBody(pal, theme, n, columns, widths, width, cursor, look, wantsTitles)
 	if n.kind == nodeGroup && n.group.Overline != RuleNone {
 		lines = append([]drawn{{text: n.group.Overline.line(pal, width, n.group.Tone)}}, lines...)
 	}
@@ -909,7 +930,7 @@ func (w RuleWeight) line(pal gotermstyle.Palette, width int, tone string) string
 	return pal.Paint(tone, strings.Repeat(glyph, max(width-1, 0)))
 }
 
-func drawNodeBody(pal gotermstyle.Palette, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
+func drawNodeBody(pal gotermstyle.Palette, theme *tuitheme.Theme, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
 	pointer := " "
 	selected := n.selectable() && n.key == cursor
 	wear := func(lines []drawn) []drawn {
@@ -952,7 +973,7 @@ func drawNodeBody(pal gotermstyle.Palette, n node, columns []Column, widths []in
 		var lines []drawn
 		indent := strings.Repeat(" ", n.column)
 		for _, line := range n.document(max(width-n.column, 20)) {
-			lines = append(lines, drawn{text: ansi.Truncate(indent+line.Paint(pal), width, "…")})
+			lines = append(lines, drawn{text: ansi.Truncate(indent+line.paint(pal, theme), width, "…")})
 		}
 		return lines
 	}
@@ -1223,10 +1244,10 @@ func wrapWords(line Line, width int) []Line {
 			}
 			spaces := word[len(text):]
 			for w := ansi.StringWidth(text); w > width; w = ansi.StringWidth(text) {
-				out = append(out, Line{C(ansi.Cut(text, 0, width), c.Code)})
+				out = append(out, Line{c.withText(ansi.Cut(text, 0, width))})
 				text = ansi.Cut(text, width, w)
 			}
-			current = append(current, C(text+spaces, c.Code))
+			current = append(current, c.withText(text+spaces))
 			room = max(room-ansi.StringWidth(text+spaces), 0)
 		}
 	}

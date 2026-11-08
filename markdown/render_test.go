@@ -1,12 +1,15 @@
 package markdown
 
 import (
-	"slices"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/datapointchris/gotermboard"
+	"github.com/datapointchris/gotermstyle"
+	"github.com/datapointchris/gotermstyle/tuitheme"
 )
 
 func texts(lines []gotermboard.Line) []string {
@@ -64,7 +67,7 @@ func TestATableKeepsItsShortColumnWholeAndFitsTheWidth(t *testing.T) {
 	}
 }
 
-func TestCodeWrapsAndHighlightsInALanguageItNamesAndAnyOtherFenceStaysPlainAndCut(t *testing.T) {
+func TestCodeWrapsInALanguageItNamesAndAnyOtherFenceStaysPlainAndCut(t *testing.T) {
 	code := "  func read() string { return \"a very long string that runs past the box\" }"
 	lines := New(nil).Lines("```go\n"+code+"\n```\n\n```\nfunc plain with a long line that runs past the box\n```\n", 30)
 	if got := lines[0].Text(); got != "╭─ go" {
@@ -94,12 +97,24 @@ func TestCodeWrapsAndHighlightsInALanguageItNamesAndAnyOtherFenceStaysPlainAndCu
 	if len(codeRows) < 2 || rejoined.String() != code {
 		t.Errorf("wrapping should keep all of the code, got %d rows of %q", len(codeRows), rejoined.String())
 	}
-	if !slices.ContainsFunc(codeRows[0], func(c gotermboard.Cell) bool { return c.Code == gotermboard.Magenta }) {
-		t.Errorf("a keyword should wear a color: %+v", codeRows[0])
-	}
 	plain := lines[len(lines)-2]
-	if got := plain.Text(); !strings.HasSuffix(got, "…") || ansi.StringWidth(got) != 30 || plain[1].Code != "" {
+	if got := plain.Text(); !strings.HasSuffix(got, "…") || ansi.StringWidth(got) != 30 || plain[1].Role != blockRole {
 		t.Errorf("a fence naming no language stays plain and is cut at the box: %+v", plain)
+	}
+}
+
+func TestAThemeFilesSyntaxColorReachesACodeToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "current.json")
+	if err := os.WriteFile(path, []byte(`{"syntax": {"keyword": "#ff0000"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(tuitheme.PathEnv, path)
+	renderer := New(nil)
+	reader := gotermboard.NewReader("", func(width int) []gotermboard.Line {
+		return renderer.Lines("```go\nfunc main() {}\n```\n", width)
+	}, gotermstyle.NewPalette(true))
+	if out := reader.Once(40); !strings.Contains(out, "\033[0;38;2;255;0;0mfunc") {
+		t.Errorf("a keyword should draw in the theme file's syntax.keyword: %q", out)
 	}
 }
 
