@@ -261,16 +261,7 @@ func (r *Reader) scrollTo(top int) {
 // atEnd says the document's last line shows.
 func (r *Reader) atEnd() bool { return r.top >= len(r.rows)-r.bodyHeight() }
 
-// readerAction is one row of the key table the handler, the footer and the ? overlay read.
-type readerAction struct {
-	keys    []string
-	label   string
-	footer  string
-	run     func(*Reader) tea.Cmd
-	applies func(*Reader) bool
-}
-
-func readerActions() []readerAction {
+func readerActions() []KeyAction[*Reader] {
 	by := func(lines func(*Reader) int) func(*Reader) tea.Cmd {
 		return func(r *Reader) tea.Cmd {
 			r.scrollTo(r.top + lines(r))
@@ -286,20 +277,20 @@ func readerActions() []readerAction {
 	}
 	hasSections := func(r *Reader) bool { return len(r.sections) > 0 }
 	hasHits := func(r *Reader) bool { return len(r.hits) > 0 }
-	return []readerAction{
-		{keys: []string{"j", "down"}, label: "scroll down a line", footer: "j/k scroll", run: by(one(1))},
-		{keys: []string{"k", "up"}, label: "scroll up a line", run: by(one(-1))},
-		{keys: []string{"ctrl+d", "pgdown"}, label: "half a screen down", run: by(half(1))},
-		{keys: []string{"ctrl+u", "pgup"}, label: "half a screen up", run: by(half(-1))},
-		{keys: []string{"g", "home"}, label: "go to the top", run: by(all(-1))},
-		{keys: []string{"G", "end"}, label: "go to the bottom", run: by(all(1))},
-		{keys: []string{"]"}, label: "jump to the next section", footer: "[/] section", run: func(r *Reader) tea.Cmd {
+	return []KeyAction[*Reader]{
+		{Keys: []string{"j", "down"}, Label: "scroll down a line", Footer: "j/k scroll", Run: by(one(1))},
+		{Keys: []string{"k", "up"}, Label: "scroll up a line", Run: by(one(-1))},
+		{Keys: []string{"ctrl+d", "pgdown"}, Label: "half a screen down", Run: by(half(1))},
+		{Keys: []string{"ctrl+u", "pgup"}, Label: "half a screen up", Run: by(half(-1))},
+		{Keys: []string{"g", "home"}, Label: "go to the top", Run: by(all(-1))},
+		{Keys: []string{"G", "end"}, Label: "go to the bottom", Run: by(all(1))},
+		{Keys: []string{"]"}, Label: "jump to the next section", Footer: "[/] section", Run: func(r *Reader) tea.Cmd {
 			if at := slices.IndexFunc(r.sections, func(row int) bool { return row > r.top }); at >= 0 {
 				r.scrollTo(r.sections[at])
 			}
 			return nil
-		}, applies: hasSections},
-		{keys: []string{"["}, label: "jump to the previous section", run: func(r *Reader) tea.Cmd {
+		}, Applies: hasSections},
+		{Keys: []string{"["}, Label: "jump to the previous section", Run: func(r *Reader) tea.Cmd {
 			for _, row := range slices.Backward(r.sections) {
 				if row < r.top {
 					r.scrollTo(row)
@@ -307,50 +298,48 @@ func readerActions() []readerAction {
 				}
 			}
 			return nil
-		}, applies: hasSections},
-		{keys: []string{"/"}, label: "search the text", footer: "/ search", run: func(r *Reader) tea.Cmd {
+		}, Applies: hasSections},
+		{Keys: []string{"/"}, Label: "search the text", Footer: "/ search", Run: func(r *Reader) tea.Cmd {
 			r.searching, r.searchedFrom = true, r.top
 			r.searchLine.set("")
 			r.setQuery("")
 			return nil
 		}},
-		{keys: []string{"n"}, label: "go to the next match", run: func(r *Reader) tea.Cmd {
+		{Keys: []string{"n"}, Label: "go to the next match", Run: func(r *Reader) tea.Cmd {
 			r.landOnHit(r.hit + 1)
 			return nil
-		}, applies: hasHits},
-		{keys: []string{"N"}, label: "go to the previous match", run: func(r *Reader) tea.Cmd {
+		}, Applies: hasHits},
+		{Keys: []string{"N"}, Label: "go to the previous match", Run: func(r *Reader) tea.Cmd {
 			r.landOnHit(r.hit - 1)
 			return nil
-		}, applies: hasHits},
-		{keys: []string{"y"}, label: "copy the text", footer: "y copy", run: (*Reader).copyToClipboard},
-		{keys: []string{"e"}, label: "edit the file in $EDITOR", footer: "e edit", run: (*Reader).edit, applies: func(r *Reader) bool {
+		}, Applies: hasHits},
+		{Keys: []string{"y"}, Label: "copy the text", Footer: "y copy", Run: (*Reader).copyToClipboard},
+		{Keys: []string{"e"}, Label: "edit the file in $EDITOR", Footer: "e edit", Run: (*Reader).edit, Applies: func(r *Reader) bool {
 			return r.EditFile != ""
 		}},
-		{keys: []string{"?"}, label: "show these keys", footer: "? keys", run: func(r *Reader) tea.Cmd {
+		{Keys: []string{"?"}, Label: "show these keys", Footer: "? keys", Run: func(r *Reader) tea.Cmd {
 			r.overlay = true
 			return nil
 		}},
-		{keys: []string{"space"}, label: "go back", run: func(r *Reader) tea.Cmd {
+		{Keys: []string{"space"}, Label: "go back", Run: func(r *Reader) tea.Cmd {
 			r.back()
 			return nil
-		}, applies: func(r *Reader) bool { return r.back != nil }},
-		{keys: []string{"esc"}, label: "clear the search, or go back", footer: "esc/space back", run: func(r *Reader) tea.Cmd {
+		}, Applies: func(r *Reader) bool { return r.back != nil }},
+		{Keys: []string{"esc"}, Label: "clear the search, or go back", Footer: "esc/space back", Run: func(r *Reader) tea.Cmd {
 			if r.query != "" {
 				r.setQuery("")
 			} else if r.back != nil {
 				r.back()
 			}
 			return nil
-		}, applies: func(r *Reader) bool { return r.back != nil || r.query != "" }},
-		{keys: []string{"q", "ctrl+c"}, label: "quit", footer: "q quit", run: func(r *Reader) tea.Cmd { return r.quit() }},
+		}, Applies: func(r *Reader) bool { return r.back != nil || r.query != "" }},
+		{Keys: []string{"q", "ctrl+c"}, Label: "quit", Footer: "q quit", Run: func(r *Reader) tea.Cmd { return r.quit() }},
 	}
 }
 
-func (r *Reader) actions() []readerAction {
-	return slices.DeleteFunc(readerActions(), func(a readerAction) bool {
-		return a.applies != nil && !a.applies(r)
-	})
-}
+// actions is the Reader's key table as it applies now, which the handler, the footer and the ?
+// overlay read.
+func (r *Reader) actions() []KeyAction[*Reader] { return ActionsNow(r, readerActions()) }
 
 func (r *Reader) pressed(key tea.KeyPressMsg) tea.Cmd {
 	if r.overlay {
@@ -362,13 +351,8 @@ func (r *Reader) pressed(key tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	r.said = ""
-	name := key.String()
-	for _, action := range r.actions() {
-		if slices.Contains(action.keys, name) {
-			return action.run(r)
-		}
-	}
-	return nil
+	cmd, _ := RunKey(r, r.actions(), key.String())
+	return cmd
 }
 
 // typed is a key while the search is typed: enter keeps it, and esc clears it and goes back to
@@ -496,7 +480,7 @@ func (r *Reader) screen() string {
 	if r.overlay {
 		lines = append(lines, r.painter.bold("Keys, any key closes this"))
 		for _, action := range r.actions() {
-			lines = append(lines, "  "+fit(strings.Join(action.keys, " "), 16, false)+"  "+action.label)
+			lines = append(lines, keyLine(action))
 		}
 		lines = lines[:min(len(lines), body+1)]
 	} else {
@@ -532,11 +516,7 @@ func (r *Reader) footer() string {
 	case r.said != "":
 		parts = append(parts, r.said)
 	default:
-		for _, action := range r.actions() {
-			if action.footer != "" {
-				parts = append(parts, action.footer)
-			}
-		}
+		parts = append(parts, FooterHints(r.actions())...)
 	}
 	return strings.Join(parts, "  ")
 }

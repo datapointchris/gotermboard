@@ -2,14 +2,16 @@ package gotermboard
 
 import (
 	"slices"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
 
 // KeyAction is one row of a key table, for a screen of type H. The key handler, the footer and
 // the ? overlay all read the same rows, so a key bound in one shows in the other two. A Model's
-// rows are Action. A host that draws its own screen builds its table from UniversalActions and
-// rows of its own, and reads what applies now through ActionsNow.
+// rows are Action, and a Reader's are KeyAction[*Reader]. A host that draws its own screen builds
+// its table from UniversalActions and rows of its own, reads what applies now through
+// ActionsNow, and reads those rows through RunKey, FooterHints and BySection.
 type KeyAction[H any] struct {
 	Keys []string
 	// Section heads the row's group in a ? overlay that groups its rows. A Model's overlay lists
@@ -28,7 +30,9 @@ type KeyAction[H any] struct {
 type Action = KeyAction[*Model]
 
 // Host is a screen of rows that UniversalActions act on: a host that draws its own screen, or a
-// Model.
+// Model. It gains no method, because each host's build would break on the release that added
+// one. A universal key needing more of a host asks for it through an interface of its own, and
+// binds only on a host that implements it.
 type Host interface {
 	// MoveBy moves the cursor by rows, stopping on the first and the last. g and G move by 1<<30
 	// rows, so the cursor plus rows stays inside an int on a 32-bit build.
@@ -69,11 +73,18 @@ const (
 // pastEitherEnd is a move longer than any list, which MoveBy stops at its first or last row.
 const pastEitherEnd = 1 << 30
 
-// UniversalActions is the keys every TUI built on this package binds, acting on a Host: moving by rows, to either
-// end and by half a screen, scrolling the open text, jumping between groups, opening a row, the
-// ? overlay and quitting. They are in the order a footer names them, with the way to the other
-// keys and the way out ahead of what a narrow footer cuts.
+// UniversalActions is the keys every board binds, and a host's table starts from, acting on a
+// Host: moving by rows, to either end and by half a screen, scrolling the open text, jumping
+// between groups, opening a row, the ? overlay and quitting. Each binds where its Applies holds.
+// esc stays the host's, because what it backs out of is the host's. They are in the order a
+// footer names them, with the way to the other keys and the way out ahead of what a narrow
+// footer cuts.
 func UniversalActions[H Host]() []KeyAction[H] {
+	return universalActions[H]("fold a group, or open a row, full screen where its document is tall", "show these keys")
+}
+
+// universalActions is UniversalActions with enter's label and ?'s, which a Model says more of.
+func universalActions[H Host](openLabel, keysLabel string) []KeyAction[H] {
 	moved := func(rows int) func(H) tea.Cmd {
 		return func(h H) tea.Cmd { return h.MoveBy(rows) }
 	}
@@ -111,14 +122,14 @@ func UniversalActions[H Host]() []KeyAction[H] {
 		{Keys: []string{"ctrl+d", "pgdown"}, Section: SectionMoving, Label: "half a screen down the open text, or down the rows", Run: halfScreen(1)},
 		{Keys: []string{"ctrl+u", "pgup"}, Section: SectionMoving, Label: "half a screen up the open text, or up the rows", Run: halfScreen(-1)},
 		{
-			Keys: []string{"enter"}, Section: SectionOpening, Label: "fold a group, or open a row, full screen where its document is tall",
+			Keys: []string{"enter"}, Section: SectionOpening, Label: openLabel,
 			Footer: "enter open", Run: func(h H) tea.Cmd { return h.Open() }, Applies: toggles,
 		},
 		{
 			Keys: []string{"space"}, Section: SectionOpening, Label: "fold a group, or open or close a row's text in place",
 			Footer: "space fold", Run: func(h H) tea.Cmd { return h.ToggleInPlace() }, Applies: toggles,
 		},
-		{Keys: []string{"?"}, Section: SectionEverywhere, Label: "show these keys", Footer: "? keys", Run: func(h H) tea.Cmd {
+		{Keys: []string{"?"}, Section: SectionEverywhere, Label: keysLabel, Footer: "? keys", Run: func(h H) tea.Cmd {
 			h.ShowKeys()
 			return nil
 		}},
@@ -132,12 +143,64 @@ func UniversalActions[H Host]() []KeyAction[H] {
 // less the keys a layer before it took. A host's key handler, footer and ? overlay all read it,
 // so a key the screen cannot use is in none of them. A host's own rows go in a layer ahead of
 // UniversalActions, so its key wins where it applies, and the universal row acts everywhere else.
+// The rows are in the footer's order, which splits a section where layers share it, so an
+// overlay that heads each section reads BySection(ActionsNow(...)).
 func ActionsNow[H any](host H, layers ...[]KeyAction[H]) []KeyAction[H] {
 	applying := make([][]KeyAction[H], 0, len(layers))
 	for _, layer := range layers {
 		applying = append(applying, applyingTo(host, layer))
 	}
 	return keysTakenInOrder(applying...)
+}
+
+// RunKey runs the first of actions bound to key on host, and says whether one was.
+func RunKey[H any](host H, actions []KeyAction[H], key string) (tea.Cmd, bool) {
+	for _, action := range actions {
+		if slices.Contains(action.Keys, key) {
+			return action.Run(host), true
+		}
+	}
+	return nil, false
+}
+
+// FooterHints is the footer's words for actions in their order, leaving out each row that
+// leaves its key to the ? overlay.
+func FooterHints[H any](actions []KeyAction[H]) []string {
+	var hints []string
+	for _, action := range actions {
+		if action.Footer != "" {
+			hints = append(hints, action.Footer)
+		}
+	}
+	return hints
+}
+
+// KeySection is one section of a ? overlay: its heading and its rows.
+type KeySection[H any] struct {
+	Section string
+	Actions []KeyAction[H]
+}
+
+// BySection is actions under their sections, each section where its first row stands and its
+// rows in their order.
+func BySection[H any](actions []KeyAction[H]) []KeySection[H] {
+	var sections []KeySection[H]
+	at := map[string]int{}
+	for _, action := range actions {
+		i, seen := at[action.Section]
+		if !seen {
+			i = len(sections)
+			at[action.Section] = i
+			sections = append(sections, KeySection[H]{Section: action.Section})
+		}
+		sections[i].Actions = append(sections[i].Actions, action)
+	}
+	return sections
+}
+
+// keyLine is an overlay's line for one row: its keys in a column, then its label.
+func keyLine[H any](action KeyAction[H]) string {
+	return "  " + fit(strings.Join(action.Keys, " "), 16, false) + "  " + action.Label
 }
 
 // applyingTo is the rows of actions that apply to host now.
@@ -197,22 +260,19 @@ func (h modelHost) Quit() tea.Cmd {
 	return tea.Quit
 }
 
-// modelActions is the universal rows as a Model's, with the two words only a Model's say: its
-// overlay lists every read, and its side panel can already show a row's document.
+// modelActions is the universal rows as a Model's, with what only a Model's say: its side panel
+// can already show a row's document, and its overlay lists every read.
 func modelActions() []Action {
-	universal := UniversalActions[modelHost]()
+	universal := universalActions[modelHost](
+		"fold a group, or open a row, full screen where its document is tall or the panel draws it",
+		"show these keys and every read",
+	)
 	actions := make([]Action, 0, len(universal))
 	for _, row := range universal {
 		action := Action{Keys: row.Keys, Section: row.Section, Label: row.Label, Footer: row.Footer}
 		action.Run = func(m *Model) tea.Cmd { return row.Run(modelHost{m}) }
 		if row.Applies != nil {
 			action.Applies = func(m *Model) bool { return row.Applies(modelHost{m}) }
-		}
-		switch row.Keys[0] {
-		case "enter":
-			action.Label += " or the panel draws it"
-		case "?":
-			action.Label += " and every read"
 		}
 		actions = append(actions, action)
 	}

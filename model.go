@@ -793,13 +793,8 @@ func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	m.said = ""
-	name := key.String()
-	for _, action := range m.actions() {
-		if slices.Contains(action.Keys, name) {
-			return action.Run(m)
-		}
-	}
-	return nil
+	cmd, _ := RunKey(m, m.actions(), key.String())
+	return cmd
 }
 
 // typed is a key while the filter is typed: enter keeps it, and esc clears it.
@@ -1187,13 +1182,7 @@ func (m *Model) footer() []string {
 	case m.display.filter != "":
 		lines = append(lines, ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…"))
 	}
-	var keys []string
-	for _, action := range m.actions() {
-		if action.Footer != "" {
-			keys = append(keys, action.Footer)
-		}
-	}
-	return append(lines, ansi.Truncate(strings.Join(keys, "  "), m.width, "…"))
+	return append(lines, ansi.Truncate(strings.Join(FooterHints(m.actions()), "  "), m.width, "…"))
 }
 
 // View is Bubble Tea's.
@@ -1316,7 +1305,7 @@ func (m *Model) panelText(n node, width int) []string {
 func (m *Model) keysOverlay(height int) []string {
 	lines := []string{m.painter.bold("Keys, any key closes this")}
 	for _, action := range m.actions() {
-		lines = append(lines, "  "+fit(strings.Join(action.Keys, " "), 16, false)+"  "+action.Label)
+		lines = append(lines, keyLine(action))
 	}
 	lines = append(lines, m.readLines()...)
 	for len(lines) < height {
