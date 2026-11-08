@@ -122,6 +122,25 @@ func TestASummaryAskedForOnlyWhereCutDrawsUnderTheCutRowAlone(t *testing.T) {
 	}
 }
 
+type twoLineBoard struct{ fixedBoard }
+
+func (twoLineBoard) TwoLines() bool { return true }
+
+func TestATwoLineBoardDrawsEachRowsSecondLineUntilFHidesIt(t *testing.T) {
+	frame := Frame{Columns: []Column{{Title: "TITLE"}}, Groups: []Group{{Key: "g", Rows: []Row{
+		{Key: "r", Cells: []Cell{C("the title", "")}, Under: C("its identity", "")},
+	}}}}
+	m := NewModel(twoLineBoard{fixedBoard{frame}}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	if !strings.Contains(m.screen(), "└─ its identity") {
+		t.Fatalf("a two-line board should open with its rows' second lines:\n%s", m.screen())
+	}
+	m.Update(typedKey("f"))
+	if strings.Contains(m.screen(), "its identity") {
+		t.Errorf("f should hide the second lines:\n%s", m.screen())
+	}
+}
+
 func TestNoLineOfAFrameIsWiderThanItsScreen(t *testing.T) {
 	long := strings.Repeat("a long value that would wrap ", 12)
 	frame := Frame{

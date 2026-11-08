@@ -93,7 +93,8 @@ text in its colors, so a command that prints rather than runs a board draws the 
 `Items` makes a line of `Below` or `Beside` that the draw cuts to the items that fit,
 ending in `+N`, because only the draw knows the width and it moves with the side panel.
 `Under` is a summary on a `└─` line while `f` has them on: a row's under the row, and a
-group's wrapping under `Below`.
+group's wrapping under `Below`. They start off, and a board implementing `TwoLineBoard`
+starts them on, for rows whose identity reads dim on that second line.
 `UnderWhereCut` on a row draws its `Under` only where the last column is too narrow for the
 row's cell there, for a summary that repeats that cell. `f` leaves the footer while no group
 or row has a summary to draw.

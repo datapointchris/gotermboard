@@ -33,6 +33,12 @@ type TailBoard interface {
 	Tails() bool
 }
 
+// TwoLineBoard is a Board whose rows read in two lines, the second a row's Under, so its
+// summaries start shown. f still hides them.
+type TwoLineBoard interface {
+	TwoLines() bool
+}
+
 // CursorBoard is a Board told which key the cursor is on, for a read that follows it.
 type CursorBoard interface {
 	CursorOn(key string)
@@ -138,9 +144,10 @@ func NewModel(board Board, pal gotermstyle.Palette) *Model {
 }
 
 func newModel(board Board, pal gotermstyle.Palette, ctx context.Context, cancel context.CancelFunc) *Model {
+	twoLines, ok := board.(TwoLineBoard)
 	return &Model{
 		board: board, pal: pal, ctx: ctx, cancel: cancel, width: 80, height: 24, cue: newChangeCue(),
-		display: display{folded: map[string]bool{}, opened: map[string]bool{}, matched: newRowMatches()},
+		display: display{folded: map[string]bool{}, opened: map[string]bool{}, matched: newRowMatches(), under: ok && twoLines.TwoLines()},
 	}
 }
 
