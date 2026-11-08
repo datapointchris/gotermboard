@@ -339,6 +339,17 @@ type Action struct {
 	Applies func(*Model) bool
 }
 
+// TableKeys is every key the built-in table binds, and tab and shift+tab, which Tabs binds
+// where it shows more than one board. A board's key hides the table's, so a board taking
+// keys from its own config asks this which ones would take a key from the table.
+func TableKeys() []string {
+	keys := []string{"tab", "shift+tab"}
+	for _, action := range actionTable() {
+		keys = append(keys, action.Keys...)
+	}
+	return keys
+}
+
 func actionTable() []Action {
 	moved := func(by func(*Model) int) func(*Model) tea.Cmd {
 		return func(m *Model) tea.Cmd {
