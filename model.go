@@ -167,8 +167,9 @@ type Model struct {
 	// keeps it, because only a move came in since.
 	underStrip []string
 	stripOnly  bool
-	// charts is the frame's Charts laid out at the screen's size, painted.
-	charts []string
+	// charts is the frame's Charts laid out at the screen's size. Each draw paints them, so a
+	// reload recolors them as it does the rest.
+	charts []Line
 }
 
 // NewModel is a model reading board, sized until the terminal says otherwise. It draws in
@@ -371,11 +372,8 @@ func (m *Model) moved(at time.Time) tea.Cmd {
 // layOutCharts lays the frame's Charts out at the screen's size, so a beat of the strip reuses them.
 func (m *Model) layOutCharts() {
 	m.charts = nil
-	if m.frame.Charts == nil {
-		return
-	}
-	for _, line := range m.frame.Charts(m.width, m.height) {
-		m.charts = append(m.charts, ansi.Truncate(m.painter.line(line), m.width, "…"))
+	if m.frame.Charts != nil {
+		m.charts = m.frame.Charts(m.width, m.height)
 	}
 }
 
@@ -1302,10 +1300,9 @@ func (m *Model) inside() string {
 	m.stripOnly = false
 	charts := m.charts[:m.heights().charts]
 	out := make([]string, 0, len(m.frame.Strip)+len(charts)+len(m.underStrip))
-	for _, line := range m.frame.Strip {
+	for _, line := range slices.Concat(m.frame.Strip, charts) {
 		out = append(out, ansi.Truncate(m.painter.line(line), m.width, "…"))
 	}
-	out = append(out, charts...)
 	return strings.Join(append(out, m.underStrip...), "\n")
 }
 
