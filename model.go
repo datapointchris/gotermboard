@@ -2,6 +2,7 @@ package gotermboard
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -165,6 +166,8 @@ type Model struct {
 	toldCursor string
 	// toldLastRow is what a LastRowBoard last heard, once lastRowTold says it heard anything.
 	toldLastRow, lastRowTold bool
+	// layout is laidOut's last answer, which a new frame drops.
+	layout *keptLayout
 	// reading is the full-screen Reader over the board, while one is open.
 	reading *Reader
 	// moveClock numbers the strip's clock. A hide moves it on, so a beat sent before the hide
@@ -1037,6 +1040,7 @@ func (m *Model) currentGrouping() string {
 func (m *Model) rebuild(now time.Time) {
 	wasLast := m.tails() && m.placed && m.onLastRow()
 	m.frame = m.board.Frame(now, m.currentGrouping())
+	m.layout = nil
 	m.display.matched.newFrame()
 	m.drawStrip(now)
 	m.layOutCharts()
@@ -1084,11 +1088,40 @@ func (m *Model) nodes() []node {
 }
 
 // laidOut is what shows of the frame at the table's width, the columns with their gaps, and
-// the width each column takes.
+// the width each column takes. One key or draw asks it many times, and walking and measuring
+// a table of a thousand rows takes tens of milliseconds, so it answers again from the layout it
+// kept until the frame, the width, the Look or what the reader folded, opened or filtered moves.
 func (m *Model) laidOut() ([]node, []Column, []int) {
 	d := m.display
 	d.panelShown = m.panelWidth() > 0
-	return d.nodes(m.frame.Groups, m.frame.Columns, m.tableWidth(), m.look())
+	width, look := m.tableWidth(), m.look()
+	if kept := m.layout; kept != nil && kept.fits(d, width, look) {
+		return kept.nodes, kept.columns, kept.widths
+	}
+	nodes, columns, widths := d.nodes(m.frame.Groups, m.frame.Columns, width, look)
+	m.layout = &keptLayout{
+		width: width, look: look, under: d.under, panelShown: d.panelShown, filter: d.filter,
+		folded: maps.Clone(d.folded), opened: maps.Clone(d.opened),
+		nodes: nodes, columns: columns, widths: widths,
+	}
+	return nodes, columns, widths
+}
+
+// keptLayout is one frame's layout and what it was laid out for beside the frame.
+type keptLayout struct {
+	width             int
+	look              Look
+	under, panelShown bool
+	filter            string
+	folded, opened    map[string]bool
+	nodes             []node
+	columns           []Column
+	widths            []int
+}
+
+func (k *keptLayout) fits(d display, width int, look Look) bool {
+	return k.width == width && k.look == look && k.under == d.under && k.panelShown == d.panelShown &&
+		k.filter == d.filter && maps.Equal(k.folded, d.folded) && maps.Equal(k.opened, d.opened)
 }
 
 // panelDrawsDocumentOf says the side panel is drawn and draws the row's own Document.
