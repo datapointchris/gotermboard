@@ -99,9 +99,15 @@ func (r *Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 type editedMsg struct{ err error }
 
-// edit hands the terminal to the editor, split as a shell would split it, so
-// EDITOR="code --wait" works.
+// edit hands the terminal to the editor.
 func (r *Reader) edit() tea.Cmd {
+	return tea.ExecProcess(EditorCommand(r.EditFile), func(err error) tea.Msg { return editedMsg{err} })
+}
+
+// EditorCommand is the user's editor on path: $VISUAL, then $EDITOR, then vi, split on
+// spaces, so EDITOR="code --wait" works. A board's key hands it the terminal with
+// tea.ExecProcess, as the Reader's e does.
+func EditorCommand(path string) *exec.Cmd {
 	command := []string{"vi"}
 	for _, variable := range []string{"VISUAL", "EDITOR"} {
 		if configured := strings.Fields(os.Getenv(variable)); len(configured) > 0 {
@@ -109,8 +115,7 @@ func (r *Reader) edit() tea.Cmd {
 			break
 		}
 	}
-	editor := exec.Command(command[0], append(command[1:], r.EditFile)...)
-	return tea.ExecProcess(editor, func(err error) tea.Msg { return editedMsg{err} })
+	return exec.Command(command[0], append(command[1:], path)...)
 }
 
 func (r *Reader) copyToClipboard() tea.Cmd {

@@ -184,7 +184,8 @@ centers it on a wider screen, and keeps the same words at the top through a resi
 `k`, `ctrl+d` and `ctrl+u`, `g` and `G` move through it, `[` and `]` jump between sections,
 and `/` searches with `n` and `N`. A query with no capital in it ignores case. `y` copies
 `CopyText`, or the text as drawn, over OSC 52. `e` opens `EditFile` in `$VISUAL` or `$EDITOR`
-and lays the text out again after.
+and lays the text out again after. `EditorCommand(path)` is that editor on any file, for a
+board's own key to hand the terminal with `tea.ExecProcess`.
 
 Its top line names where the text sits: the groups the table's band would name over the row that
 opened it, its title, then each heading still open above the top row. A heading joins once its own
