@@ -54,6 +54,28 @@ every source past its interval reads at once. A source inside its interval keeps
 pace, so cycling the tabs quickly starts nothing extra. A program with one tab draws no
 tab line, and Tab does nothing in it.
 
+## A row jumps to the tab that shows what it names, and esc comes back
+
+A jump is a back stack, as a browser's history or Vim's jumplist is. A row or a group lists
+what it is about in `Entities`, each an `EntityRef` of a kind and an id every view agrees on.
+The package gives no kind a meaning. A board implementing `EntityBoard` names the kinds it
+shows, so `t` on a row naming one goes to that tab, pushing the tab it left. A row naming
+several places asks which, by number.
+
+- **`ShowEntity` hears the entity first, and says whether the board now shows it whole.** A
+  board that follows one thing changes what it reads and answers true. Otherwise the cursor goes
+  to the first group or row naming the entity, opening the groups that hold it. Where none names
+  it once the reads land, the footer says so, and the jump still lands. Either way the tab starts
+  at its top and reads every source at once, as `Restart` does.
+- **`esc` at the tab a jump opened goes back, on the row it left.** It sits ahead of the board's
+  own `esc`, so that tab is the top of where the jump went. A clear filter and a closed question
+  still come first. With nothing to go back along, `esc` is the board's.
+- **Tab and shift+tab empty the stack,** because the reader left the trail the jumps made.
+- **`OpensOutside` adds a program that shows a kind whole,** such as a pull request tool opened
+  on one. A jump there hands it the terminal and pushes nothing, because quitting it comes back.
+- **`Model.JumpTo` is the same jump for a board's own key,** naming the tab or program.
+  `Model.CursorEntities` is what the cursor's line names.
+
 `Once` draws one frame from what a board's sources already hold, and `OnceSize` picks
 its size: `COLUMNS` by `LINES`, then the terminal, then a fallback you pass. A screen that
 is no board picks its printed frame's size the same way with `printedframe.Size`, which

@@ -146,9 +146,15 @@ type Model struct {
 	scrolled bool
 	// hidden is set while another tab shows. A hidden model starts no read.
 	hidden bool
-	// hosted are the keys of whatever holds this model, ahead of the table's.
+	// hosted are the keys of whatever holds this model, ahead of the table's. ahead are its keys
+	// ahead of the board's own, which take their keys only while they apply.
 	hosted []Action
-	cue    changeCue
+	ahead  []Action
+	// tabs holds this model where it is one of several, for a jump to another tab.
+	tabs *Tabs
+	// seeking is what a jump came for, until a line names it or the reads say none does.
+	seeking *seek
+	cue     changeCue
 	// toldCursor is the key a CursorBoard last heard.
 	toldCursor string
 	// reading is the full-screen Reader over the board, while one is open.
@@ -304,10 +310,12 @@ func (m *Model) reveal(now time.Time) tea.Cmd {
 	return tea.Batch(reads, m.nextMove())
 }
 
-// hide stops what runs only while the tab shows. A read under way runs to its end.
+// hide stops what runs only while the tab shows. A read under way runs to its end. A jump's
+// search ends, so a return later never moves the cursor under the reader.
 func (m *Model) hide() {
 	m.hidden, m.moving, m.spinning = true, false, false
 	m.moveClock++
+	m.seeking = nil
 }
 
 func (m *Model) underWay() string {
@@ -476,6 +484,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if msg.model == m {
 			return m.receive(msg)
 		}
+	case outsideEnded:
+		if msg.model == m && msg.err != nil {
+			m.said = msg.name + " ended: " + msg.err.Error()
+		}
 	default:
 		return m.receive(msg)
 	}
@@ -511,11 +523,12 @@ type Action struct {
 	Applies func(*Model) bool
 }
 
-// TableKeys is every key the built-in table binds, and tab and shift+tab, which Tabs binds
-// where it shows more than one board. A board's key hides the table's, so a board taking
-// keys from its own config asks this which ones would take a key from the table.
+// TableKeys is every key the built-in table binds, tab and shift+tab, which Tabs binds where it
+// shows more than one board, and JumpKey, which Tabs binds where a row names an entity another
+// tab or program shows. A board's key hides the table's, so a board taking keys from its own
+// config asks this which ones would take a key from the table.
 func TableKeys() []string {
-	keys := []string{"tab", "shift+tab"}
+	keys := []string{"tab", "shift+tab", JumpKey}
 	for _, action := range actionTable() {
 		keys = append(keys, action.Keys...)
 	}
@@ -625,32 +638,40 @@ func (m *Model) actions() []Action {
 	})
 }
 
-// boardThenTableActions is the board's keys, then the table's that none of them took.
-// An action losing its first key also loses its place in the footer, where the
-// board's stands.
+// boardThenTableActions is the holder's keys that apply now, then the board's keys, then the
+// table's, each less the keys one before it took.
 func (m *Model) boardThenTableActions() []Action {
-	keyed, ok := m.board.(Keyed)
-	if !ok {
-		return m.tableActions()
+	ahead := slices.DeleteFunc(slices.Clone(m.ahead), func(action Action) bool { return action.Applies != nil && !action.Applies(m) })
+	var own []Action
+	if keyed, ok := m.board.(Keyed); ok {
+		own = keyed.Actions()
 	}
-	own := keyed.Actions()
+	return keysTakenInOrder(ahead, own, m.tableActions())
+}
+
+// keysTakenInOrder is each layer's actions less the keys a layer before it took. An action losing
+// every key goes, and one losing its first key also loses its place in the footer, where the
+// earlier layer's stands.
+func keysTakenInOrder(layers ...[]Action) []Action {
 	taken := map[string]bool{}
-	for _, action := range own {
-		for _, key := range action.Keys {
+	var all []Action
+	for _, layer := range layers {
+		var took []string
+		for _, action := range layer {
+			left := slices.DeleteFunc(slices.Clone(action.Keys), func(key string) bool { return taken[key] })
+			if len(left) == 0 {
+				continue
+			}
+			if taken[action.Keys[0]] {
+				action.Footer = ""
+			}
+			action.Keys = left
+			all = append(all, action)
+			took = append(took, left...)
+		}
+		for _, key := range took {
 			taken[key] = true
 		}
-	}
-	all := slices.Clone(own)
-	for _, action := range m.tableActions() {
-		left := slices.DeleteFunc(slices.Clone(action.Keys), func(key string) bool { return taken[key] })
-		if len(left) == 0 {
-			continue
-		}
-		if taken[action.Keys[0]] {
-			action.Footer = ""
-		}
-		action.Keys = left
-		all = append(all, action)
 	}
 	return all
 }
@@ -980,6 +1001,7 @@ func (m *Model) rebuild(now time.Time) {
 	if wasLast {
 		m.moveToLastRow()
 	}
+	m.seekEntity()
 	m.follow()
 }
 

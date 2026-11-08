@@ -29,6 +29,10 @@ type Tabs struct {
 	pal    gotermstyle.Palette
 	theme  *liveTheme
 	at     int
+	// back is the tab each jump left, newest last, which esc returns to. A cycle empties it,
+	// because the reader then left the trail the jumps made.
+	back    []int
+	outside []Outside
 }
 
 // NewTabs is a program of these tabs, opening on the one named open, or the first where
@@ -52,7 +56,7 @@ func NewTabs(tabs []Tab, pal gotermstyle.Palette, open string) (*Tabs, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.models = hiddenModels(tabs, pal, theme, ctx, cancel)
 	for _, model := range t.models {
-		model.hosted = t.cycleActions()
+		model.tabs, model.ahead, model.hosted = t, t.backActions(), append(t.cycleActions(), t.jumpActions()...)
 	}
 	t.active().sayThemeFault(themeErr)
 	return t, nil
@@ -78,9 +82,15 @@ func (t *Tabs) cycleActions() []Action {
 	if len(t.models) < 2 {
 		return nil
 	}
+	cycle := func(by int) func(*Model) tea.Cmd {
+		return func(*Model) tea.Cmd {
+			t.back = nil
+			return t.show(t.at + by)
+		}
+	}
 	return []Action{
-		{Keys: []string{"tab"}, Label: "go to the next tab", Footer: "tab next view", Run: func(*Model) tea.Cmd { return t.show(t.at + 1) }},
-		{Keys: []string{"shift+tab"}, Label: "go to the previous tab", Run: func(*Model) tea.Cmd { return t.show(t.at - 1) }},
+		{Keys: []string{"tab"}, Label: "go to the next tab", Footer: "tab next view", Run: cycle(1)},
+		{Keys: []string{"shift+tab"}, Label: "go to the previous tab", Run: cycle(-1)},
 	}
 }
 
