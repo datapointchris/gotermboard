@@ -78,3 +78,50 @@ func TestTheCursorsRowWearsTheThemesSelectionAcrossItsWidthOrBoldBehindABarWitho
 	}
 	columnHolds(selected, other)
 }
+
+func TestARoleOnEveryCellABoardDrawsTakesTheThemeFileAndRecolorsOnAReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "current.json")
+	writeTheme := func(hex string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(`{"ui": {"warning": "`+hex+`"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTheme("#ff0000")
+	t.Setenv(tuitheme.PathEnv, path)
+	role := func(text string) Cell { return Cell{Text: text, Role: "ui.warning"} }
+	frame := Frame{
+		StartAt: "plain",
+		Strip:   []Line{{role("strip")}},
+		Charts:  func(int, int) []Line { return []Line{{role("chart")}} },
+		Columns: []Column{{Title: "NAME"}, {Title: "STATE"}, {Title: "NOTE"}},
+		Groups: []Group{
+			{Key: "g", Title: Line{role("label")}, Counted: true, Count: 2, Below: []Line{{role("below")}}, Rows: []Row{
+				{Key: "plain", Cells: []Cell{C("the cursor's row stands here", "")}},
+				{Key: "cells", Symbol: role("sym"), Cells: []Cell{role("first"), role("middle"), role("last")}, Second: Line{role("second"), role("rest")}},
+				{Key: "wraps", Cells: []Cell{C("w", ""), C("w", "")}, WrapLast: Line{role("wrapped")}},
+				{Key: "opens", Cells: []Cell{C("o", "")}, Detail: []Cell{role("detail")}, StartsOpen: true},
+			}},
+			{Key: "folded", Title: Line{C("folded", "")}, Folded: true, Summary: Line{role("summary")}, Rows: []Row{{Key: "hidden", Cells: []Cell{C("hidden", "")}}}},
+			{Key: "spans", Title: Line{C("spans", "")}, Span: Line{role("span")}, Beside: Line{role("beside")}, Cells: []Cell{C("x", "")}},
+		},
+	}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(true))
+	wears := func(code string) {
+		t.Helper()
+		screen := m.screen()
+		for _, text := range []string{"strip", "chart", "label", " · 2", "below", "sym", "first", "middle", "last", "second", "rest", "wrapped", "detail", "summary", "span", "beside"} {
+			if !strings.Contains(screen, code+text) {
+				t.Errorf("%q should draw in %q:\n%q", text, code, screen)
+			}
+		}
+	}
+	wears("\033[0;38;2;255;0;0m")
+	writeTheme("#00ff00")
+	theme, err := tuitheme.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Update(themeLoadedMsg{theme: theme})
+	wears("\033[0;38;2;0;255;0m")
+}

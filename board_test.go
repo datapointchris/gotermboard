@@ -425,7 +425,7 @@ func (b *changingBoard) Frame(time.Time, string) Frame {
 func TestARowThatChangedWearsTheCueForAWhileAndAnAgeNeverLightsIt(t *testing.T) {
 	board := &changingBoard{state: "running", age: "1s"}
 	now := time.Now()
-	m := newModel(board, gotermstyle.NewPalette(false), &liveTheme{current: tuitheme.Default()}, context.Background(), func() {})
+	m := newModel(board, painter{pal: gotermstyle.NewPalette(false), theme: &liveTheme{current: tuitheme.Default()}}, context.Background(), func() {})
 	m.width, m.height = 100, 20
 	m.reveal(now)
 	m.cursor, m.placed = "g", true

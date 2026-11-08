@@ -101,13 +101,14 @@ file that will not load at start leaves those 16 too, and the footer says why.
   padded by a space, two spaces apart.
 - **A reader's search matches draw in `ui.match`, bold, over the `ui.selection` background**,
   or reversed without a file, so a match inside a code span still stands out.
-- **A Document's cell draws in the role its `Role` names, with its `Code` laid over that as
-  attributes.** The `markdown` package names one for every cell, and its code takes the
+- **A cell draws in the role its `Role` names, with its `Code` laid over that as attributes**,
+  wherever a board, its tabs or a reader draws it. A marked row's first cell draws in
+  `MarkCode` instead. The `markdown` package names one for every cell, and its code takes the
   nvim-treesitter capture closest to each token, under `syntax`, so a theme file made from an
   editor's colors reaches it. A name the file lacks falls back to the wider one, so
-  `syntax.type.builtin` draws as `syntax.type`. A heading stays bold whatever its role says. The
-  board looks a role up as it draws, so a reload recolors a document already laid out.
-  `Line.Paint` draws a role in the built-in theme.
+  `syntax.type.builtin` draws as `syntax.type`. A heading stays bold whatever its role says.
+  The board looks a role up as it draws, so a reload recolors what is already laid out.
+  `Line.Paint` draws a role in the built-in theme, for a line printed outside a board.
 - **SIGUSR2 reads the file again**, so a theme change recolors a running board with no
   restart. A file that will not load keeps the colors on screen. The program's `Init` starts
   the wait, so a model wrapping `Tabs` calls its `Init` and hands it the messages it does not

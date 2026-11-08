@@ -12,6 +12,10 @@ A Go library that Go command-line tools import, shipped as git tags. Its one `ma
 - **Colors come from the TUI theme file through gotermstyle, or ANSI 0–15 without one**, so
   a board follows the terminal's theme. A color named as a theme role reads the file. A color
   given as an ANSI code stays that code.
+- **Every cell inside a board paints at draw time through its painter's `line` or `cell`**, so
+  a Role resolves in the live theme and a reload recolors it. The palette the painter holds is
+  reachable anywhere in the package, so the reload test over every surface holds this, and a
+  new surface adds its cell there.
 - **A hidden tab starts no read, builds no frame and moves no strip.** A tab's return draws its last good
   read first, then reads what is due.
 - **No cue or mark moves a column.** A change cue sits in the pointer's column, and a mark

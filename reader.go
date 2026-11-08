@@ -33,8 +33,7 @@ type Reader struct {
 
 	title    string
 	document Document
-	pal      gotermstyle.Palette
-	theme    *liveTheme
+	painter  painter
 	// path is what holds the row that opened this reader, outermost first.
 	path []Line
 	// row is the key of the row whose Document this reads, so a read that lands lays out the
@@ -68,7 +67,7 @@ type Reader struct {
 // as the program.
 func NewReader(title string, document Document, pal gotermstyle.Palette) *Reader {
 	theme, err := loadTheme()
-	r := newReader(title, document, pal, theme)
+	r := newReader(title, document, painter{pal: pal, theme: theme})
 	r.sayThemeFault(err)
 	return r
 }
@@ -80,8 +79,8 @@ func (r *Reader) sayThemeFault(err error) {
 	}
 }
 
-func newReader(title string, document Document, pal gotermstyle.Palette, theme *liveTheme) *Reader {
-	r := &Reader{title: title, document: document, pal: pal, theme: theme, quit: func() tea.Cmd { return tea.Quit }}
+func newReader(title string, document Document, p painter) *Reader {
+	r := &Reader{title: title, document: document, painter: p, quit: func() tea.Cmd { return tea.Quit }}
 	r.resize(80, 24)
 	return r
 }
@@ -95,14 +94,14 @@ func (r *Reader) ClosesWith(back func()) { r.back = back }
 func (r *Reader) Once(width int) string {
 	var b strings.Builder
 	for _, line := range r.document(width) {
-		b.WriteString(line.paint(r.pal, r.theme.current))
+		b.WriteString(r.painter.line(line))
 		b.WriteByte('\n')
 	}
 	return b.String()
 }
 
 // Init is Bubble Tea's.
-func (r *Reader) Init() tea.Cmd { return r.theme.watch() }
+func (r *Reader) Init() tea.Cmd { return r.painter.theme.watch() }
 
 // Update is Bubble Tea's.
 func (r *Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -110,7 +109,7 @@ func (r *Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		r.resize(msg.Width, msg.Height)
 	case themeLoadedMsg:
-		return r, r.theme.reloaded(msg, r.sayThemeFault)
+		return r, r.painter.theme.reloaded(msg, r.sayThemeFault)
 	case tea.PasteMsg:
 		r.paste(msg.Content)
 	case tea.KeyPressMsg:
@@ -223,9 +222,9 @@ func (r *Reader) pathLine(segments []Line, room int) string {
 	dropped, widths := breadcrumb.Fit(widths, ansi.StringWidth(" › "), room)
 	painted := make([]string, 0, len(widths))
 	for i, segment := range segments[dropped:] {
-		painted = append(painted, ansi.Truncate(segment.paint(r.pal, r.theme.current), widths[i], "…"))
+		painted = append(painted, ansi.Truncate(r.painter.line(segment), widths[i], "…"))
 	}
-	return strings.Join(painted, r.pal.Paint(RuleCode, " › "))
+	return strings.Join(painted, r.painter.cell(C(" › ", RuleCode)))
 }
 
 func lettersIn(rows []Line) int {
@@ -468,7 +467,7 @@ func (r *Reader) marked(row Line) Line {
 	if !slices.Contains(matched, true) {
 		return row
 	}
-	match := r.theme.matchCode(r.pal)
+	match := r.painter.matchCode()
 	var out Line
 	at := 0
 	for _, cell := range row {
@@ -495,7 +494,7 @@ func (r *Reader) screen() string {
 	lines := make([]string, 0, body+2)
 	lines = append(lines, r.topLine())
 	if r.overlay {
-		lines = append(lines, r.pal.Bold("Keys, any key closes this"))
+		lines = append(lines, r.painter.bold("Keys, any key closes this"))
 		for _, action := range r.actions() {
 			lines = append(lines, "  "+fit(strings.Join(action.keys, " "), 16, false)+"  "+action.label)
 		}
@@ -503,7 +502,7 @@ func (r *Reader) screen() string {
 	} else {
 		margin := r.margin()
 		for _, row := range r.rows[r.top:min(r.top+body, len(r.rows))] {
-			lines = append(lines, ansi.Truncate(margin+r.marked(row).paint(r.pal, r.theme.current), r.width, "…"))
+			lines = append(lines, ansi.Truncate(margin+r.painter.line(r.marked(row)), r.width, "…"))
 		}
 	}
 	for len(lines) < body+1 {

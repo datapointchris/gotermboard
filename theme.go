@@ -67,9 +67,6 @@ func (lt *liveTheme) reloaded(msg themeLoadedMsg, say func(error)) tea.Cmd {
 	return lt.watch()
 }
 
-// code is role's color and style, as a Cell's Code.
-func (lt *liveTheme) code(role string) string { return lt.current.Code(role) }
-
 // builtInTheme is the theme a line draws in outside a board.
 var builtInTheme = tuitheme.Default()
 
@@ -77,32 +74,12 @@ var builtInTheme = tuitheme.Default()
 // that the cursor's row never wears.
 var builtInSelection = builtInTheme.Style("ui.selection")
 
-// cursorLook is how the cursor's row is drawn on pal.
-func (lt *liveTheme) cursorLook(pal gotermstyle.Palette) cursorLook {
-	selection := lt.current.Style("ui.selection")
-	if !pal.On() || selection == builtInSelection {
-		return cursorLook{pal: pal}
-	}
-	return cursorLook{pal: pal, tint: selection.Bg.BackgroundCode()}
-}
-
-// matchCode is what a search match draws in on pal: the theme's match color in bold, over the
-// selection background where the theme sets one, else reversed. Either way it stands apart from
-// text that already wears the match color, as a code span can.
-func (lt *liveTheme) matchCode(pal gotermstyle.Palette) string {
-	match := emboldened(lt.code("ui.match"))
-	if tint := lt.cursorLook(pal).tint; tint != "" {
-		return match + tint
-	}
-	return match + Reverse
-}
-
 // cursorLook is how the cursor's row is drawn: across the table's width in the theme's
 // selection background where it sets one other than the built-in, else behind ▌ in the
 // pointer's column, bold where there is color. Each cell keeps its own color either way, so a
 // state's color still reads on the cursor's row.
 type cursorLook struct {
-	pal gotermstyle.Palette
+	painter painter
 	// tint is the selection background's SGR sequence, empty where the theme's selection is
 	// the built-in one or there is no color.
 	tint string
@@ -115,13 +92,13 @@ func (c cursorLook) pointer() string {
 	if c.tint != "" {
 		return " "
 	}
-	return c.pal.Bold("▌")
+	return c.painter.bold("▌")
 }
 
 // wear draws a row's lines as the cursor's, a tinted line padded to width so the tint runs
 // under the gaps between columns and out to the table's edge.
 func (c cursorLook) wear(lines []drawn, width int) []drawn {
-	if !c.pal.On() {
+	if !c.painter.on() {
 		return lines
 	}
 	code, room := Bold, 0

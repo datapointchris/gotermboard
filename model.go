@@ -109,11 +109,10 @@ const tickEvery = time.Second
 
 // Model is the Bubble Tea program of one view. Tabs holds one per tab.
 type Model struct {
-	board  Board
-	pal    gotermstyle.Palette
-	theme  *liveTheme
-	ctx    context.Context
-	cancel context.CancelFunc
+	board   Board
+	painter painter
+	ctx     context.Context
+	cancel  context.CancelFunc
 
 	frame Frame
 	// width and height are what the board draws in, inside its Look's margin, and margin is
@@ -168,8 +167,9 @@ type Model struct {
 	// keeps it, because only a move came in since.
 	underStrip []string
 	stripOnly  bool
-	// charts is the frame's Charts laid out at the screen's size, painted.
-	charts []string
+	// charts is the frame's Charts laid out at the screen's size. Each draw paints them, so a
+	// reload recolors them as it does the rest.
+	charts []Line
 }
 
 // NewModel is a model reading board, sized until the terminal says otherwise. It draws in
@@ -179,16 +179,16 @@ type Model struct {
 func NewModel(board Board, pal gotermstyle.Palette) *Model {
 	ctx, cancel := context.WithCancel(context.Background())
 	theme, err := loadTheme()
-	m := newModel(board, pal, theme, ctx, cancel)
+	m := newModel(board, painter{pal: pal, theme: theme}, ctx, cancel)
 	m.sayThemeFault(err)
 	m.rebuild(time.Now())
 	return m
 }
 
-func newModel(board Board, pal gotermstyle.Palette, theme *liveTheme, ctx context.Context, cancel context.CancelFunc) *Model {
+func newModel(board Board, p painter, ctx context.Context, cancel context.CancelFunc) *Model {
 	twoLines, ok := board.(TwoLineBoard)
 	m := &Model{
-		board: board, pal: pal, theme: theme, ctx: ctx, cancel: cancel, cue: newChangeCue(),
+		board: board, painter: p, ctx: ctx, cancel: cancel, cue: newChangeCue(),
 		display: display{folded: map[string]bool{}, opened: map[string]bool{}, matched: newRowMatches(), under: ok && twoLines.TwoLines()},
 	}
 	m.resize(80, 24)
@@ -246,7 +246,7 @@ func Once(board Board, pal gotermstyle.Palette, width, height int) string {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	theme, err := loadTheme()
-	m := newModel(board, pal, theme, ctx, cancel)
+	m := newModel(board, painter{pal: pal, theme: theme}, ctx, cancel)
 	m.sayThemeFault(err)
 	m.resize(width, height)
 	m.rebuild(time.Now())
@@ -296,7 +296,9 @@ func tick() tea.Cmd {
 }
 
 // Init starts every source's first read and the clock.
-func (m *Model) Init() tea.Cmd { return tea.Batch(tick(), m.reveal(time.Now()), m.theme.watch()) }
+func (m *Model) Init() tea.Cmd {
+	return tea.Batch(tick(), m.reveal(time.Now()), m.painter.theme.watch())
+}
 
 // reveal draws the last good reads, with no change cue, and starts what is due. The reads
 // claim before the frame is built, so the frame sees the quiet last until they return.
@@ -370,11 +372,8 @@ func (m *Model) moved(at time.Time) tea.Cmd {
 // layOutCharts lays the frame's Charts out at the screen's size, so a beat of the strip reuses them.
 func (m *Model) layOutCharts() {
 	m.charts = nil
-	if m.frame.Charts == nil {
-		return
-	}
-	for _, line := range m.frame.Charts(m.width, m.height) {
-		m.charts = append(m.charts, ansi.Truncate(line.Paint(m.pal), m.width, "…"))
+	if m.frame.Charts != nil {
+		m.charts = m.frame.Charts(m.width, m.height)
 	}
 }
 
@@ -457,7 +456,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		m.rebuild(time.Now())
 		m.relayReading()
 	case themeLoadedMsg:
-		return m.theme.reloaded(msg, m.sayThemeFault)
+		return m.painter.theme.reloaded(msg, m.sayThemeFault)
 	case tea.PasteMsg:
 		switch m.mode() {
 		case readingMode:
@@ -793,7 +792,7 @@ func (m *Model) HalfScreen() int { return max(1, m.bodyHeight()/2) }
 // Read opens document on a full-screen Reader over the board, until esc or space closes it.
 // The reader's top line names the groups holding the cursor's line, then title.
 func (m *Model) Read(title string, document Document) {
-	m.reading = newReader(title, document, m.pal, m.theme)
+	m.reading = newReader(title, document, m.painter)
 	m.reading.path = m.cursorPath()
 	m.reading.back = func() { m.reading = nil }
 	m.reading.quit = func() tea.Cmd {
@@ -1212,9 +1211,9 @@ func (m *Model) bodyHeight() int { return m.heights().body }
 func (m *Model) table() (pinned, scrolling []drawn) {
 	nodes, columns, widths := m.laidOut()
 	look := m.look()
-	cursor := m.theme.cursorLook(m.pal)
+	cursor := m.painter.cursorLook()
 	cursor.bold = look.BoldCursor
-	return splitPinned(draw(m.pal, m.theme.current, columns, nodes, widths, m.tableWidth(), m.cursor, cursor, look))
+	return splitPinned(draw(m.painter, columns, nodes, widths, m.tableWidth(), m.cursor, cursor, look))
 }
 
 // scrollHeight is what the lines that stay on screen leave for those that scroll.
@@ -1255,10 +1254,10 @@ func (m *Model) clearOfBand(lines []drawn, at, height int) {
 func (m *Model) footer() []string {
 	var lines []string
 	if m.look().Rules {
-		lines = append(lines, RuleThin.across(m.pal, m.width, ""))
+		lines = append(lines, RuleThin.across(m.painter, m.width, ""))
 	}
 	if work := m.underWay(); work != "" {
-		lines = append(lines, ansi.Truncate(m.pal.Paint(Yellow, spinner[m.spinAt])+" "+work, m.width, "…"))
+		lines = append(lines, ansi.Truncate(m.painter.cell(C(spinner[m.spinAt], Yellow))+" "+work, m.width, "…"))
 	}
 	if m.mode() == askingMode {
 		asked, keys := m.questionLines(m.height - len(m.frame.Strip) - len(lines) - 2)
@@ -1301,10 +1300,9 @@ func (m *Model) inside() string {
 	m.stripOnly = false
 	charts := m.charts[:m.heights().charts]
 	out := make([]string, 0, len(m.frame.Strip)+len(charts)+len(m.underStrip))
-	for _, line := range m.frame.Strip {
-		out = append(out, ansi.Truncate(line.Paint(m.pal), m.width, "…"))
+	for _, line := range slices.Concat(m.frame.Strip, charts) {
+		out = append(out, ansi.Truncate(m.painter.line(line), m.width, "…"))
 	}
-	out = append(out, charts...)
 	return strings.Join(append(out, m.underStrip...), "\n")
 }
 
@@ -1380,27 +1378,27 @@ func (m *Model) panelText(n node, width int) []string {
 	var lines []string
 	if n.kind == nodeRow && n.row.panelDrawsDocument() && n.row.ReaderTitle != "" {
 		for _, piece := range wrapWords(Line{C(n.row.ReaderTitle, Bold)}, width) {
-			lines = append(lines, piece.Paint(m.pal))
+			lines = append(lines, m.painter.line(piece))
 		}
 	}
 	if authored != nil {
 		for _, line := range authored(width) {
 			for _, piece := range wrapWords(line, width) {
-				lines = append(lines, piece.paint(m.pal, m.theme.current))
+				lines = append(lines, m.painter.line(piece))
 			}
 		}
 		return lines
 	}
 	for _, c := range cells {
 		for _, piece := range wrap(c.Text, width) {
-			lines = append(lines, m.pal.Paint(c.Code, piece))
+			lines = append(lines, m.painter.cell(c.withText(piece)))
 		}
 	}
 	return lines
 }
 
 func (m *Model) keysOverlay(height int) []string {
-	lines := []string{m.pal.Bold("Keys, any key closes this")}
+	lines := []string{m.painter.bold("Keys, any key closes this")}
 	for _, action := range m.actions() {
 		lines = append(lines, "  "+fit(strings.Join(action.Keys, " "), 16, false)+"  "+action.Label)
 	}
@@ -1419,15 +1417,15 @@ func (m *Model) readLines() []string {
 		return nil
 	}
 	now := time.Now()
-	lines := []string{"", m.pal.Bold("Reads")}
+	lines := []string{"", m.painter.bold("Reads")}
 	for _, source := range sources {
 		status := source.Status()
 		cell := readCell(status, now)
-		line := "  " + fit(status.Name, 16, false) + "  " + m.pal.Paint(cell.Code, fit(cell.Text, 16, false)) +
+		line := "  " + fit(status.Name, 16, false) + "  " + m.painter.cell(cell.withText(fit(cell.Text, 16, false))) +
 			"  every " + fit(status.Every, 8, false) + "  took " + fit(status.Took, 8, false)
 		switch {
 		case status.Fault != "":
-			line += "  " + m.pal.Paint(Red, status.Fault)
+			line += "  " + m.painter.cell(C(status.Fault, Red))
 		case status.Note != "":
 			line += "  " + status.Note
 		}
