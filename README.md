@@ -224,6 +224,39 @@ A beat builds no frame and draws no table, so a moving strip costs a fraction of
 frame at the same pace. What a beat does cost is mostly Bubble Tea's renderer, which compares the
 whole screen on every frame that changed.
 
+## Charts take the cells the draw gives them
+
+The `chart` package draws plain series as lines of cells:
+
+- `TimeSeries` draws braille lines over a time axis and a value axis. A `Dotted` series reads as a
+  forecast, a `Band` shades the cells between two edges, and `Legend` names each beside its mark.
+  Readings that all share one time draw an hour either side of it.
+- `Heatmap` shades a grid such as hour against weekday, from `░` to `█` in one color. A shade orders
+  by density in any theme, where a ramp of the sixteen colors orders differently in each. Given fewer
+  lines than it has rows, it drops its column names first, then ends on a `+N` line for the rest.
+- `Sparkline` draws eighth-block columns, averaging more values than columns so the whole span shows.
+  Any value above zero draws at least `▁`, so a quiet stretch reads apart from an empty one.
+- `Bars` draws an upright bar per value in its own color, over an axis labeled at the top, the middle
+  and zero.
+
+Each fills exactly the width and height it is given, so `chart.Beside` lays them side by side. A
+chart colors its cells with the codes the caller passes, and the board's palette paints them. It
+draws through [ntcharts](https://github.com/NimbleMarkets/ntcharts) and reads each cell back, so
+ntcharts never writes an escape of its own.
+
+A board knows the screen's size only at the draw, so `Frame.Charts` is a function of it, drawn
+between the strip and the table:
+
+```go
+frame.Charts = func(width, height int) []gotermboard.Line {
+ week := chart.TimeSeries{Series: []chart.Series{{Name: "used", Points: used, Code: gotermboard.Cyan}}, Max: 100}
+ return append([]gotermboard.Line{week.Legend()}, week.Lines(width, min(14, height/5))...)
+}
+```
+
+A row's `Panel` takes a chart the same way, at the panel's width: `chart.Document(week, 12)`. The
+charts are laid out once a frame, so a moving strip's beat leaves them as they stand.
+
 ## A board can add keys
 
 A board implementing `Keyed` adds `Action`s, which take precedence over the table's and

@@ -101,6 +101,8 @@ type Model struct {
 	// keeps it, because only a move came in since.
 	underStrip []string
 	stripOnly  bool
+	// charts is the frame's Charts laid out at the screen's size, painted.
+	charts []string
 }
 
 // NewModel is a model reading board, sized until the terminal says otherwise.
@@ -212,6 +214,28 @@ func (m *Model) moved(at time.Time) tea.Cmd {
 	return m.nextMove()
 }
 
+// layOutCharts lays the frame's Charts out at the screen's size, so a beat of the strip reuses them.
+func (m *Model) layOutCharts() {
+	m.charts = nil
+	if m.frame.Charts == nil {
+		return
+	}
+	for _, line := range m.frame.Charts(m.width, m.height) {
+		m.charts = append(m.charts, ansi.Truncate(line.paint(m.pal), m.width, "…"))
+	}
+}
+
+type screenHeights struct{ strip, charts, body, footer int }
+
+// heights shares the screen's lines out in the order they draw. The table keeps a line, so the
+// charts give theirs up first.
+func (m *Model) heights() screenHeights {
+	h := screenHeights{strip: len(m.frame.Strip), footer: len(m.footer())}
+	h.charts = min(len(m.charts), max(0, m.height-h.strip-h.footer-1))
+	h.body = max(1, m.height-h.strip-h.charts-h.footer)
+	return h
+}
+
 // drawStrip puts a moving board's strip in place of its frame's.
 func (m *Model) drawStrip(now time.Time) {
 	if board, ok := m.board.(MovingBoard); ok {
@@ -256,6 +280,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if !m.hidden {
+			m.layOutCharts()
+		}
 		m.follow()
 		if m.reading != nil {
 			m.reading.resize(m.width, m.height)
@@ -672,6 +699,7 @@ func (m *Model) rebuild(now time.Time) {
 	wasLast := m.tails() && m.placed && m.onLastRow()
 	m.frame = m.board.Frame(now, m.currentGrouping())
 	m.drawStrip(now)
+	m.layOutCharts()
 	m.panelHasText = anyPanelText(m.frame.Groups)
 	m.cue.mark(m.frame.Groups, now)
 	if settled := m.cue.quietFrom.Add(settleFor); m.cue.quiet && !now.Before(settled) && !m.readsUnderWayFrom(settled) {
@@ -848,9 +876,7 @@ func (m *Model) tableWidth() int {
 	return m.width
 }
 
-func (m *Model) bodyHeight() int {
-	return max(1, m.height-len(m.frame.Strip)-len(m.footer()))
-}
+func (m *Model) bodyHeight() int { return m.heights().body }
 
 // table is the laid-out table: the lines that stay on screen, and those that scroll.
 func (m *Model) table() (pinned, scrolling []drawn) {
@@ -921,10 +947,12 @@ func (m *Model) screen() string {
 		m.underStrip = m.drawUnderStrip()
 	}
 	m.stripOnly = false
-	out := make([]string, 0, len(m.frame.Strip)+len(m.underStrip))
+	charts := m.charts[:m.heights().charts]
+	out := make([]string, 0, len(m.frame.Strip)+len(charts)+len(m.underStrip))
 	for _, line := range m.frame.Strip {
 		out = append(out, ansi.Truncate(line.paint(m.pal), m.width, "…"))
 	}
+	out = append(out, charts...)
 	return strings.Join(append(out, m.underStrip...), "\n")
 }
 
