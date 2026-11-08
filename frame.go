@@ -980,7 +980,7 @@ func draw(pal gotermstyle.Palette, theme *tuitheme.Theme, columns []Column, node
 		first := pal.Bold(fit(columns[0].Title, max(widths[0]-1, 0), false))
 		lines = append(lines, drawn{text: ansi.Truncate(" "+first+columnTitles(pal, columns, widths), width, "…"), pinned: true})
 		if board.Rules {
-			lines = append(lines, drawn{text: RuleThin.line(pal, width, ""), pinned: true})
+			lines = append(lines, drawn{text: RuleThin.across(pal, width, ""), pinned: true})
 		}
 	}
 	inside := make([][]string, len(nodes))
@@ -1037,7 +1037,12 @@ const (
 	RuleDotted
 )
 
+// line is the rule a group draws, one column short of width.
 func (w RuleWeight) line(pal gotermstyle.Palette, width int, tone string) string {
+	return w.across(pal, width-1, tone)
+}
+
+func (w RuleWeight) across(pal gotermstyle.Palette, n int, tone string) string {
 	if tone == "" {
 		tone = RuleCode
 	}
@@ -1048,7 +1053,7 @@ func (w RuleWeight) line(pal gotermstyle.Palette, width int, tone string) string
 	case RuleDotted:
 		glyph = "┈"
 	}
-	return pal.Paint(tone, strings.Repeat(glyph, max(width-1, 0)))
+	return pal.Paint(tone, strings.Repeat(glyph, max(n, 0)))
 }
 
 func drawNodeBody(pal gotermstyle.Palette, theme *tuitheme.Theme, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {

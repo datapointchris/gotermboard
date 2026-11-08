@@ -1203,7 +1203,7 @@ func (m *Model) clearOfBand(lines []drawn, at, height int) {
 func (m *Model) footer() []string {
 	var lines []string
 	if m.look().Rules {
-		lines = append(lines, RuleThin.line(m.pal, m.width, ""))
+		lines = append(lines, RuleThin.across(m.pal, m.width, ""))
 	}
 	if work := m.underWay(); work != "" {
 		lines = append(lines, ansi.Truncate(m.pal.Paint(Yellow, spinner[m.spinAt])+" "+work, m.width, "…"))
