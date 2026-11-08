@@ -2,16 +2,15 @@ package gotermboard
 
 import (
 	"context"
-	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/datapointchris/gotermstyle"
-	"golang.org/x/term"
+
+	"github.com/datapointchris/gotermboard/printedframe"
 )
 
 // Board is one view, as this package draws it: sources to keep fresh, and the
@@ -138,19 +137,9 @@ func Once(board Board, pal gotermstyle.Palette, width, height int) string {
 }
 
 // OnceSize is the size one printed frame draws at: COLUMNS by LINES, then the terminal's
-// own size, then the fallback.
+// own size, then the fallback. It is [printedframe.Size].
 func OnceSize(fallbackWidth, fallbackHeight int) (width, height int) {
-	width, height = fallbackWidth, fallbackHeight
-	if w, h, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
-		width, height = w, h
-	}
-	if w, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && w > 0 {
-		width = w
-	}
-	if h, err := strconv.Atoi(os.Getenv("LINES")); err == nil && h > 0 {
-		height = h
-	}
-	return width, height
+	return printedframe.Size(fallbackWidth, fallbackHeight)
 }
 
 type (

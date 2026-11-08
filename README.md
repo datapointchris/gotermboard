@@ -59,7 +59,9 @@ line marks its window: bold bright yellow, with the rest in bright black, each p
 space and two spaces apart. Both are ANSI slots, so the terminal's theme sets them.
 
 `Once` draws one frame from what a board's sources already hold, and `OnceSize` picks
-its size: `COLUMNS` by `LINES`, then the terminal, then a fallback you pass.
+its size: `COLUMNS` by `LINES`, then the terminal, then a fallback you pass. A screen that
+is no board picks its printed frame's size the same way with `printedframe.Size`, which
+imports nothing that draws.
 
 ## One line says how the reads stand
 
