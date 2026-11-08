@@ -3,7 +3,7 @@ package gotermboard
 import (
 	"fmt"
 	"slices"
-	"strconv"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -11,6 +11,11 @@ import (
 // LockKey locks every tab to what the cursor's row names, and lifts the lock from any tab. It is
 // cross-filtering, as Tableau's brushing and linking or Grafana's ad hoc filters are.
 const LockKey = "*"
+
+// tabLock is what LockKey locked every tab to, the one value Tabs and each of its tabs read.
+type tabLock struct {
+	ref *EntityRef
+}
 
 // lockActions is LockKey, where there are tabs to lock across.
 func (t *Tabs) lockActions() []Action {
@@ -21,77 +26,60 @@ func (t *Tabs) lockActions() []Action {
 		Keys: []string{LockKey}, Label: "lock every tab to what the row names, or lift the lock", Footer: LockKey + " lock",
 		Run: t.pickLock,
 		Applies: func(m *Model) bool {
-			return t.locked != nil || len(m.CursorEntities()) > 0
+			return t.lock.ref != nil || len(m.CursorEntities()) > 0
 		},
 	}}
 }
 
 func (t *Tabs) pickLock(m *Model) tea.Cmd {
-	if t.locked != nil {
-		t.lock(nil)
+	if t.lock.ref != nil {
+		t.lockTo(nil)
 		return nil
 	}
 	refs := m.CursorEntities()
-	if len(refs) == 1 {
-		t.lock(&refs[0])
+	return askByNumber(m, "lock to", "locked nothing", refLabels(refs), func(n int) tea.Cmd {
+		t.lockTo(&refs[n])
 		return nil
-	}
-	listing := make([]Line, 0, len(refs))
-	for i, ref := range refs {
-		listing = append(listing, Line{C(strconv.Itoa(i+1), Bold), C("  "+ref.Kind+" "+ref.ID, "")})
-	}
-	lockedNothing := func() tea.Cmd {
-		m.Say("locked nothing")
-		return nil
-	}
-	m.Ask(Question{
-		Listing: listing, Text: fmt.Sprintf("lock to 1 to %d:", len(refs)), Typed: true, Cancel: lockedNothing,
-		Answer: func(typed string) tea.Cmd {
-			n, err := strconv.Atoi(typed)
-			if err != nil || n < 1 || n > len(refs) {
-				return lockedNothing()
-			}
-			t.lock(&refs[n-1])
-			return nil
-		},
 	})
-	return nil
 }
 
-// lock keeps only the lines naming ref in every tab, and nil lifts it. The tab showing goes to
-// the first line naming it, as a jump's search does.
-func (t *Tabs) lock(ref *EntityRef) {
-	t.locked = ref
-	for _, model := range t.models {
-		model.display.locked = ref
-	}
+// lockTo keeps only the lines naming ref in every tab, and nil lifts it.
+func (t *Tabs) lockTo(ref *EntityRef) {
+	t.lock.ref = ref
+	t.seekLocked(t.at)
 	shown := t.active()
 	shown.Rebuild()
-	if ref != nil {
-		shown.seeking = &seek{ref: *ref, tab: t.names[t.at]}
-		shown.seekEntity()
-	}
 	shown.displayChanged()
 }
 
-// holdsNothingLocked says a tab other than the one showing has nothing of what is locked, so the
-// tab line leaves it out. Only a frame built from reads that had all landed answers that. A tab
-// never shown, or last drawn while a read was under way or failing, may still hold it, so it
-// stays. A hidden tab builds no frames, so a read landing after it hid does not change that.
-func (t *Tabs) holdsNothingLocked(at int) bool {
+// seekLocked sends the cursor of the tab at at to the first line naming what is locked, once its
+// reads land, where no other search is under way and the line it is on does not show.
+func (t *Tabs) seekLocked(at int) {
 	m := t.models[at]
-	if t.locked == nil || at == t.at || !m.whole {
-		return false
+	if ref := m.display.narrowsTo(); ref != nil && m.seeking == nil && !m.cursorShows() {
+		m.seeking = &seek{ref: *ref, tab: t.names[at]}
 	}
-	_, _, holds := entityLine(m.frame.Groups, *t.locked, nil)
-	return !holds
 }
 
-// listed is each tab the tab line names, in the order tab cycles them.
-func (t *Tabs) listed() []int {
+// holdsNothingLocked says a tab other than the one showing has nothing of what is locked, so the
+// tab line leaves it out. Its last frame answers that only as lookFor's holdsNone, because a
+// hidden tab reads nothing and keeps the frame it was last drawn with. The entity page hides
+// nothing under a lock, so it stays.
+func (t *Tabs) holdsNothingLocked(at int, now time.Time) bool {
+	m := t.models[at]
+	ref := m.display.narrowsTo()
+	if ref == nil || at == t.at {
+		return false
+	}
+	_, _, f := m.lookFor(*ref, now)
+	return f == holdsNone
+}
+
+// listed is each tab the tab line names at now, in the order tab cycles them.
+func (t *Tabs) listed(now time.Time) []int {
 	at := make([]int, 0, len(t.models))
 	for i := range t.models {
-		if !t.holdsNothingLocked(i) {
+		if !t.holdsNothingLocked(i, now) {
 			at = append(at, i)
 		}
 	}
@@ -101,24 +89,16 @@ func (t *Tabs) listed() []int {
 // nextListed is the tab by steps along the tab line from the one showing, skipping what a lock
 // leaves out of it.
 func (t *Tabs) nextListed(by int) int {
-	listed := t.listed()
+	listed := t.listed(time.Now())
 	here := slices.Index(listed, t.at)
 	return listed[((here+by)%len(listed)+len(listed))%len(listed)]
 }
 
-// showLocked is show, with the cursor sent to the first line naming what is locked once the
-// tab's reads land.
-func (t *Tabs) showLocked(at int) tea.Cmd {
-	if t.locked != nil {
-		t.models[at].seeking = &seek{ref: *t.locked, tab: t.names[at]}
-	}
-	return t.show(at)
-}
-
 // lockLine is the footer's word on the lock, while one holds.
 func (m *Model) lockLine() string {
-	if m.display.locked == nil {
+	ref := m.display.lockedTo()
+	if ref == nil {
 		return ""
 	}
-	return fmt.Sprintf("locked to %s %s · %s lifts", m.display.locked.Kind, m.display.locked.ID, LockKey)
+	return fmt.Sprintf("locked to %s %s · %s lifts", ref.Kind, ref.ID, LockKey)
 }

@@ -285,7 +285,7 @@ const (
 	MarkCode  = BoldMagenta
 )
 
-// The mark a row naming what the tabs are locked to draws in the same cell, ahead of MarkGlyph.
+// The mark a row naming what the tabs are locked to draws in MarkGlyph's cell, in its place.
 const (
 	LockGlyph = "●"
 	LockCode  = BoldCyan
@@ -482,8 +482,12 @@ type display struct {
 	opened map[string]bool
 	under  bool
 	filter string
-	// locked is what every tab is locked to, and nil with no lock.
-	locked *EntityRef
+	// lock is what the tabs are locked to, which Tabs and each of its tabs share, and nil
+	// outside Tabs.
+	lock *tabLock
+	// wholePage says this is the entity page, which shows one thing whole, so a lock marks the
+	// lines naming what is locked and hides none.
+	wholePage bool
 	// matched keeps what the filter reads of each row, because one draw walks the rows several
 	// times, the clock draws a frame a second, and a row's text can run to pages.
 	matched *rowMatches
@@ -592,18 +596,36 @@ func (d display) groupMatches(g *Group) bool {
 
 // heldOpen says nothing can fold the group: it is Still, or a filter or a lock holds every
 // group open.
-func (d display) heldOpen(g *Group) bool { return d.filter != "" || d.locked != nil || g.Still }
+func (d display) heldOpen(g *Group) bool { return d.filter != "" || d.narrowsTo() != nil || g.Still }
 
 // namesLocked says the group itself names what the tabs are locked to, which keeps every line
 // under it.
 func (d display) namesLocked(g *Group) bool {
-	return d.locked != nil && slices.Contains(g.Entities, *d.locked)
+	locked := d.narrowsTo()
+	return locked != nil && slices.Contains(g.Entities, *locked)
 }
 
 // keepsRow says the lock leaves the row: nothing is locked, a group above names it, or the row
 // names it itself.
 func (d display) keepsRow(r *Row, held bool) bool {
-	return d.locked == nil || held || slices.Contains(r.Entities, *d.locked)
+	locked := d.narrowsTo()
+	return locked == nil || held || slices.Contains(r.Entities, *locked)
+}
+
+// lockedTo is what the tabs are locked to, and nil with no lock.
+func (d display) lockedTo() *EntityRef {
+	if d.lock == nil {
+		return nil
+	}
+	return d.lock.ref
+}
+
+// narrowsTo is the lock this table keeps only the lines of, which the entity page never has.
+func (d display) narrowsTo() *EntityRef {
+	if d.wholePage {
+		return nil
+	}
+	return d.lockedTo()
 }
 
 func (d display) isOpen(g *Group) bool {
@@ -622,13 +644,14 @@ func (d display) shows(g *Group) bool { return d.showsUnder(g, false) }
 // showsUnder is shows for a group whose parent the lock may already keep whole. A lock keeps a
 // group that holds a line naming what is locked, as a filter keeps one holding a match.
 func (d display) showsUnder(g *Group, held bool) bool {
-	if d.locked != nil && !held {
-		if _, _, holds := entityLine([]Group{*g}, *d.locked, nil); !holds {
+	locked := d.narrowsTo()
+	if locked != nil && !held {
+		if _, _, holds := entityLine([]Group{*g}, *locked, nil); !holds {
 			return false
 		}
 	}
 	if d.filter == "" {
-		return !g.FilterOnly || d.locked != nil
+		return !g.FilterOnly || locked != nil
 	}
 	return d.groupMatches(g)
 }
@@ -755,7 +778,7 @@ func (d display) walk(groups []Group, depth, parent int, held bool, out []node) 
 				row := len(out)
 				out = append(out, node{
 					kind: nodeRow, key: r.Key, depth: depth + 1, row: r, open: rowOpen, toggles: r.opens(), parent: self,
-					locked: d.locked != nil && slices.Contains(r.Entities, *d.locked),
+					locked: d.lockedTo() != nil && slices.Contains(r.Entities, *d.lockedTo()),
 				})
 				if d.under && r.Under.Text != "" {
 					out = append(out, node{kind: nodeUnder, depth: depth + 1, row: r, cell: r.Under, parent: self})

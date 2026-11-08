@@ -80,11 +80,11 @@ names goes to more than one place, `t` lists them by number and goes to the one 
   one page. `i` opens it on what the row names, from any tab, the page's own included, and lists
   the row's things by number where it names several. `t` leaves the page out of its list, because
   a row naming three things would otherwise list each twice. A jump from the page to itself
-  pushes what the page showed, so `esc` opens it on that again.
-- **`Tabs.Keys` is the keys a board's own would hide**: tab and shift+tab where there are tabs to
-  cycle, `t` where a row could go somewhere, `i` where a tab is the entity page, and `*` where
-  there are tabs to lock. `TableKeys` is the table's alone. `Model.CursorEntities` is what the
-  cursor's line names.
+  pushes what the page showed, so `esc` opens it on that again, on the row `i` was pressed on.
+  `OpenPage` starts the program on the page showing one thing, as a flag naming it would, so
+  `esc` comes back to that thing too.
+- **`Tabs.Keys` is the keys a board's own would hide,** each bound where it has something to do.
+  `TableKeys` is the table's alone. `Model.CursorEntities` is what the cursor's line names.
 
 ## `*` locks every tab to what a row names
 
@@ -94,15 +94,21 @@ and `*` again from any tab lifts it.
 
 - **Each tab keeps only the lines naming the locked thing,** and every line under a group that
   names it. A group holding such a line stays, open, as a filter holds a match's groups open.
-  Each row naming it directly wears `LockGlyph` in its indent, ahead of `MarkGlyph`.
+  Each row naming it directly wears `LockGlyph` in its indent, in the cell `MarkGlyph` takes, so
+  a marked row shows the lock instead of its mark while the lock holds.
+- **The entity page hides nothing,** because it already shows one thing whole. Its rows naming
+  the locked thing wear `LockGlyph` all the same.
 - **The tab line leaves out a tab holding nothing locked, and tab skips it.** Only a tab's last
-  frame answers that, and only where every read behind it had landed when it was drawn. A tab
-  never shown, or last drawn with a read under way or failing, may still hold the thing, so it
-  stays listed. A hidden tab reads nothing and draws nothing, so a read landing after it hid
-  leaves it listed until it shows again. The tab showing always stays. The line names the lock
-  after the tabs.
+  frame answers that, where every read behind it had landed when it was drawn and none has come
+  due since. A tab never shown, last drawn with a read under way or failing, or whose reads are
+  due, may still hold the thing, so it stays listed. A read landing while a tab hides does not
+  redraw it, so the tab stays as its last frame left it until it shows again. The tab showing
+  always stays. The line names the lock after the tabs.
 - **A tab shown under a lock puts its cursor on the first line naming the thing** once its reads
-  land, as a jump does, and the footer says what is locked and that `*` lifts it.
+  land, where the line its cursor was on does not show. The footer says what is locked and that
+  `*` lifts it.
+- **A jump to a line the lock hides lifts the lock,** as it clears a filter hiding one, and the
+  footer says so.
 - **The lock filters what each board draws, and changes no board's reads.**
 
 `Once` draws one frame from what a board's sources already hold, and `OnceSize` picks

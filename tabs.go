@@ -21,8 +21,9 @@ type Tab struct {
 
 // Tabs is the Bubble Tea program of one Model per tab, the Elm Architecture's
 // composition. Each tab keeps its own cursor, folds and filter. A hidden tab starts no
-// read, builds no frame and moves no strip. On its return it draws its last good read with that read's
-// age, and whatever is due reads at once.
+// read and moves no strip, and builds a frame only where its board's Receive rebuilds it. On
+// its return it draws its last good read with that read's age, and whatever is due reads at
+// once.
 type Tabs struct {
 	names   []string
 	models  []*Model
@@ -36,15 +37,16 @@ type Tabs struct {
 	page      int
 	hasPage   bool
 	pageShows *EntityRef
-	// locked is what LockKey locked every tab to, and nil with no lock.
-	locked *EntityRef
+	// lock is what LockKey locked every tab to, which each tab's display shares.
+	lock *tabLock
 }
 
-// backStep is the tab a jump left, and what the entity page showed where it left the page, so
-// esc puts that back.
+// backStep is the tab a jump left, the line its cursor was on, and what the entity page showed
+// where it left the page, so esc puts both back.
 type backStep struct {
-	tab  int
-	page *EntityRef
+	tab    int
+	cursor string
+	page   *EntityRef
 }
 
 // NewTabs is a program of these tabs, opening on the one named open, or the first where
@@ -67,6 +69,10 @@ func NewTabs(tabs []Tab, pal gotermstyle.Palette, open string) (*Tabs, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.models = hiddenModels(tabs, t.painter, ctx, cancel)
+	t.lock = &tabLock{}
+	for _, model := range t.models {
+		model.display.lock = t.lock
+	}
 	t.hostActions()
 	t.active().sayThemeFault(themeErr)
 	return t, nil
@@ -80,15 +86,14 @@ func (t *Tabs) hostActions() {
 	}
 }
 
-// besideTable is the keys Tabs binds beside the table's: tab's, t's, i's, then the lock's.
+// besideTable is the keys Tabs binds beside the table's, in the order they take a key.
 func (t *Tabs) besideTable() []Action {
 	return slices.Concat(t.cycleActions(), t.jumpActions(), t.pageActions(), t.lockActions())
 }
 
-// Keys is every key Tabs binds beside the table's, which a board's own key would hide: tab and
-// shift+tab where there are tabs to cycle, JumpKey where a row could go somewhere, PageKey where
-// a tab is the entity page, and LockKey where there are tabs to lock. A board taking keys from
-// its own config asks this and TableKeys which ones it would take.
+// Keys is every key Tabs binds beside the table's, each where it has something to do, which a
+// board's own key would hide. A board taking keys from its own config asks this and TableKeys
+// which ones it would take.
 func (t *Tabs) Keys() []string {
 	var keys []string
 	for _, action := range t.besideTable() {
@@ -120,7 +125,7 @@ func (t *Tabs) cycleActions() []Action {
 	cycle := func(by int) func(*Model) tea.Cmd {
 		return func(*Model) tea.Cmd {
 			t.back = nil
-			return t.showLocked(t.nextListed(by))
+			return t.show(t.nextListed(by))
 		}
 	}
 	return []Action{
@@ -129,10 +134,16 @@ func (t *Tabs) cycleActions() []Action {
 	}
 }
 
-// show hides the tab showing and shows the one at at, from its last good reads.
+// show hides the tab showing and shows the one at at, from its last good reads. A search set for
+// it survives the hide, and under a lock one with none goes to the first line naming the thing
+// where the line its cursor is on does not show. Every way onto a tab comes through here.
 func (t *Tabs) show(at int) tea.Cmd {
+	at = (at + len(t.models)) % len(t.models)
+	seeking := t.models[at].seeking
 	t.active().hide()
-	t.at = (at + len(t.models)) % len(t.models)
+	t.at = at
+	t.active().seeking = seeking
+	t.seekLocked(at)
 	return t.active().reveal(time.Now())
 }
 
@@ -191,7 +202,7 @@ func (t *Tabs) View() tea.View {
 // lock it leaves out each tab holding nothing locked, and names the lock after the tabs.
 func (t *Tabs) tabLine() string {
 	parts := make([]string, 0, len(t.names)+1)
-	for _, i := range t.listed() {
+	for _, i := range t.listed(time.Now()) {
 		name := t.names[i]
 		switch {
 		case i != t.at:
@@ -202,8 +213,8 @@ func (t *Tabs) tabLine() string {
 			parts = append(parts, "["+name+"]")
 		}
 	}
-	if t.locked != nil {
-		parts = append(parts, t.painter.cell(C(LockGlyph+" "+t.locked.Kind+" "+t.locked.ID, LockCode)))
+	if ref := t.lock.ref; ref != nil {
+		parts = append(parts, t.painter.cell(C(LockGlyph+" "+ref.Kind+" "+ref.ID, LockCode)))
 	}
 	return ansi.Truncate(strings.Join(parts, "  "), t.active().width, "…")
 }

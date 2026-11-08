@@ -126,9 +126,8 @@ type Model struct {
 	cancel  context.CancelFunc
 
 	frame Frame
-	// whole says frame was built from reads that had all landed, so it is the board's whole
-	// answer rather than nothing yet or a part of one.
-	whole bool
+	// drawnFrom is what the reads behind frame said when it was built.
+	drawnFrom readings
 	// width and height are what the board draws in, inside its Look's margin, and margin is
 	// that margin: Sides and Ends as the screen's size leaves them.
 	width    int
@@ -951,20 +950,71 @@ func (m *Model) currentGrouping() string {
 	return ""
 }
 
-// readsLanded says every source has read at least once, has no read under way and is not failing.
-func (m *Model) readsLanded() bool {
+// readings is what a frame's reads said when it was built, which says whether a line missing
+// from it is an answer.
+type readings struct {
+	// landed says every source had read, and none was under way or failing.
+	landed           bool
+	reading, failing bool
+	// due is when the first source comes due again, and zero where none does.
+	due time.Time
+}
+
+func (m *Model) readNow() readings {
+	r := readings{landed: true}
 	for _, source := range m.board.Sources() {
 		status := source.Status()
-		if status.Reading || status.Fault != "" || status.ReadAt.IsZero() {
-			return false
+		r.reading = r.reading || status.Reading
+		r.failing = r.failing || status.Fault != ""
+		r.landed = r.landed && !status.Reading && status.Fault == "" && !status.ReadAt.IsZero()
+		if due := status.TriedAt.Add(status.every); status.every > 0 && (r.due.IsZero() || due.Before(r.due)) {
+			r.due = due
 		}
 	}
-	return true
+	return r
+}
+
+// finding is what a tab's last frame says of one entity.
+type finding int
+
+const (
+	// found is a line naming it.
+	found finding = iota
+	// holdsNone is no line naming it, in a frame drawn from reads that had all landed, none
+	// of them due since.
+	holdsNone
+	// unanswered is no line naming it yet: a read was under way or had never run, or one
+	// has come due since.
+	unanswered
+	// readFailed is no line naming it, where a read behind the frame failed, so it may still
+	// hold it.
+	readFailed
+)
+
+// lookFor is the key of the first line in the last frame naming ref, the groups holding it,
+// and whether the frame's answer holds at now. A jump's search and the lock's tab line both
+// ask it.
+func (m *Model) lookFor(ref EntityRef, now time.Time) (string, []string, finding) {
+	if key, holding, ok := entityLine(m.frame.Groups, ref, nil); ok {
+		return key, holding, found
+	}
+	switch r := m.drawnFrom; {
+	case r.landed && (r.due.IsZero() || now.Before(r.due)):
+		return "", nil, holdsNone
+	case r.failing && !r.reading:
+		return "", nil, readFailed
+	}
+	return "", nil, unanswered
+}
+
+// cursorShows says the cursor is on a line the table draws.
+func (m *Model) cursorShows() bool {
+	return m.placed && slices.ContainsFunc(selectableOf(m.nodes()), func(n node) bool { return n.key == m.cursor })
 }
 
 func (m *Model) rebuild(now time.Time) {
 	wasLast := m.tails() && m.placed && m.onLastRow()
-	m.frame, m.whole = m.board.Frame(now, m.currentGrouping()), m.readsLanded()
+	m.frame, m.drawnFrom = m.board.Frame(now, m.currentGrouping()), m.readNow()
 	m.layout = nil
 	m.display.matched.newFrame()
 	m.drawStrip(now)
@@ -1025,7 +1075,7 @@ func (m *Model) laidOut() ([]node, []Column, []int) {
 	}
 	nodes, columns, widths := d.nodes(m.frame.Groups, m.frame.Columns, width, look)
 	m.layout = &keptLayout{
-		width: width, look: look, under: d.under, panelShown: d.panelShown, filter: d.filter,
+		width: width, look: look, under: d.under, panelShown: d.panelShown, filter: d.filter, locked: refOf(d.lockedTo()),
 		folded: maps.Clone(d.folded), opened: maps.Clone(d.opened),
 		nodes: nodes, columns: columns, widths: widths,
 	}
@@ -1038,6 +1088,7 @@ type keptLayout struct {
 	look              Look
 	under, panelShown bool
 	filter            string
+	locked            EntityRef
 	folded, opened    map[string]bool
 	nodes             []node
 	columns           []Column
@@ -1046,7 +1097,15 @@ type keptLayout struct {
 
 func (k *keptLayout) fits(d display, width int, look Look) bool {
 	return k.width == width && k.look == look && k.under == d.under && k.panelShown == d.panelShown &&
-		k.filter == d.filter && maps.Equal(k.folded, d.folded) && maps.Equal(k.opened, d.opened)
+		k.filter == d.filter && k.locked == refOf(d.lockedTo()) && maps.Equal(k.folded, d.folded) && maps.Equal(k.opened, d.opened)
+}
+
+// refOf is the entity ref points at, and the zero ref for nil.
+func refOf(ref *EntityRef) EntityRef {
+	if ref == nil {
+		return EntityRef{}
+	}
+	return *ref
 }
 
 // panelDrawsDocumentOf says the side panel is drawn and draws the row's own Document.
