@@ -79,8 +79,14 @@ type Model struct {
 	// rather than the cursor's line's, so the table never jumps as the cursor moves.
 	panelHasText bool
 	filtering    bool
-	overlay      bool
-	said         string
+	// filterLine is the filter as it is typed.
+	filterLine typedLine
+	overlay    bool
+	said       string
+	// asking is the question a key put on the footer, until enter or esc closes it, and answer
+	// is what is typed under it.
+	asking *Question
+	answer typedLine
 	// scrolled holds top where ScrollBy put it, until the cursor moves or a key changes what
 	// shows, so a row's detail taller than the screen can be read through.
 	scrolled bool
@@ -298,14 +304,25 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case refreshedMsg:
 		m.rebuild(time.Now())
 	case tea.PasteMsg:
-		switch {
-		case m.reading != nil:
+		switch m.mode() {
+		case readingMode:
 			m.reading.paste(msg.Content)
-		case m.filtering:
-			m.setFilter(m.display.filter + strings.Join(strings.Fields(msg.Content), " "))
+		case askingMode:
+			if m.asking.Typed {
+				m.answer.paste(msg.Content)
+			}
+		case filteringMode:
+			m.filterLine.paste(msg.Content)
+			m.setFilter(m.filterLine.String())
 		}
 	case tea.KeyPressMsg:
-		return tea.Batch(m.pressed(msg), m.nextMove())
+		// A footer that grew, as a question or a long answer makes it, keeps the cursor in view.
+		footer := len(m.footer())
+		cmd := m.pressed(msg)
+		if len(m.footer()) != footer {
+			m.follow()
+		}
+		return tea.Batch(cmd, m.nextMove())
 	}
 	return nil
 }
@@ -398,6 +415,7 @@ func actionTable() []Action {
 		},
 		{Keys: []string{"/"}, Label: "filter the rows, matching their detail too", Footer: "/ filter", Run: func(m *Model) tea.Cmd {
 			m.filtering = true
+			m.filterLine.set(m.display.filter)
 			return nil
 		}},
 		{Keys: []string{"R"}, Label: "read every source again now", Footer: "R read", Run: func(m *Model) tea.Cmd {
@@ -541,20 +559,47 @@ func (m *Model) Tall(document Document) bool {
 	return len(document(m.tableWidth())) >= m.bodyHeight()
 }
 
-func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
-	if m.reading != nil {
-		return m.reading.pressed(key)
+// mode is what takes the keys, a paste and the footer's first lines.
+type mode int
+
+const (
+	tableMode mode = iota
+	readingMode
+	askingMode
+	overlayMode
+	filteringMode
+)
+
+// mode is the one open over the table. Each opens only from the table's keys, so at most one is.
+func (m *Model) mode() mode {
+	switch {
+	case m.reading != nil:
+		return readingMode
+	case m.asking != nil:
+		return askingMode
+	case m.overlay:
+		return overlayMode
+	case m.filtering:
+		return filteringMode
 	}
-	name := key.String()
-	if m.overlay {
+	return tableMode
+}
+
+func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
+	switch m.mode() {
+	case readingMode:
+		return m.reading.pressed(key)
+	case askingMode:
+		return m.answering(key)
+	case overlayMode:
 		m.overlay = false
 		return nil
-	}
-	if m.filtering {
+	case filteringMode:
 		m.typed(key)
 		return nil
 	}
 	m.said = ""
+	name := key.String()
 	if name == "esc" && m.display.filter != "" {
 		m.setFilter("")
 		return nil
@@ -567,22 +612,17 @@ func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+// typed is a key while the filter is typed: enter keeps it, and esc clears it.
 func (m *Model) typed(key tea.KeyPressMsg) {
-	switch key.String() {
-	case "enter":
+	switch m.filterLine.press(key) {
+	case lineEntered:
 		m.filtering = false
-	case "esc", "ctrl+c":
+	case lineCanceled:
 		m.filtering = false
-		m.setFilter("")
-	case "backspace":
-		if r := []rune(m.display.filter); len(r) > 0 {
-			m.setFilter(string(r[:len(r)-1]))
-		}
-	case "ctrl+u":
 		m.setFilter("")
 	default:
-		if key.Mod&^tea.ModShift == 0 && key.Text != "" {
-			m.setFilter(m.display.filter + key.Text)
+		if text := m.filterLine.String(); text != m.display.filter {
+			m.setFilter(text)
 		}
 	}
 }
@@ -912,16 +952,21 @@ func (m *Model) clearOfBand(lines []drawn, at, height int) {
 	}
 }
 
-// footer is what the last key did or the filter being typed, then the keys.
+// footer is an open question and the keys that answer it, or else what the last key did or the
+// filter being typed, then the keys.
 func (m *Model) footer() []string {
+	if m.mode() == askingMode {
+		lines, keys := m.questionLines()
+		return append(lines, ansi.Truncate(keys, m.width, "…"))
+	}
 	var lines []string
 	switch {
-	case m.filtering:
-		lines = append(lines, "/"+m.display.filter+"█")
+	case m.mode() == filteringMode:
+		lines = []string{m.filterLine.draw("/", m.width)}
 	case m.display.filter != "":
-		lines = append(lines, "filter: "+m.display.filter+"  (esc clears)")
+		lines = []string{ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…")}
 	case m.said != "":
-		lines = append(lines, m.said)
+		lines = m.wrapped(m.said)
 	}
 	var keys []string
 	for _, action := range m.actions() {

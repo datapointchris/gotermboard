@@ -268,3 +268,29 @@ newest row, as a log does.
 folding in place. `Model.Toggle` is what the table's `enter` does, for a board's `enter` that acts
 only on some rows. Bind it to `enter` alone. A row open in place that turns tall, as on a pane
 shrink, reads on `Toggle` and closes only on the table's `space`.
+
+## A key can ask for a line of text on the footer
+
+`Model.Ask` puts a `Question` on the footer's lines. With `Typed` set it takes one line typed under
+the question, and `enter` hands `Answer` what was typed, trimmed. Without it `enter` alone answers,
+for an act that takes no text. `esc` or `ctrl+c` takes the question away and runs `Cancel` where it
+is set, so a board can say that nothing was done. Until one of them every key goes to the question:
+`q` and `?` type themselves, `tab` does nothing, and a paste lands as one line.
+
+```go
+{Keys: []string{"m"}, Label: "merge the row into a key you type", Footer: "m merge", Run: func(m *gotermboard.Model) tea.Cmd {
+ key := m.Cursor()
+ m.Ask(gotermboard.Question{Text: "merge " + key + " into:", Typed: true, Answer: func(into string) tea.Cmd {
+  m.Say(merge(key, into))
+  return nil
+ }})
+ return nil
+}}
+```
+
+The question draws in bold as written, so its own punctuation ends it. It wraps rather than being
+cut, and so does what `Say` puts on the footer. Each stops at a few lines, the last ending in `…`
+where more was left. The typed line is cut from the left, so its end and the cursor stay on the
+screen, as the filter and the reader's search are. A footer that grows keeps the cursor's row in
+view. The answer runs after the question closes, so it can `Say` what it did, ask another question,
+or return a command, such as one that opens an editor.
