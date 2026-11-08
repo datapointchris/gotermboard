@@ -221,7 +221,7 @@ func (m *Model) layOutCharts() {
 		return
 	}
 	for _, line := range m.frame.Charts(m.width, m.height) {
-		m.charts = append(m.charts, ansi.Truncate(line.paint(m.pal), m.width, "…"))
+		m.charts = append(m.charts, ansi.Truncate(line.Paint(m.pal), m.width, "…"))
 	}
 }
 
@@ -950,7 +950,7 @@ func (m *Model) screen() string {
 	charts := m.charts[:m.heights().charts]
 	out := make([]string, 0, len(m.frame.Strip)+len(charts)+len(m.underStrip))
 	for _, line := range m.frame.Strip {
-		out = append(out, ansi.Truncate(line.paint(m.pal), m.width, "…"))
+		out = append(out, ansi.Truncate(line.Paint(m.pal), m.width, "…"))
 	}
 	out = append(out, charts...)
 	return strings.Join(append(out, m.underStrip...), "\n")
@@ -1028,7 +1028,7 @@ func (m *Model) panelText(n node, width int) []string {
 	if authored != nil {
 		for _, line := range authored(width) {
 			for _, piece := range wrapWords(line, width) {
-				lines = append(lines, piece.paint(m.pal))
+				lines = append(lines, piece.Paint(m.pal))
 			}
 		}
 		return lines

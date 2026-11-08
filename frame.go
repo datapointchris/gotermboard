@@ -95,7 +95,8 @@ func (l Line) elided(room int) Line {
 	return more(0)
 }
 
-func (l Line) paint(pal gotermstyle.Palette) string {
+// Paint is the line as text in its cells' colors, so a TallyBar can print outside a board.
+func (l Line) Paint(pal gotermstyle.Palette) string {
 	var b strings.Builder
 	for _, c := range l {
 		b.WriteString(pal.Paint(c.Code, c.Text))
@@ -875,7 +876,7 @@ func drawNodeBody(pal gotermstyle.Palette, n node, columns []Column, widths []in
 		var lines []drawn
 		indent := strings.Repeat(" ", n.column)
 		for _, line := range n.document(max(width-n.column, 20)) {
-			lines = append(lines, drawn{text: ansi.Truncate(indent+line.paint(pal), width, "…")})
+			lines = append(lines, drawn{text: ansi.Truncate(indent+line.Paint(pal), width, "…")})
 		}
 		return lines
 	}
@@ -952,7 +953,7 @@ func columnCells(pal gotermstyle.Palette, cells []Cell, from int, wrapped Line, 
 		b.WriteString(columnGap + strings.Repeat(" ", widths[at]))
 	}
 	if pieces := wrapLine(wrapped, widths[last]); len(pieces) > 0 {
-		b.WriteString(columnGap + pieces[0].paint(pal))
+		b.WriteString(columnGap + pieces[0].Paint(pal))
 	}
 	return b.String()
 }
@@ -971,7 +972,7 @@ func continuedLines(pal gotermstyle.Palette, wrapped Line, widths []int) []drawn
 	pieces := wrapLine(wrapped, widths[last])
 	lines := make([]drawn, 0, len(pieces))
 	for _, piece := range pieces[min(1, len(pieces)):] {
-		lines = append(lines, drawn{text: strings.Repeat(" ", start) + piece.paint(pal)})
+		lines = append(lines, drawn{text: strings.Repeat(" ", start) + piece.Paint(pal)})
 	}
 	return lines
 }
@@ -1012,7 +1013,7 @@ func belowLines(pal gotermstyle.Palette, n node, width int) []drawn {
 	}
 	indent := strings.Repeat(" ", indentOf(n.depth)+2)
 	for _, line := range n.group.Below {
-		lines = append(lines, drawn{text: ansi.Truncate(indent+line.elided(width-len(indent)).paint(pal), width, "…")})
+		lines = append(lines, drawn{text: ansi.Truncate(indent+line.elided(width-len(indent)).Paint(pal), width, "…")})
 	}
 	return lines
 }
@@ -1036,23 +1037,23 @@ func spanLines(pal gotermstyle.Palette, n node, pointer string, columns []Column
 	column := spanColumn(n.depth, n.group)
 	indent := strings.Repeat(" ", column)
 	var lines []drawn
-	opening := pointer + head + label.paint(pal) + columnGap
+	opening := pointer + head + label.Paint(pal) + columnGap
 	for i, piece := range wrapWords(n.group.Span, max(width-column, 20)) {
 		if i == 0 {
 			lines = append(lines, drawn{
-				text: ansi.Truncate(opening+piece.paint(pal), width, "…"), key: selectableKey(n),
-				whole: ansi.Truncate(opening+n.group.Span.paint(pal), width, "…"),
+				text: ansi.Truncate(opening+piece.Paint(pal), width, "…"), key: selectableKey(n),
+				whole: ansi.Truncate(opening+n.group.Span.Paint(pal), width, "…"),
 			})
 			continue
 		}
-		lines = append(lines, drawn{text: ansi.Truncate(indent+piece.paint(pal), width, "…")})
+		lines = append(lines, drawn{text: ansi.Truncate(indent+piece.Paint(pal), width, "…")})
 	}
 	if len(n.group.Cells) == 0 && len(n.group.WrapLast) == 0 && len(n.group.Beside) == 0 {
 		return lines
 	}
 	room := max(widths[0]-column, 0)
 	beside := n.group.Beside.elided(room)
-	first := strings.Repeat(" ", min(column, widths[0])) + ansi.Truncate(beside.paint(pal), room, "…")
+	first := strings.Repeat(" ", min(column, widths[0])) + ansi.Truncate(beside.Paint(pal), room, "…")
 	first += strings.Repeat(" ", max(widths[0]-ansi.StringWidth(first), 0))
 	text := first + columnCells(pal, n.group.Cells, 1, n.group.WrapLast, columns, widths)
 	lines = append(lines, drawn{text: ansi.Truncate(text, width, "…")})
@@ -1063,25 +1064,25 @@ func drawGroup(pal gotermstyle.Palette, n node, columns []Column, widths []int, 
 	head, label := groupHead(n, selected)
 	if len(n.group.Cells) > 0 || len(n.group.WrapLast) > 0 {
 		room := max(widths[0]-1-ansi.StringWidth(head), 1)
-		painted := ansi.Truncate(label.paint(pal), room, "…")
+		painted := ansi.Truncate(label.Paint(pal), room, "…")
 		out := head + painted + strings.Repeat(" ", max(room-ansi.StringWidth(painted), 0))
 		return out + columnCells(pal, n.group.Cells, 1, n.group.WrapLast, columns, widths)
 	}
 	if n.depth > 0 {
-		out := head + label.paint(pal)
+		out := head + label.Paint(pal)
 		if (!n.open || n.group.Still) && len(n.group.Summary) > 0 {
-			out += "  " + n.group.Summary.paint(pal)
+			out += "  " + n.group.Summary.Paint(pal)
 		}
 		return out
 	}
 	pad := strings.Repeat(" ", max(widths[0]-1-ansi.StringWidth(head)-label.width(), 0))
-	out := head + label.paint(pal) + pad
+	out := head + label.Paint(pal) + pad
 	switch {
 	case titles:
 		out += columnTitles(pal, columns, widths)
 	case !n.open || !n.drawsRows:
 		if len(n.group.Summary) > 0 {
-			out += columnGap + n.group.Summary.paint(pal)
+			out += columnGap + n.group.Summary.Paint(pal)
 		}
 	}
 	return out
@@ -1109,7 +1110,7 @@ func drawRow(pal gotermstyle.Palette, n node, columns []Column, widths []int, se
 		if selected {
 			span = Line{C(span.Text(), Reverse)}
 		}
-		return indent + span.paint(pal)
+		return indent + span.Paint(pal)
 	}
 	symbol := ""
 	if cell := r.Symbol; cell.Text != "" {

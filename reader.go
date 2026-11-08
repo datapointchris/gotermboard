@@ -65,7 +65,7 @@ func NewReader(title string, document Document, pal gotermstyle.Palette) *Reader
 func (r *Reader) Once(width int) string {
 	var b strings.Builder
 	for _, line := range r.document(width) {
-		b.WriteString(line.paint(r.pal))
+		b.WriteString(line.Paint(r.pal))
 		b.WriteByte('\n')
 	}
 	return b.String()
@@ -215,7 +215,7 @@ func (r *Reader) pathLine(segments []Line, room int) string {
 	}
 	painted := make([]string, 0, len(segments))
 	for i, segment := range segments {
-		painted = append(painted, ansi.Truncate(segment.paint(r.pal), widths[i], "…"))
+		painted = append(painted, ansi.Truncate(segment.Paint(r.pal), widths[i], "…"))
 	}
 	return ansi.Truncate(strings.Join(painted, separator), max(room, 0), "…")
 }
@@ -493,7 +493,7 @@ func (r *Reader) screen() string {
 	} else {
 		margin := r.margin()
 		for _, row := range r.rows[r.top:min(r.top+body, len(r.rows))] {
-			lines = append(lines, ansi.Truncate(margin+r.marked(row).paint(r.pal), r.width, "…"))
+			lines = append(lines, ansi.Truncate(margin+r.marked(row).Paint(r.pal), r.width, "…"))
 		}
 	}
 	for len(lines) < body+1 {
