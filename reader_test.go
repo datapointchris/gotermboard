@@ -176,7 +176,8 @@ func TestAFollowingReaderKeepsToTheLastLineUntilScrolledUpAndGFollowsAgain(t *te
 	}
 	m := NewModel(streamingBoard{fixedBoard{Frame{Columns: []Column{{Title: "ROW"}}}}, &log}, gotermstyle.NewPalette(false))
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
-	m.Follow("output", document)
+	closed := false
+	m.Follow("output", document, func() { closed = true })
 	for i := range 30 {
 		m.Update(lineLanded("line " + strconv.Itoa(i)))
 	}
@@ -192,6 +193,10 @@ func TestAFollowingReaderKeepsToTheLastLineUntilScrolledUpAndGFollowsAgain(t *te
 	m.Update(lineLanded("line 31"))
 	if got := m.screen(); !strings.Contains(got, "line 31") {
 		t.Errorf("G should follow the newest line again:\n%s", got)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.reading != nil || !closed {
+		t.Errorf("esc should close the reader and tell the board, closed=%v", closed)
 	}
 }
 

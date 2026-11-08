@@ -772,11 +772,18 @@ func (m *Model) Read(title string, document Document) {
 // Follow opens document on a full-screen Reader over the board at its last line, and keeps it
 // there as the document grows, as tail -f and less +F do, until esc or space closes it.
 // Scrolling up holds the reader where it is, and G follows again. Lines a board's command
-// streams into the document show as each message the board receives lands.
-func (m *Model) Follow(title string, document Document) {
+// streams into the document show as each message the board receives lands. closed runs as
+// esc or space closes the reader, so the board can stop what feeds it.
+func (m *Model) Follow(title string, document Document, closed func()) {
 	m.Read(title, document)
 	m.reading.follows = true
 	m.reading.scrollTo(len(m.reading.rows))
+	m.reading.back = func() {
+		m.reading = nil
+		if closed != nil {
+			closed()
+		}
+	}
 }
 
 // relayReading lays an open reader out again after a read lands, keeping its place, so text a

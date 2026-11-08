@@ -257,7 +257,8 @@ out of that screen's build.
 `Model.Read` opens one over the board from a board's own key, and `esc` or `space` returns to the
 board. `Model.Follow` opens one at the document's last line and keeps it there as the document
 grows, as `tail -f` and `less +F` do. Scrolling up holds it where it is, and `G` follows again. The
-footer says `following` or `G follows`. An open reader lays its document out again after each
+footer says `following` or `G follows`, and the function it takes runs as the reader closes, so the
+board can stop what feeds it. An open reader lays its document out again after each
 message a `ReceivingBoard` receives, so lines a board's command streams in show as each lands. `Model.Tall` says whether a document runs past the screen. A program that draws its own screen
 rather than a board hands each key, paste and size to a `NewReader` while it shows one, and
 `ClosesWith` names what `esc` and `space` return to. `NewReader` runs as a program of its
