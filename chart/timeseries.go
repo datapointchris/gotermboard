@@ -179,19 +179,39 @@ func (c TimeSeries) valueRange() (low, high float64) {
 	return low, high
 }
 
-// labelFor names a column's time by how long the axis runs: its minute within six hours, its
-// hour within two days, its weekday within two weeks, and its date beyond. An axis of minutes
-// named by the hour would carry one name.
+// labelFor names a column's time by how long the axis runs: its minute within six hours, rounded
+// down to a step that keeps the names round, its hour within two days, its weekday within two
+// weeks, and its date beyond. An axis of minutes named by the hour would carry one name.
 func labelFor(span time.Duration) func(time.Time) string {
 	switch {
 	case span <= 6*time.Hour:
-		return func(t time.Time) string { return t.Format("15:04") }
+		step := time.Duration(minuteStep(span)) * time.Minute
+		return func(t time.Time) string {
+			past := time.Duration(t.Minute()) * time.Minute % step
+			return t.Add(-past).Format("15:04")
+		}
 	case span <= 48*time.Hour:
 		return func(t time.Time) string { return t.Format("15:00") }
 	case span <= 14*24*time.Hour:
 		return func(t time.Time) string { return t.Format("Mon") }
 	}
 	return func(t time.Time) string { return t.Format("Jan 2") }
+}
+
+// minuteStep is the minutes between two names on an axis that runs span, so an axis of hours names
+// its half hours rather than whichever minute falls under a column.
+func minuteStep(span time.Duration) int {
+	switch {
+	case span <= 20*time.Minute:
+		return 1
+	case span <= time.Hour:
+		return 5
+	case span <= 2*time.Hour:
+		return 10
+	case span <= 3*time.Hour:
+		return 15
+	}
+	return 30
 }
 
 func seconds(t time.Time) float64 { return float64(t.UnixMilli()) / 1e3 }

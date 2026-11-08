@@ -99,3 +99,61 @@ func TestEachChartFillsTheScreensWidthInItsColorsBetweenTheStripAndTheTable(t *t
 		}
 	}
 }
+
+// The shapes a reader takes a chart's meaning from: where a span's bar starts and ends, what a
+// moment, a span under way and one outside the window draw, and which minutes a short axis names.
+func TestChartsDrawTheShapesTheirDocsPromise(t *testing.T) {
+	t0 := time.Date(2026, 11, 8, 11, 0, 0, 0, time.UTC)
+	timeline := chart.Timeline{From: t0, To: t0.Add(12 * time.Minute), Spans: []chart.Span{
+		{Label: "made", Start: t0, End: t0},
+		{Label: "queue", Start: t0, End: t0.Add(3 * time.Minute), Text: "3m"},
+		{Label: "work", Start: t0.Add(3 * time.Minute)},
+		{Label: "next"},
+		{Label: "before", Start: t0.Add(-5 * time.Minute), End: t0.Add(-time.Minute)},
+	}}
+	cases := []struct {
+		name          string
+		chart         chart.Chart
+		width, height int
+		want          []string
+	}{
+		{"a timeline with room for its axis", timeline, 30, 6, []string{
+			"made   ◆                      ",
+			"queue  █████▊ 3m              ",
+			"work        ██████████████████",
+			"next                          ",
+			"before                        ",
+			"       0         6m        12m",
+		}},
+		{"a timeline short of lines drops its axis, then counts the rest", timeline, 30, 3, []string{
+			"made   ◆                      ",
+			"queue  █████▊ 3m              ",
+			"+3                            ",
+		}},
+		{"a filled sparkline spreads its values evenly", chart.Sparkline{Values: []float64{1, 2, 4}, Fill: true}, 12, 1, []string{
+			"▂▂▂▂▄▄▄▄████",
+		}},
+	}
+	for _, c := range cases {
+		var got []string
+		for _, line := range c.chart.Lines(c.width, c.height) {
+			got = append(got, line.Text())
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s drew\n%s\nwant\n%s", c.name, strings.Join(got, "\n"), strings.Join(c.want, "\n"))
+		}
+	}
+	for span, step := range map[time.Duration]int{25 * time.Minute: 5, 6 * time.Hour: 30} {
+		ts := chart.TimeSeries{Series: []chart.Series{{Points: []chart.Point{{At: t0, Value: 1}, {At: t0.Add(span), Value: 2}}}}}
+		lines := ts.Lines(60, 6)
+		names := strings.Fields(lines[len(lines)-1].Text())
+		for _, name := range names {
+			if at, err := time.Parse("15:04", name); err != nil || at.Minute()%step != 0 {
+				t.Errorf("a %v axis named %q among %q, want a minute on a %d-minute step", span, name, names, step)
+			}
+		}
+		if len(names) < 3 {
+			t.Errorf("a %v axis named only %q", span, names)
+		}
+	}
+}
