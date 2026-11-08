@@ -19,18 +19,42 @@ type Bars struct {
 	ValueLabel func(float64) string
 }
 
-// Bar is one value of a bar chart.
+// Bar is one value of a bar chart. A bar with a Stack draws each part over the one before it,
+// from zero, so its height is their sum and its Value and Code go unread.
 type Bar struct {
 	Label string
 	Value float64
 	Code  string
+	Stack []Part
+}
+
+// Part is one share of a stacked bar or a meter, in its own color.
+type Part struct {
+	Value float64
+	Code  string
+}
+
+// parts is what the bar draws, bottom first.
+func (b Bar) parts() []Part {
+	if len(b.Stack) > 0 {
+		return b.Stack
+	}
+	return []Part{{Value: b.Value, Code: b.Code}}
+}
+
+func (b Bar) total() float64 {
+	var sum float64
+	for _, part := range b.parts() {
+		sum += part.Value
+	}
+	return sum
 }
 
 // Lines is the chart in width by height cells: the bars, then the axis, then their labels.
 func (c Bars) Lines(width, height int) []gotermboard.Line {
 	top := c.Max
 	for _, bar := range c.Bars {
-		top = max(top, bar.Value)
+		top = max(top, bar.total())
 	}
 	if width < 1 || height < 3 || len(c.Bars) == 0 || top <= 0 {
 		return blank(width, height)
@@ -51,8 +75,11 @@ func (c Bars) Lines(width, height int) []gotermboard.Line {
 	var cs codes
 	data := make([]barchart.BarData, 0, len(c.Bars))
 	for _, bar := range c.Bars {
-		value := barchart.BarValue{Name: bar.Label, Value: bar.Value, Style: cs.style(bar.Code)}
-		data = append(data, barchart.BarData{Label: bar.Label, Values: []barchart.BarValue{value}})
+		var values []barchart.BarValue
+		for _, part := range bar.parts() {
+			values = append(values, barchart.BarValue{Name: bar.Label, Value: part.Value, Style: cs.style(part.Code)})
+		}
+		data = append(data, barchart.BarData{Label: bar.Label, Values: values})
 	}
 	chart := barchart.New(width-margin-1, height,
 		barchart.WithStyles(cs.style(gotermboard.RuleCode), cs.style("")),

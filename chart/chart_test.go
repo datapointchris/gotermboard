@@ -53,6 +53,8 @@ func TestEachChartFillsTheScreensWidthInItsColorsBetweenTheStripAndTheTable(t *t
 		chart.Heatmap{Rows: []chart.HeatRow{{Label: "Mon", Values: []float64{0, 1, 2, 3}}}, Columns: []string{"00", "06", "12", "18"}, Code: gotermboard.Magenta},
 		chart.Sparkline{Values: []float64{1, 5, 2, 8, 3, 0, 4}, Code: gotermboard.Cyan},
 		chart.Bars{Bars: []chart.Bar{{Label: "a", Value: 3, Code: gotermboard.Green}, {Label: "b", Value: 7, Code: gotermboard.Red}}},
+		chart.Bars{Bars: []chart.Bar{{Label: "s", Stack: []chart.Part{{Value: 3, Code: gotermboard.Green}, {Value: 4, Code: gotermboard.Magenta}}}}},
+		chart.Meter{Parts: []chart.Part{{Value: 2, Code: gotermboard.Cyan}, {Value: 5, Code: gotermboard.Yellow}}, Max: 10},
 	}
 	// An ntcharts or lipgloss upgrade that hands a style's color back as other than an
 	// ansi.IndexedColor would leave every chart uncolored.
@@ -61,6 +63,8 @@ func TestEachChartFillsTheScreensWidthInItsColorsBetweenTheStripAndTheTable(t *t
 		{gotermboard.Magenta},
 		{gotermboard.Cyan},
 		{gotermboard.Green, gotermboard.Red, gotermboard.RuleCode},
+		{gotermboard.Green, gotermboard.Magenta, gotermboard.RuleCode},
+		{gotermboard.Cyan, gotermboard.Yellow},
 	}
 	for i, c := range charts {
 		drawn := map[string]bool{}
