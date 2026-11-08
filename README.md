@@ -120,7 +120,7 @@ text in its colors, so a command that prints rather than runs a board draws the 
 ending in `+N`, because only the draw knows the width and it moves with the side panel.
 `Under` is a summary on a `└─` line while `f` has them on: a row's under the row, and a
 group's wrapping under `Below`. They start off, and a board implementing `TwoLineBoard`
-starts them on, for rows whose identity reads dim on that second line.
+starts them on, for rows whose identity reads dim in that summary.
 `UnderWhereCut` on a row draws its `Under` only where the last column is too narrow for the
 row's cell there, for a summary that repeats that cell. `f` leaves the footer while no group
 or row has a summary to draw.
@@ -129,25 +129,28 @@ or row has a summary to draw.
 sets the first column's width. The group's cells then take the next line, with `Beside`
 ahead of them in the first column. `Column.Min` holds that column wide enough to be useful.
 
-## A board can draw its rows as two-line blocks spread across a margined screen
+## A board can draw its rows as blocks ruled apart, spread across a margined screen
 
-Every piece of this is off until a board asks for it, so a board that asks for none draws as
-it always has.
+Every piece of this is off in its zero value, so a board that sets none draws the default
+look.
 
 - **`Second` on a `Row` is a line it always draws under its first.** Its first cell sits in
   the first column under the row's first cell, and the rest draw one after another from the
   second column, cut at the table's edge. It suits a state over a second state, with the
   row's identity beside them. The filter reads it, and the cursor keeps both lines in view.
+  It is not `Under`: a row with both draws `Second`, then its `Under` summary.
 - **`BetweenRows` on a `Group` draws a blank line and a rule between each two of its rows**,
-  so two-line rows read as blocks. `RuleDotted` is the lightest weight, `┈`.
+  so rows that set `Second` read as blocks. `RuleDotted` is the lightest weight, `┈`.
 - **A board implementing `LookBoard` returns a `Look` for the screen's width.** `Sides` and
   `Ends` are a margin of blank columns and lines around the whole screen. `Spread` lays the
   columns out at their own widths and deals what they leave out between them from the left,
   so the table ends on its edge. A column with no title continues the one before it and
-  keeps two spaces from it, as the counts of a diff do. `Rules` puts the column titles on a
-  line of their own with a rule under it, and a rule over the footer. `BoldCursor` draws the
-  cursor's row bold over the theme's selection, across every line the row draws.
-  `NoRowChevrons` leaves each row's chevron cell blank.
+  takes none of the spread, so a group of untitled counts stays together. A table whose rows
+  wrap their last column with `WrapLast` keeps the slack in it instead. `Rules` puts the
+  column titles on a line of their own with a rule under it, and a rule over the footer.
+  Both rules span the table's width. `BoldCursor` draws the cursor's row bold over the
+  theme's selection, across every line the row draws. `NoRowChevrons` leaves each row's
+  chevron cell blank.
 
 ## A row can open a document laid out at its width
 
@@ -215,7 +218,8 @@ it matches nothing.
 
 ## The side panel follows the cursor
 
-From `PanelFrom` columns the panel grows with the screen, up to `ReadingWidth`. It draws where any
+From `PanelFrom` columns inside a `Look`'s margin, or of the screen where a board has none,
+the panel grows with the screen, up to `ReadingWidth`. It draws where any
 row in the frame holds `Panel`, `Document` or `Detail`, or any group but a `Still` one holds `Panel`
 or `Detail`, counting lines folded away or held back for a filter. A frame with none of them draws
 no panel, and the table takes the width. The frame decides rather than the cursor's line, so the

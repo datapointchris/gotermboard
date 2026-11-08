@@ -193,7 +193,8 @@ type Row struct {
 	Under Cell
 	// Second is a line the row draws under its first, always. Its first cell sits in the first
 	// column under the row's first cell, and the rest draw one after another from the second
-	// column, cut at the table's edge. The cursor's row wears its look across both lines.
+	// column, cut at the table's edge. The cursor's row wears its look across both lines. A
+	// row's Under draws after it.
 	Second Line
 	// UnderWhereCut draws Under only where the last column is too narrow for the row's cell
 	// there, for a summary that repeats that cell. Only the draw knows the column's width.
@@ -756,7 +757,7 @@ func spanColumn(depth int, g *Group) int {
 
 // layout is the width each column takes for what shows, within width, and the columns with
 // the gaps ahead of them. The last column takes what is left and is never padded, unless
-// look spreads the columns.
+// look spreads the columns and no row or group wraps its last column under itself.
 func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []int) {
 	widths := make([]int, len(columns))
 	for i, c := range columns {
@@ -771,8 +772,9 @@ func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []i
 					widths[i+1] = max(widths[i+1], ansi.StringWidth(c.Text))
 				}
 			}
-		// A top group's header carries the column titles, unless they take a line of their own.
-		case n.kind == nodeGroup && n.depth == 0 && !look.Rules:
+		// A top group's label fills the first column, so the titles or a folded group's
+		// summary after it start on the second.
+		case n.kind == nodeGroup && n.depth == 0:
 			widths[0] = max(widths[0], indentOf(0)+2+groupLabel(n.group).width())
 		case n.kind == nodeRow && len(n.row.Cells) > 0:
 			for i, c := range n.row.Cells {
@@ -793,7 +795,10 @@ func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []i
 			widths[i] = min(widths[i], c.Max)
 		}
 	}
-	if look.Spread {
+	wrapsLast := slices.ContainsFunc(nodes, func(n node) bool {
+		return n.kind == nodeRow && len(n.row.WrapLast) > 0 || n.kind == nodeGroup && len(n.group.WrapLast) > 0
+	})
+	if look.Spread && !wrapsLast {
 		return spread(columns, widths, width)
 	}
 	return columns, squeeze(widths, width)
@@ -801,9 +806,9 @@ func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []i
 
 // spread fills width with the columns at their own widths, dealing what they leave out
 // between them a column at a time from the left, so the table ends on its edge rather than
-// its last column taking the slack. A column with no title continues the one before it, as
-// one of a diff's counts does, so it keeps columnGap's two. Columns wider than width give
-// way from the widest, as squeeze has them, and the last is cut to what is left.
+// its last column taking the slack. A column with no title continues the one before it, so
+// it keeps columnGap and takes none of the slack. Columns wider than width give way through
+// narrowWidest, and the last is cut to what is left.
 func spread(columns []Column, widths []int, width int) ([]Column, []int) {
 	last := len(widths) - 1
 	if last < 1 {
@@ -816,18 +821,7 @@ func spread(columns []Column, widths []int, width int) ([]Column, []int) {
 		}
 		return sum
 	}
-	for used() > width {
-		widest := 0
-		for i, w := range widths {
-			if w > widths[widest] {
-				widest = i
-			}
-		}
-		if widths[widest] <= 6 {
-			break
-		}
-		widths[widest]--
-	}
+	narrowWidest(widths, len(widths), func() bool { return used() > width })
 	slack := width - used()
 	if slack <= 0 {
 		widths[last] = max(widths[last]+slack, 0)
@@ -870,20 +864,29 @@ func squeeze(widths []int, width int) []int {
 		}
 		return sum
 	}
-	for fixed()+lastColumnFloor > width {
+	narrowWidest(widths, last, func() bool { return fixed()+lastColumnFloor > width })
+	widths[last] = max(width-fixed(), 0)
+	return widths
+}
+
+// narrowestColumn is as far as narrowWidest takes a column.
+const narrowestColumn = 6
+
+// narrowWidest takes a column at a time from the widest of widths[:among] while over holds,
+// stopping once the widest is down to narrowestColumn.
+func narrowWidest(widths []int, among int, over func() bool) {
+	for over() {
 		widest := 0
-		for i, w := range widths[:last] {
+		for i, w := range widths[:among] {
 			if w > widths[widest] {
 				widest = i
 			}
 		}
-		if widths[widest] <= 6 {
-			break
+		if widths[widest] <= narrowestColumn {
+			return
 		}
 		widths[widest]--
 	}
-	widths[last] = max(width-fixed(), 0)
-	return widths
 }
 
 func groupLabel(g *Group) Line {
@@ -970,12 +973,13 @@ func stickyBand(lines []drawn, top, height int) []string {
 
 // draw lays the nodes out to width. The first group holding rows and left open
 // carries the one header row, so every group shares its columns. A group with cells
-// of its own has no room for the titles, so they take a line of their own at the top, as
-// they do under a board's Look.Rules, with a rule under them.
+// of its own has no room for the titles, so they take a line of their own at the top. A
+// board's Look.Rules puts them there too, and adds a rule under them.
 func draw(pal gotermstyle.Palette, theme *tuitheme.Theme, columns []Column, nodes []node, widths []int, width int, cursor string, look cursorLook, board Look) []drawn {
 	titled := false
 	lines := make([]drawn, 0, len(nodes))
-	if board.Rules || slices.ContainsFunc(nodes, func(n node) bool { return n.kind == nodeGroup && len(n.group.Cells) > 0 }) {
+	ownLine := board.Rules || slices.ContainsFunc(nodes, func(n node) bool { return n.kind == nodeGroup && len(n.group.Cells) > 0 })
+	if ownLine && len(columns) > 0 {
 		titled = true
 		first := pal.Bold(fit(columns[0].Title, max(widths[0]-1, 0), false))
 		lines = append(lines, drawn{text: ansi.Truncate(" "+first+columnTitles(pal, columns, widths), width, "…"), pinned: true})
@@ -1106,6 +1110,9 @@ func drawNodeBody(pal gotermstyle.Palette, theme *tuitheme.Theme, n node, column
 	lines := []drawn{{text: ansi.Truncate(text, width, "…"), key: selectableKey(n)}}
 	lines = append(lines, continuedLines(pal, wrapped, columns, widths)...)
 	if n.kind == nodeRow && len(n.row.Second) > 0 {
+		for i := 1; i < len(lines); i++ {
+			lines[i].continues = true
+		}
 		second := " "
 		if selected {
 			second = look.pointer()

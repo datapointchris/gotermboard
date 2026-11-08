@@ -33,8 +33,7 @@ type TailBoard interface {
 	Tails() bool
 }
 
-// TwoLineBoard is a Board whose rows read in two lines, the second a row's Under, so its
-// summaries start shown. f still hides them.
+// TwoLineBoard is a Board whose rows' Under summaries start shown. f still hides them.
 type TwoLineBoard interface {
 	TwoLines() bool
 }
@@ -53,7 +52,8 @@ type Look struct {
 	Sides, Ends int
 	// Spread fills the table's width with its columns at their own widths, dealing what they
 	// leave out between them from the left, rather than the last column taking it. A column
-	// with no title continues the one before it, and keeps its two spaces.
+	// with no title continues the one before it and takes none of the spread. A table whose
+	// rows or groups set WrapLast keeps the slack in its last column, where the text wraps.
 	Spread bool
 	// Rules puts the column titles on a line of their own with a rule under it, and a rule
 	// above the footer.
@@ -100,7 +100,8 @@ type MovingBoard interface {
 	StripAt(now time.Time) []Line
 }
 
-// PanelFrom is the narrowest screen that gets the side panel.
+// PanelFrom is the narrowest width inside a board's Look margin that gets the side panel. On
+// a board with no Look, that is the screen's width.
 const PanelFrom = 160
 
 // tickEvery redraws the ages and starts what is due.
