@@ -276,14 +276,23 @@ The `chart` package draws plain series as lines of cells:
 
 - `TimeSeries` draws braille lines over a time axis and a value axis. A `Dotted` series reads as a
   forecast, a `Band` shades the cells between two edges, and `Legend` names each beside its mark.
-  Readings that all share one time draw an hour either side of it.
+  Readings that all share one time draw an hour either side of it. An axis under six hours names
+  round minutes, every five on an axis of half an hour.
 - `Heatmap` shades a grid such as hour against weekday, from `░` to `█` in one color. A shade orders
   by density in any theme, where a ramp of the sixteen colors orders differently in each. Given fewer
   lines than it has rows, it drops its column names first, then ends on a `+N` line for the rest.
-- `Sparkline` draws eighth-block columns, averaging more values than columns so the whole span shows.
-  Any value above zero draws at least `▁`, so a quiet stretch reads apart from an empty one.
+- `Sparkline` draws eighth-block columns, averaging more values than columns so the whole span
+  shows, and with `Fill` widening fewer so they span it. Any value above zero draws at least `▁`, so
+  a quiet stretch reads apart from an empty one.
 - `Bars` draws an upright bar per value in its own color, over an axis labeled at the top, the middle
-  and zero.
+  and zero. A bar with a `Stack` draws each part over the one before it.
+- `Meter` draws one bar across a line to an eighth of a cell, each part after the one before it.
+- `Timeline` draws spans on one time axis, a row each, as a Gantt chart or a trace waterfall lays them
+  out. A bar starts on the cell its span starts in and ends to an eighth of a cell, so a span lasting
+  any time draws at least `▏`, and a moment draws a milestone's `◆`. A span with no `End` is under way
+  and runs to the axis's end, so a chart of work under way sets `To` to now. A wait between two spans
+  shows as the gap between their bars. Given fewer lines than a row per span and the axis, it drops
+  its axis first, then ends on a `+N` line for the rest.
 
 Each fills exactly the width and height it is given, so `chart.Beside` lays them side by side. A
 chart colors its cells with the codes the caller passes, and the board's palette paints them. It

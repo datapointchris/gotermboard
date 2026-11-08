@@ -1,7 +1,6 @@
-// Package chart draws plain series as lines of cells for a board: a time series with a forecast and
-// a band, a heatmap, a sparkline and columns. Each fills exactly the width and height it is given,
-// and colors its cells with the codes the caller passes, so the board's palette paints them in the
-// terminal's own colors.
+// Package chart draws plain series as lines of cells for a board. Each chart fills exactly the
+// width and height it is given, and colors its cells with the codes the caller passes, so the
+// board's palette paints them in the terminal's own colors.
 package chart
 
 import (
@@ -115,6 +114,50 @@ func Beside(gap int, blocks ...[]gotermboard.Line) []gotermboard.Line {
 		out[y] = line
 	}
 	return out
+}
+
+// labelColumn is how wide a column of row labels is: the widest label and a cell after it, and
+// nothing where no row has a label.
+func labelColumn[T any](rows []T, label func(T) string) int {
+	width := 0
+	for _, row := range rows {
+		width = max(width, ansi.StringWidth(label(row)))
+	}
+	if width > 0 {
+		width++
+	}
+	return width
+}
+
+// fitRows is how many of n rows fit in height lines beside a line of names or an axis, and whether
+// that line still fits. Given fewer lines than the rows and that line, the line goes first, then
+// the last row that fits gives way to the +N line overflow draws.
+func fitRows(n, height int, withLine bool) (shown int, lineFits bool) {
+	lineFits = withLine && height > n
+	room := height
+	if lineFits {
+		room--
+	}
+	if n > room {
+		return max(room-1, 0), lineFits
+	}
+	return n, lineFits
+}
+
+// overflow is the line counting the rows that did not fit.
+func overflow(cut int) gotermboard.Line {
+	return gotermboard.Line{gotermboard.C("+"+strconv.Itoa(cut), "")}
+}
+
+// run is a bar eighthsLong eighths of a cell long and at most room cells: whole blocks, then the
+// block filling the last cell's share from its left edge.
+func run(eighthsLong, room int) string {
+	full := min(eighthsLong/8, room)
+	bar := strings.Repeat("█", max(full, 0))
+	if part := eighthsLong % 8; part > 0 && full < room {
+		bar += string(eighths[part])
+	}
+	return bar
 }
 
 // padded is a line filled out with spaces to width, or cut to it.

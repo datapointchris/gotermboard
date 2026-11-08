@@ -39,16 +39,12 @@ func (m Meter) Lines(width, height int) []gotermboard.Line {
 	scale := float64(8*width) / top
 	filled := min(int(total*scale+0.5), 8*width)
 	var line gotermboard.Line
-	for cell := range width {
+	bar := []rune(run(filled, width))
+	for cell, block := range bar {
 		lo := 8 * cell
-		in := min(max(filled-lo, 0), 8)
-		if in == 0 {
-			line = appendText(line, strings.Repeat(" ", width-cell), "")
-			break
-		}
-		line = appendText(line, string(eighths[in]), m.Parts[holder(ends, scale, lo, lo+in)].Code)
+		line = appendText(line, string(block), m.Parts[holder(ends, scale, lo, lo+min(filled-lo, 8))].Code)
 	}
-	out[0] = line
+	out[0] = appendText(line, strings.Repeat(" ", width-len(bar)), "")
 	return out
 }
 
