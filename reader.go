@@ -11,6 +11,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/datapointchris/gotermstyle"
+
+	"github.com/datapointchris/gotermboard/breadcrumb"
 )
 
 // ReadingWidth is the widest a reader lays text out, because a longer line is hard to
@@ -184,42 +186,18 @@ func (r *Reader) topLine() string {
 	return margin + r.pathLine(append(segments, r.headingsInView()...), r.width-len(margin))
 }
 
-// pathSegmentFloor is how narrow the widest segment of a path is cut before the outermost
-// goes altogether.
-const pathSegmentFloor = 12
-
-// pathLine draws segments on one line within room. The longest is cut first, so a long title
-// keeps its first words and every short segment stays whole, and the outermost goes after that.
+// pathLine draws segments on one line within room, cut as [breadcrumb.Fit] cuts them.
 func (r *Reader) pathLine(segments []Line, room int) string {
-	separator := r.pal.Paint(RuleCode, " › ")
-	gap := ansi.StringWidth(" › ")
 	widths := make([]int, len(segments))
-	total := 0
 	for i, segment := range segments {
 		widths[i] = segment.width()
-		total += widths[i] + gap
 	}
-	total -= gap
-	for total > room && len(segments) > 1 {
-		widest := 0
-		for i, w := range widths {
-			if w > widths[widest] {
-				widest = i
-			}
-		}
-		if widths[widest] > pathSegmentFloor {
-			widths[widest]--
-			total--
-			continue
-		}
-		total -= widths[0] + gap
-		segments, widths = segments[1:], widths[1:]
-	}
-	painted := make([]string, 0, len(segments))
-	for i, segment := range segments {
+	dropped, widths := breadcrumb.Fit(widths, ansi.StringWidth(" › "), room)
+	painted := make([]string, 0, len(widths))
+	for i, segment := range segments[dropped:] {
 		painted = append(painted, ansi.Truncate(segment.Paint(r.pal), widths[i], "…"))
 	}
-	return ansi.Truncate(strings.Join(painted, separator), max(room, 0), "…")
+	return strings.Join(painted, r.pal.Paint(RuleCode, " › "))
 }
 
 func lettersIn(rows []Line) int {

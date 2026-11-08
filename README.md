@@ -189,6 +189,10 @@ opened it, its title, then each heading still open above the top row. A heading 
 row scrolls off, as the table's band does. Where the line runs long, the longest name is cut first,
 and the outermost leaves once every name is down to a few words.
 
+That cut is `breadcrumb.Fit`, over the names' widths alone. A screen that is no board fits its own
+path line the same way: the `breadcrumb` package imports nothing that draws, so Bubble Tea stays
+out of that screen's build.
+
 `Model.Read` opens one over the board from a board's own key, and `esc` or `space` returns to the
 board. `Model.Tall` says whether a document runs past the screen. `NewReader` runs as a program of its
 own, which is all `cmd/read-markdown` does with a file or a pipe:
