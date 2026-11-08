@@ -671,6 +671,9 @@ func (m *Model) cursorToggles() bool {
 
 // title is the row's words, for a Reader to name what it holds.
 func (r Row) title() string {
+	if r.ReaderTitle != "" {
+		return r.ReaderTitle
+	}
 	if len(r.Span) > 0 {
 		return r.Span.Text()
 	}
