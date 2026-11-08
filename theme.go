@@ -106,6 +106,8 @@ type cursorLook struct {
 	// tint is the selection background's SGR sequence, empty where the theme's selection is
 	// the built-in one or there is no color.
 	tint string
+	// bold draws the row bold over the tint too, as a board's Look.BoldCursor asks.
+	bold bool
 }
 
 // pointer is what the pointer's column holds on the cursor's row.
@@ -123,7 +125,10 @@ func (c cursorLook) wear(lines []drawn, width int) []drawn {
 		return lines
 	}
 	code, room := Bold, 0
-	if c.tint != "" {
+	switch {
+	case c.tint != "" && c.bold:
+		code, room = c.tint+Bold, width
+	case c.tint != "":
 		code, room = c.tint, width
 	}
 	for i := range lines {

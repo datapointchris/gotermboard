@@ -18,5 +18,8 @@ A Go library that Go command-line tools import, shipped as git tags. Its one `ma
   and a chevron each in a cell of a row's indent, so a table never shifts under the eye.
 - **The sticky band covers lines and never moves them,** so the text under it holds still as
   it grows and shrinks.
+- **A board that sets no `Look`, `Row.Second` or `Group.BetweenRows` draws byte for byte as
+  it did before they existed.** Each other board's frames rest on that, so a new piece of a
+  look is off in its zero value.
 - **A moving strip redraws only itself.** A beat builds no frame and draws no table, and only
   the tab showing runs one.

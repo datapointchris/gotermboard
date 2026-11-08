@@ -129,6 +129,26 @@ or row has a summary to draw.
 sets the first column's width. The group's cells then take the next line, with `Beside`
 ahead of them in the first column. `Column.Min` holds that column wide enough to be useful.
 
+## A board can draw its rows as two-line blocks spread across a margined screen
+
+Every piece of this is off until a board asks for it, so a board that asks for none draws as
+it always has.
+
+- **`Second` on a `Row` is a line it always draws under its first.** Its first cell sits in
+  the first column under the row's first cell, and the rest draw one after another from the
+  second column, cut at the table's edge. It suits a state over a second state, with the
+  row's identity beside them. The filter reads it, and the cursor keeps both lines in view.
+- **`BetweenRows` on a `Group` draws a blank line and a rule between each two of its rows**,
+  so two-line rows read as blocks. `RuleDotted` is the lightest weight, `┈`.
+- **A board implementing `LookBoard` returns a `Look` for the screen's width.** `Sides` and
+  `Ends` are a margin of blank columns and lines around the whole screen. `Spread` lays the
+  columns out at their own widths and deals what they leave out between them from the left,
+  so the table ends on its edge. A column with no title continues the one before it and
+  keeps two spaces from it, as the counts of a diff do. `Rules` puts the column titles on a
+  line of their own with a rule under it, and a rule over the footer. `BoldCursor` draws the
+  cursor's row bold over the theme's selection, across every line the row draws.
+  `NoRowChevrons` leaves each row's chevron cell blank.
+
 ## A row can open a document laid out at its width
 
 `Document` on a `Row` or a `Group` is a function of width, because hanging bullets, tables
@@ -182,7 +202,9 @@ and `space` change nothing, so no mark promises otherwise and the footer and `?`
 on that line. A filter holds every group open, so a group draws no mark while one is typed.
 
 A row's chevron sits in the last cell of its indent, one cell in from its parent's, with `Symbol`
-beside it. `MarkGlyph` sits in the cell before the chevron. No column moves for either.
+beside it. `MarkGlyph` sits in the cell before the chevron. No column moves for either. A board
+whose every row opens can blank the row chevrons with `Look.NoRowChevrons`, because there a
+chevron tells no row apart. The cell stays, so no column moves for that either.
 
 ## A filter can reach past what shows
 
