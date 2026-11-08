@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -13,16 +14,22 @@ type ClaudeSession struct {
 	// On names the record as its handle on the command line, such as an issue's number. The tmux
 	// window is named "claude <On>", and every sentence about the session names it.
 	On string
-	// Dir is where the session runs: the record's checkout, or else the board's own directory,
-	// with Fallback saying why. Fallback is empty where Dir is the record's checkout.
-	Dir, Fallback string
-	// Brief is the session's first message: what the record is, and the command that prints it
-	// whole. OpenClaudeSession adds what the session does with it, and where Fallback says why,
-	// where it runs, because that directory may hold another repo's code.
+	// Dir is where the session runs: the record's checkout, or else the board's own directory.
+	Dir string
+	// Fallback is why Dir is not the record's checkout, as a bare clause completing "because",
+	// such as "12 names no one repo". It is empty where Dir is the record's checkout.
+	Fallback string
+	// Brief says what the record is and the command that prints it whole, and asks nothing.
+	// OpenClaudeSession adds the ask after it, and with a Fallback where the session runs and
+	// why, because that directory may hold another repo's code.
 	Brief string
+	// Env is KEY=value pairs the session starts with on top of the program's environment. Inside
+	// tmux they go ahead of claude through env, because a window takes its environment from the
+	// tmux server.
+	Env []string
 }
 
-// sessionAsk ends every brief: the session reads the record before it changes anything.
+// sessionAsk follows every brief: the session reads the record before it changes anything.
 const sessionAsk = "Read it, say what it asks for and what you would do, then wait before changing anything."
 
 // brief is the session's first message whole.
@@ -61,29 +68,36 @@ type ClaudeSessionOutcome struct {
 }
 
 // OpenClaudeSession is C: a Claude session on a record, in session.Dir. Inside tmux it opens in a
-// window of its own, so the board stays usable while the session works. Outside tmux it holds
-// the terminal until it ends, and a failure says the last line it wrote to stderr. The command
-// ends in a ClaudeSessionOutcome either way, so a Model and a host that draws its own screen
-// open it alike.
+// window of its own, so the board stays usable while the session works. tmux answers once the
+// window exists, before claude starts, so the outcome says only that the window opened. Outside
+// tmux it holds the terminal until it ends, and a failure says the last line it wrote to stderr.
+// The command ends in a ClaudeSessionOutcome either way, so a Model and a host that draws its own
+// screen open it alike.
 func OpenClaudeSession(session ClaudeSession) tea.Cmd {
 	outcome := ClaudeSessionOutcome{Session: session}
 	if _, err := exec.LookPath("claude"); err != nil {
 		outcome.Err, outcome.Said = err, "claude is not on PATH, so no session opened on "+session.On
 		return func() tea.Msg { return outcome }
 	}
-	brief := session.brief()
+	argv := []string{"claude", session.brief()}
 	if os.Getenv("TMUX") != "" {
+		if len(session.Env) > 0 {
+			argv = slices.Concat([]string{"env"}, session.Env, argv)
+		}
 		return func() tea.Msg {
-			if err := OpenWindow("claude "+session.On, session.Dir, []string{"claude", brief}); err != nil {
+			if err := OpenWindow("claude "+session.On, session.Dir, argv); err != nil {
 				outcome.Err, outcome.Said = err, err.Error()
 				return outcome
 			}
-			outcome.Said = fmt.Sprintf("opened a Claude session on %s in a tmux window, in %s", session.On, session.ranIn())
+			outcome.Said = fmt.Sprintf("opened a tmux window for the Claude session on %s, in %s", session.On, session.ranIn())
 			return outcome
 		}
 	}
-	held := exec.Command("claude", brief)
+	held := exec.Command(argv[0], argv[1:]...)
 	held.Dir = session.Dir
+	if len(session.Env) > 0 {
+		held.Env = append(os.Environ(), session.Env...)
+	}
 	return handOver(&handedOver{cmd: held}, func(err error, stderr []byte) tea.Msg {
 		outcome.HeldTerminal, outcome.Err, outcome.Stderr = true, err, stderr
 		switch {

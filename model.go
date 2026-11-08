@@ -75,9 +75,9 @@ type CursorBoard interface {
 // one a command its key started sends when it ends. Receive runs with the model, so it can Say
 // what came of the command, Rebuild, or return the next command. Tabs hands such a message to
 // every tab, because the tab whose key started the command may be hidden by the time it ends,
-// so a board ignores a message of a type it does not own. A HandedBack is the exception, and
-// reaches only the board whose model handed the terminal over. A ClaudeSessionOutcome reaches
-// only the board of the tab showing.
+// so a board ignores a message of a type it does not own. A message whose type names where it
+// goes is the exception: a HandedBack reaches only the board whose model handed the terminal
+// over, and a ClaudeSessionOutcome only the board of the tab showing.
 type ReceivingBoard interface {
 	Receive(m *Model, msg tea.Msg) tea.Cmd
 }
