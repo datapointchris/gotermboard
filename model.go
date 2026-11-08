@@ -954,8 +954,9 @@ func (m *Model) clearOfBand(lines []drawn, at, height int) {
 	}
 }
 
-// footer is an open question and the keys that answer it, or else what the last key did or the
-// filter being typed, then the keys.
+// footer is an open question and the keys that answer it, or else the filter being typed, what
+// the last key did, or the filter kept, then the keys. What a key did shows until the next key,
+// so a kept filter never hides a refusal.
 func (m *Model) footer() []string {
 	if m.mode() == askingMode {
 		lines, keys := m.questionLines()
@@ -965,10 +966,10 @@ func (m *Model) footer() []string {
 	switch {
 	case m.mode() == filteringMode:
 		lines = []string{m.filterLine.draw("/", m.width)}
-	case m.display.filter != "":
-		lines = []string{ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…")}
 	case m.said != "":
 		lines = m.wrapped(m.said)
+	case m.display.filter != "":
+		lines = []string{ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…")}
 	}
 	var keys []string
 	for _, action := range m.actions() {

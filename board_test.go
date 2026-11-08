@@ -462,7 +462,7 @@ func (b askingBoard) Actions() []Action {
 		return nil
 	}
 	return []Action{{Keys: []string{"m"}, Run: func(m *Model) tea.Cmd {
-		m.Ask(Question{Text: "merge into:", Typed: true, Answer: heard, Cancel: func() tea.Cmd { return heard("canceled") }})
+		m.Ask(Question{Text: "merge into:", Typed: true, Answer: heard, Cancel: func() tea.Cmd { m.Say("nothing merged"); return heard("canceled") }})
 		return nil
 	}}}
 }
@@ -477,8 +477,9 @@ func TestAQuestionTakesEveryKeyUntilEnterHandsItTheLineOrEscClosesIt(t *testing.
 	frame := Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "g", Rows: rows}}}
 	m := NewModel(askingBoard{fixedBoard{frame}, &answers}, gotermstyle.NewPalette(false))
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
-	m.Update(typedKey("G"))
-	m.Update(typedKey("m"))
+	for _, key := range []tea.KeyPressMsg{typedKey("/"), typedKey("r"), typedKey("o"), typedKey("w"), enterKey, typedKey("G"), typedKey("m")} {
+		m.Update(key)
+	}
 	if !strings.Contains(m.screen(), "row-19") {
 		t.Errorf("the question's lines hid the cursor's row:\n%s", m.screen())
 	}
@@ -489,8 +490,8 @@ func TestAQuestionTakesEveryKeyUntilEnterHandsItTheLineOrEscClosesIt(t *testing.
 	if strings.Join(answers, ",") != "q x,canceled" {
 		t.Errorf("answers %q, want the one line enter handed over, trimmed, then the cancel", answers)
 	}
-	if strings.Contains(m.screen(), "merge into:") {
-		t.Errorf("esc left the question on the footer:\n%s", m.screen())
+	if screen := m.screen(); strings.Contains(screen, "merge into:") || !strings.Contains(screen, "nothing merged") {
+		t.Errorf("esc should close the question and say what the cancel said over the kept filter:\n%s", screen)
 	}
 }
 
