@@ -228,6 +228,10 @@ func (b *board) StripAt(now time.Time) []gotermboard.Line {
 `StripAt` replaces `Frame.Strip` on every draw, so it returns the lines that hold still as well. A
 strip changing its height between beats redraws the table, because the table's height moves with it.
 
+A strip that turns a spinner, such as one beside a read under way, draws `SpinnerAt(now)` and
+returns `SpinEvery` from `MoveEvery` while it turns. Those are the footer's drawings at the
+footer's pace, so the two spinners on one screen match.
+
 A beat builds no frame and draws no table, so a moving strip costs a fraction of rebuilding the whole
 frame at the same pace. What a beat does cost is mostly Bubble Tea's renderer, which compares the
 whole screen on every frame that changed.

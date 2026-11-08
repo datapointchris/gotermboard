@@ -181,8 +181,16 @@ type (
 // spinner is the drawings the footer turns through beside work under way, each one cell wide.
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// spinEvery is how long the spinner holds each drawing.
-const spinEvery = 100 * time.Millisecond
+// SpinEvery is how long a spinner holds each drawing: the footer's beside work under way, and
+// one a board turns on its own clock.
+const SpinEvery = 100 * time.Millisecond
+
+// SpinnerAt is the spinner's drawing at now, one cell wide, for a board that turns one on its
+// own clock, such as a MovingBoard's strip while a read runs. It turns through the footer's
+// drawings at the footer's pace.
+func SpinnerAt(now time.Time) string {
+	return spinner[now.UnixMilli()/SpinEvery.Milliseconds()%int64(len(spinner))]
+}
 
 func tick() tea.Cmd {
 	return tea.Tick(tickEvery, func(t time.Time) tea.Msg { return tickMsg(t) })
@@ -222,7 +230,7 @@ func (m *Model) nextSpin() tea.Cmd {
 	}
 	m.spinning = true
 	clock := m.moveClock
-	return tea.Tick(spinEvery, func(time.Time) tea.Msg { return spinMsg{model: m, clock: clock} })
+	return tea.Tick(SpinEvery, func(time.Time) tea.Msg { return spinMsg{model: m, clock: clock} })
 }
 
 // nextMove waits out one drawing of the strip, where the board asks for one and nothing
