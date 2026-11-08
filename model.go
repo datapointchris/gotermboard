@@ -48,7 +48,8 @@ type CursorBoard interface {
 // one a command its key started sends when it ends. Receive runs with the model, so it can Say
 // what came of the command, Rebuild, or return the next command. Tabs hands such a message to
 // every tab, because the tab whose key started the command may be hidden by the time it ends,
-// so a board ignores a message of a type it does not own.
+// so a board ignores a message of a type it does not own. A HandedBack is the exception, and
+// reaches only the board whose model handed the terminal over.
 type ReceivingBoard interface {
 	Receive(m *Model, msg tea.Msg) tea.Cmd
 }
@@ -399,19 +400,31 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.follow()
 		}
 		return tea.Batch(cmd, m.nextMove())
+	case HandedBack:
+		if msg.model == m {
+			return m.receive(msg)
+		}
 	default:
-		board, ok := m.board.(ReceivingBoard)
-		if !ok {
-			return nil
-		}
-		footer := len(m.footer())
-		cmd := board.Receive(m, msg)
-		if len(m.footer()) != footer {
-			m.follow()
-		}
-		return cmd
+		return m.receive(msg)
 	}
 	return nil
+}
+
+// receive hands msg to a ReceivingBoard, then runs a HandedBack's then, so what the board
+// reads again is due before then says what came of the program.
+func (m *Model) receive(msg tea.Msg) tea.Cmd {
+	footer := len(m.footer())
+	var cmds []tea.Cmd
+	if board, ok := m.board.(ReceivingBoard); ok {
+		cmds = append(cmds, board.Receive(m, msg))
+	}
+	if back, ok := msg.(HandedBack); ok && back.then != nil {
+		cmds = append(cmds, back.then(m, back.Err, back.Stderr))
+	}
+	if len(m.footer()) != footer {
+		m.follow()
+	}
+	return tea.Batch(cmds...)
 }
 
 // Action is one row of the key table the handler, the footer and the ? overlay
