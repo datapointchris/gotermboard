@@ -509,6 +509,63 @@ func TestACursorBoardHearsEachKeyTheCursorLandsOnOnce(t *testing.T) {
 	}
 }
 
+// workingBoard has one command under way from w until a workDone says it ended.
+type workingBoard struct {
+	fixedBoard
+	underWay *string
+}
+
+type workDone string
+
+func (b workingBoard) Actions() []Action {
+	return []Action{{Keys: []string{"w"}, Run: func(*Model) tea.Cmd {
+		*b.underWay = "merging #12"
+		return func() tea.Msg { return workDone("merged #12") }
+	}}}
+}
+
+func (b workingBoard) UnderWay() string { return *b.underWay }
+
+func (b workingBoard) Receive(m *Model, msg tea.Msg) tea.Cmd {
+	if done, ok := msg.(workDone); ok {
+		*b.underWay = ""
+		m.Say(string(done))
+	}
+	return nil
+}
+
+func TestABusyBoardsWorkSpinsOnTheFooterThroughAKeyAndItsTabHearsTheEndWhileHidden(t *testing.T) {
+	underWay := ""
+	working := workingBoard{fixedBoard{Frame{Columns: []Column{{Title: "NAME"}}}}, &underWay}
+	tabs, err := NewTabs([]Tab{{Name: "working", Board: working}, {Name: "still", Board: fixedBoard{}}}, gotermstyle.NewPalette(false), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabs.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
+	shown := tabs.models[0]
+	shown.reveal(time.Now())
+	ended := press(tabs, typedKey("w"))
+	press(tabs, downKey)
+	if got := tabs.View().Content; !strings.Contains(got, spinner[0]+" merging #12") {
+		t.Errorf("the work under way should show after a spinner through a key:\n%s", got)
+	}
+	tabs.Update(spinMsg{model: shown, clock: shown.moveClock})
+	if got := tabs.View().Content; !strings.Contains(got, spinner[1]+" merging #12") {
+		t.Errorf("a beat should turn the spinner:\n%s", got)
+	}
+
+	press(tabs, tabKey)
+	for _, msg := range ended().(tea.BatchMsg) {
+		if msg != nil {
+			tabs.Update(msg())
+		}
+	}
+	press(tabs, tabKey)
+	if got := tabs.View().Content; strings.Contains(got, "merging") || !strings.Contains(got, "merged #12") {
+		t.Errorf("a hidden tab should hear its command end, and say so on its return:\n%s", got)
+	}
+}
+
 func TestAPanelLineWrapsAtSpacesKeepingEachCellsColor(t *testing.T) {
 	line := Line{C("green words here ", Green), C("red words", Red), C(" longerthanthepanel", "")}
 	pieces := wrapWords(line, 11)

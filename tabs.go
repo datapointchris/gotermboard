@@ -96,17 +96,26 @@ func (t *Tabs) tabLineHeight() int {
 // Init is Bubble Tea's. One clock runs, and it goes to whichever tab is showing.
 func (t *Tabs) Init() tea.Cmd { return tea.Batch(tick(), t.active().reveal(time.Now())) }
 
-// Update is Bubble Tea's. A size goes to every tab, and the rest to the one showing.
+// Update is Bubble Tea's. A size goes to every tab, and so does any message this package does
+// not own, which is a ReceivingBoard's. A key, a paste and the clocks go to the tab showing.
 func (t *Tabs) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if size, ok := msg.(tea.WindowSizeMsg); ok {
-		size.Height -= t.tabLineHeight()
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		msg.Height -= t.tabLineHeight()
 		for _, model := range t.models {
-			model.Update(size)
+			model.Update(msg)
 		}
 		return t, nil
+	case tickMsg, refreshedMsg, moveMsg, spinMsg, tea.KeyPressMsg, tea.PasteMsg:
+		_, cmd := t.active().Update(msg)
+		return t, cmd
 	}
-	_, cmd := t.active().Update(msg)
-	return t, cmd
+	cmds := make([]tea.Cmd, 0, len(t.models))
+	for _, model := range t.models {
+		_, cmd := model.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+	return t, tea.Batch(cmds...)
 }
 
 // View is Bubble Tea's.

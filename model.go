@@ -38,6 +38,22 @@ type CursorBoard interface {
 	CursorOn(key string)
 }
 
+// ReceivingBoard is a Board handed every message the model does not handle itself, such as the
+// one a command its key started sends when it ends. Receive runs with the model, so it can Say
+// what came of the command, Rebuild, or return the next command. Tabs hands such a message to
+// every tab, because the tab whose key started the command may be hidden by the time it ends,
+// so a board ignores a message of a type it does not own.
+type ReceivingBoard interface {
+	Receive(m *Model, msg tea.Msg) tea.Cmd
+}
+
+// BusyBoard is a Board with work under way, such as a command its key started. The footer
+// names it after a spinner, above what the last key did, until UnderWay is empty again. A key
+// never clears it.
+type BusyBoard interface {
+	UnderWay() string
+}
+
 // MovingBoard is a Board whose strip moves between its frames, as a diagram of work in motion
 // does. Only the strip redraws at this pace, so the table and its change cue wait for their
 // frame. Only the tab showing runs it, and a reader over the board holds it.
@@ -102,6 +118,9 @@ type Model struct {
 	// is dropped. moving says a beat is on its way.
 	moveClock int
 	moving    bool
+	// spinning says the spinner's next beat is on its way, and spinAt is the drawing it shows.
+	spinning bool
+	spinAt   int
 	// underStrip is what the last draw put under the strip, and stripOnly says the next draw
 	// keeps it, because only a move came in since.
 	underStrip []string
@@ -151,7 +170,19 @@ type (
 		clock int
 		at    time.Time
 	}
+	// spinMsg is one beat of the spinner beside a busy board's work, for the model that started
+	// it, on the strip's clock, which a hide moves on.
+	spinMsg struct {
+		model *Model
+		clock int
+	}
 )
+
+// spinner is the drawings the footer turns through beside work under way, each one cell wide.
+var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// spinEvery is how long the spinner holds each drawing.
+const spinEvery = 100 * time.Millisecond
 
 func tick() tea.Cmd {
 	return tea.Tick(tickEvery, func(t time.Time) tea.Msg { return tickMsg(t) })
@@ -172,8 +203,26 @@ func (m *Model) reveal(now time.Time) tea.Cmd {
 
 // hide stops what runs only while the tab shows. A read under way runs to its end.
 func (m *Model) hide() {
-	m.hidden, m.moving = true, false
+	m.hidden, m.moving, m.spinning = true, false, false
 	m.moveClock++
+}
+
+func (m *Model) underWay() string {
+	if board, ok := m.board.(BusyBoard); ok {
+		return board.UnderWay()
+	}
+	return ""
+}
+
+// nextSpin waits out one drawing of the spinner, while the board has work under way and the
+// footer shows.
+func (m *Model) nextSpin() tea.Cmd {
+	if m.hidden || m.spinning || m.reading != nil || m.underWay() == "" {
+		return nil
+	}
+	m.spinning = true
+	clock := m.moveClock
+	return tea.Tick(spinEvery, func(time.Time) tea.Msg { return spinMsg{model: m, clock: clock} })
 }
 
 // nextMove waits out one drawing of the strip, where the board asks for one and nothing
@@ -258,7 +307,7 @@ func (m *Model) dueReads(now time.Time) tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmd := m.update(msg)
 	m.tellCursor()
-	return m, cmd
+	return m, tea.Batch(cmd, m.nextSpin())
 }
 
 // tellCursor says where the cursor is to a board that follows it, once per move.
@@ -290,6 +339,11 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if msg.model == m && msg.clock == m.moveClock {
 			return m.moved(msg.at)
 		}
+	case spinMsg:
+		if msg.model == m && msg.clock == m.moveClock {
+			m.spinning, m.stripOnly = false, false
+			m.spinAt = (m.spinAt + 1) % len(spinner)
+		}
 	case refreshedMsg:
 		m.rebuild(time.Now())
 	case tea.PasteMsg:
@@ -312,6 +366,17 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.follow()
 		}
 		return tea.Batch(cmd, m.nextMove())
+	default:
+		board, ok := m.board.(ReceivingBoard)
+		if !ok {
+			return nil
+		}
+		footer := len(m.footer())
+		cmd := board.Receive(m, msg)
+		if len(m.footer()) != footer {
+			m.follow()
+		}
+		return cmd
 	}
 	return nil
 }
@@ -957,22 +1022,25 @@ func (m *Model) clearOfBand(lines []drawn, at, height int) {
 	}
 }
 
-// footer is an open question and the keys that answer it, or else the filter being typed, what
-// the last key did, or the filter kept, then the keys. What a key did shows until the next key,
-// so a kept filter never hides a refusal.
+// footer is the work under way, then an open question and the keys that answer it, or else the
+// filter being typed, what the last key did, or the filter kept, then the keys. What a key did
+// shows until the next key, so a kept filter never hides a refusal.
 func (m *Model) footer() []string {
-	if m.mode() == askingMode {
-		lines, keys := m.questionLines()
-		return append(lines, ansi.Truncate(keys, m.width, "…"))
-	}
 	var lines []string
+	if work := m.underWay(); work != "" {
+		lines = append(lines, ansi.Truncate(m.pal.Paint(Yellow, spinner[m.spinAt])+" "+work, m.width, "…"))
+	}
+	if m.mode() == askingMode {
+		asked, keys := m.questionLines()
+		return append(append(lines, asked...), ansi.Truncate(keys, m.width, "…"))
+	}
 	switch {
 	case m.mode() == filteringMode:
-		lines = []string{m.filterLine.draw("/", m.width)}
+		lines = append(lines, m.filterLine.draw("/", m.width))
 	case m.said != "":
-		lines = m.wrapped(m.said)
+		lines = append(lines, m.wrapped(m.said)...)
 	case m.display.filter != "":
-		lines = []string{ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…")}
+		lines = append(lines, ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…"))
 	}
 	var keys []string
 	for _, action := range m.actions() {

@@ -300,3 +300,32 @@ where more was left. The typed line is cut from the left, so its end and the cur
 screen, as the filter and the reader's search are. A footer that grows keeps the cursor's row in
 view. The answer runs after the question closes, so it can `Say` what it did, ask another question,
 or return a command, such as one that opens an editor.
+
+## A key's command reports back to its board
+
+A key's `Run` returns a command, and a command that runs in the background or hands the terminal
+over with `tea.ExecProcess` ends in a message. A board implementing `ReceivingBoard` is handed every
+message the model does not handle itself, with the model, so it can `Say` what came of the command,
+`Rebuild`, or return the next command. `Tabs` hands such a message to every tab, because the tab
+that started the command may be hidden by the time it ends, so a board switches on its own types.
+
+A board implementing `BusyBoard` names its work under way from `UnderWay()`. The footer draws it
+after a spinner, above what the last key did, and a key does not clear it. The spinner turns only
+while the tab shows and nothing is open over the board.
+
+```go
+func (b *board) merge(m *gotermboard.Model) tea.Cmd {
+ b.underWay = "merging #12"
+ return func() tea.Msg { return mergedMsg{err: exec.Command("gh", "pr", "merge", "12", "--merge").Run()} }
+}
+
+func (b *board) UnderWay() string { return b.underWay }
+
+func (b *board) Receive(m *gotermboard.Model, msg tea.Msg) tea.Cmd {
+ if merged, ok := msg.(mergedMsg); ok {
+  b.underWay = ""
+  m.Say(mergeResult(merged.err))
+ }
+ return nil
+}
+```
