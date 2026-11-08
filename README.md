@@ -480,3 +480,5 @@ quoting. tmux opens a window whether or not its program starts, and in another d
 `dir` is gone. So `OpenWindow` first looks for `dir`, and for tmux, `argv[0]` and each of `needs`
 on `PATH`. A lone argument holding a space is a shell command, which tmux runs through its default
 shell, so `needs` names the programs it runs. Outside tmux it opens nothing and says why.
+`OpenWindowBehind` takes the same arguments and leaves the board's window current, for a command
+that runs on its own while the board stays in front.

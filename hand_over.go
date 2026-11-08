@@ -165,6 +165,16 @@ const windowTimeout = 5 * time.Second
 // so needs names what it runs. Outside tmux it opens nothing, because tmux would open the
 // window in whichever session it last used.
 func OpenWindow(name, dir string, argv []string, needs ...string) error {
+	return openWindow(name, dir, argv, false, needs)
+}
+
+// OpenWindowBehind is OpenWindow with the board's window left current: tmux opens the new one
+// behind it, for a command that runs on its own while the board stays in front.
+func OpenWindowBehind(name, dir string, argv []string, needs ...string) error {
+	return openWindow(name, dir, argv, true, needs)
+}
+
+func openWindow(name, dir string, argv []string, behind bool, needs []string) error {
 	if len(argv) == 0 {
 		return fmt.Errorf("nothing to run in a tmux window named %s", name)
 	}
@@ -185,6 +195,9 @@ func OpenWindow(name, dir string, argv []string, needs ...string) error {
 		return fmt.Errorf("not on PATH: %s, so no window opened for %s", strings.Join(missing, ", "), name)
 	}
 	args := []string{"new-window", "-n", name}
+	if behind {
+		args = slices.Insert(args, 1, "-d")
+	}
 	if dir != "" {
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			return fmt.Errorf("%s is not a directory, so no window opened for %s", dir, name)
