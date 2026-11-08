@@ -379,7 +379,9 @@ charts are laid out once a frame, so a moving strip's beat leaves them as they s
 
 A board implementing `Keyed` adds `Action`s, which take precedence over the table's and
 appear in the footer and the `?` overlay. A board implementing `TailBoard` reads from its
-newest row, as a log does.
+newest row, as a log does. One implementing `LastRowBoard` hears whether the cursor sits on the
+last row the filter and the folds leave showing, so it can hold back rows that land while the
+reader is scrolled back and let them in once the reader is at the end again, as `less +F` does.
 
 `enter` and `space` are separate keys in the table, so a board that takes `enter` leaves `space`
 folding in place. `Model.Toggle` is what the table's `enter` does, for a board's `enter` that acts

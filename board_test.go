@@ -562,6 +562,33 @@ type followingBoard struct {
 
 func (b followingBoard) CursorOn(key string) { *b.heard = append(*b.heard, key) }
 
+type lastRowBoard struct {
+	fixedBoard
+	heard *[]bool
+}
+
+func (lastRowBoard) Tails() bool               { return true }
+func (b lastRowBoard) CursorOnLastRow(on bool) { *b.heard = append(*b.heard, on) }
+
+func TestALastRowBoardHearsWhetherTheCursorSitsOnTheLastRowTheFilterLeaves(t *testing.T) {
+	var rows []Row
+	for i := range 20 {
+		key := "row-" + strconv.Itoa(i)
+		rows = append(rows, Row{Key: key, Cells: []Cell{C(key, "")}})
+	}
+	var heard []bool
+	m := NewModel(lastRowBoard{fixedBoard{Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "g", Rows: rows}}}}, &heard}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m.Update(upKey)
+	for _, key := range []tea.KeyPressMsg{typedKey("/"), typedKey("8"), enterKey} {
+		m.Update(key)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if want := []bool{true, false, true, false}; !slices.Equal(heard, want) {
+		t.Errorf("started on the last row, moved up, filtered to row-8 and row-18 and cleared, the board should hear %v, not %v", want, heard)
+	}
+}
+
 type askingBoard struct {
 	fixedBoard
 	answers *[]string

@@ -33,6 +33,15 @@ type TailBoard interface {
 	Tails() bool
 }
 
+// LastRowBoard is a Board told whether the cursor sits on the last row the table shows, once
+// each time that changes. The filter and the folds decide which row that is, so a board holding
+// back rows that land while the reader is scrolled back, as less +F stops following once the
+// reader scrolls, lets them in when the reader is back at the end of what shows. A table with
+// no row to sit on counts as on its last, because nothing in it is scrolled back from.
+type LastRowBoard interface {
+	CursorOnLastRow(on bool)
+}
+
 // TwoLineBoard is a Board whose rows' Under summaries start shown. f still hides them.
 type TwoLineBoard interface {
 	TwoLines() bool
@@ -154,6 +163,8 @@ type Model struct {
 	cue     changeCue
 	// toldCursor is the key a CursorBoard last heard.
 	toldCursor string
+	// toldLastRow is what a LastRowBoard last heard, once lastRowTold says it heard anything.
+	toldLastRow, lastRowTold bool
 	// reading is the full-screen Reader over the board, while one is open.
 	reading *Reader
 	// moveClock numbers the strip's clock. A hide moves it on, so a beat sent before the hide
@@ -418,8 +429,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmd, m.nextSpin())
 }
 
-// tellCursor says where the cursor is to a board that follows it, once per move.
+// tellCursor says where the cursor is to a board that follows it, once per move, and whether it
+// sits on the last row to a board that asks, once per change.
 func (m *Model) tellCursor() {
+	if board, ok := m.board.(LastRowBoard); ok {
+		rows := selectableOf(m.nodes())
+		on := len(rows) == 0 || rows[len(rows)-1].key == m.cursor
+		if !m.lastRowTold || on != m.toldLastRow {
+			m.lastRowTold, m.toldLastRow = true, on
+			board.CursorOnLastRow(on)
+		}
+	}
 	board, ok := m.board.(CursorBoard)
 	if !ok || m.cursor == m.toldCursor {
 		return
