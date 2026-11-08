@@ -287,9 +287,10 @@ The `chart` package draws plain series as lines of cells:
 - `Meter` draws one bar across a line to an eighth of a cell, each part after the one before it.
 - `Timeline` draws spans on one time axis, a row each, as a Gantt chart or a trace waterfall lays them
   out. A bar starts on the cell its span starts in and ends to an eighth of a cell, so a span lasting
-  any time draws at least `▏`, and a moment draws a milestone's `◆`. A wait between two spans shows as
-  the gap between their bars. Given fewer lines than its spans, it drops its axis first, then ends on
-  a `+N` line for the rest.
+  any time draws at least `▏`, and a moment draws a milestone's `◆`. A span with no `End` is under way
+  and runs to the axis's end, so a chart of work under way sets `To` to now. A wait between two spans
+  shows as the gap between their bars. Given fewer lines than a row per span and the axis, it drops
+  its axis first, then ends on a `+N` line for the rest.
 
 Each fills exactly the width and height it is given, so `chart.Beside` lays them side by side. A
 chart colors its cells with the codes the caller passes, and the board's palette paints them. It

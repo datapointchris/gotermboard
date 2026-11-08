@@ -11,19 +11,24 @@ import (
 )
 
 // Timeline draws spans of time on one time axis, a row each, as a Gantt chart or a trace
-// waterfall lays them out. Each bar starts where its span starts and is as long as it lasted, so a
-// long span stands out by its length and a wait between two shows as the gap between their bars.
+// waterfall lays them out. Each bar starts on the cell its span starts in and runs to where it
+// ends, so a long span stands out by its length and a wait between two shows as the gap between
+// their bars.
 type Timeline struct {
 	Spans []Span
-	// From and To bound the time axis. A zero one takes the spans' earliest start or latest end.
+	// From and To bound the time axis. A zero one takes the spans' earliest start or latest end. A
+	// span wholly outside them draws its label alone.
 	From, To time.Time
-	// TimeLabel writes how far along the axis a time sits. Nil writes 45s, 12m, 3h or 2d.
-	TimeLabel func(time.Duration) string
+	// TimeLabel names the time under a column of the axis. Nil names how far along the axis it
+	// sits: 45s, 12m, 3h or 2d.
+	TimeLabel func(time.Time) string
 }
 
 // Span is one row of a timeline: its label at the left, then a bar from Start to End in its own
 // color. A span whose End is not after its Start is a moment, drawn as a milestone's ◆. A span
-// with no Start draws its label alone, as what has not happened.
+// with a Start and no End is still under way and runs to the axis's end, so a chart of work under
+// way sets the timeline's To to now. A span with no Start draws its label alone, as what has not
+// happened.
 type Span struct {
 	Label      string
 	Start, End time.Time
@@ -55,7 +60,7 @@ func (t Timeline) Lines(width, height int) []gotermboard.Line {
 		out = append(out, padded(overflow(cut), width))
 	}
 	if axisFits {
-		out = append(out, padded(t.axis(to.Sub(from), labelWidth, plot), width))
+		out = append(out, padded(t.axis(from, to, labelWidth, plot), width))
 	}
 	return append(out, blank(width, height-len(out))...)
 }
@@ -88,7 +93,11 @@ func (t Timeline) span() (from, to time.Time) {
 // row is one span's label, then its bar placed along the plot, with its text beside it.
 func (t Timeline) row(s Span, from, to time.Time, labelWidth, plot int) gotermboard.Line {
 	line := gotermboard.Line{gotermboard.C(s.Label+strings.Repeat(" ", labelWidth-ansi.StringWidth(s.Label)), "")}
-	if s.Start.IsZero() {
+	end, underWay := s.End, s.End.IsZero()
+	if underWay {
+		end = to
+	}
+	if s.Start.IsZero() || s.Start.After(to) || end.Before(from) {
 		return line
 	}
 	perSecond := float64(8*plot) / to.Sub(from).Seconds()
@@ -97,8 +106,8 @@ func (t Timeline) row(s Span, from, to time.Time, labelWidth, plot int) gotermbo
 	}
 	startCell := min(eighth(s.Start)/8, plot-1)
 	bar := milestone
-	if s.End.After(s.Start) {
-		bar = run(max(eighth(s.End)-8*startCell, 1), plot-startCell)
+	if underWay || end.After(s.Start) {
+		bar = run(max(eighth(end)-8*startCell, 1), plot-startCell)
 	}
 	barWidth := ansi.StringWidth(bar)
 	text := ansi.StringWidth(s.Text)
@@ -119,10 +128,10 @@ func (t Timeline) row(s Span, from, to time.Time, labelWidth, plot int) gotermbo
 
 // axis names the start, the middle and the end of the time the plot covers, under its first
 // column, its middle and its last.
-func (t Timeline) axis(total time.Duration, labelWidth, plot int) gotermboard.Line {
+func (t Timeline) axis(from, to time.Time, labelWidth, plot int) gotermboard.Line {
 	label := t.TimeLabel
 	if label == nil {
-		label = elapsed
+		label = func(at time.Time) string { return elapsed(at.Sub(from)) }
 	}
 	cells := []rune(strings.Repeat(" ", plot))
 	// write puts a name where it and a cell either side of it are blank, so two never touch.
@@ -138,8 +147,8 @@ func (t Timeline) axis(total time.Duration, labelWidth, plot int) gotermboard.Li
 		}
 		copy(cells[at:], runes)
 	}
-	last, middle := label(total), label(total/2)
-	write(0, label(0))
+	last, middle := label(to), label(from.Add(to.Sub(from)/2))
+	write(0, label(from))
 	write(plot-len([]rune(last)), last)
 	write(plot/2-len([]rune(middle))/2, middle)
 	return gotermboard.Line{gotermboard.C(strings.Repeat(" ", labelWidth)+strings.TrimRight(string(cells), " "), "")}
