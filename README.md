@@ -107,7 +107,7 @@ ahead of them in the first column. `Column.Min` holds that column wide enough to
 `Document` on a `Row` or a `Group` is a function of width, because hanging bullets, tables
 and boxes of code cannot be wrapped after they are drawn. A row's opens under it on `space`,
 however tall it is. `enter` opens it the same way, or on the full-screen reader where it runs
-past the screen, whether or not it already shows in place. `StartsOpen` on a row shows its text
+past the screen or the side panel already shows it, whether or not it shows in place. `StartsOpen` on a row shows its text
 from the first frame, so a view can draw its newest entry whole and still fold it to its first
 line. A group's draws under `Below` whether the group is folded or not. The `markdown` package
 makes one from markdown, in ANSI 0-15 so it follows the theme:

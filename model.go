@@ -450,7 +450,7 @@ func actionTable() []Action {
 		{Keys: []string{"G", "end"}, Label: "go to the bottom", Run: moved(func(m *Model) int { return len(m.nodes()) })},
 		{Keys: []string{"ctrl+d", "pgdown"}, Label: "half a screen down the open text, or down the rows", Run: halfScreen(1)},
 		{Keys: []string{"ctrl+u", "pgup"}, Label: "half a screen up the open text, or up the rows", Run: halfScreen(-1)},
-		{Keys: []string{"enter"}, Label: "fold a group, or open a row, a tall document full screen", Footer: "enter open", Run: (*Model).toggle, Applies: (*Model).cursorToggles},
+		{Keys: []string{"enter"}, Label: "fold a group, or open a row, full screen where its document is tall or the panel shows it", Footer: "enter open", Run: (*Model).toggle, Applies: (*Model).cursorToggles},
 		{Keys: []string{"space"}, Label: "fold a group, or open or close a row's text in place", Footer: "space fold", Run: (*Model).toggleInPlace, Applies: (*Model).cursorToggles},
 		// The way to the other keys and the way out sit ahead of what a narrow footer cuts.
 		{Keys: []string{"?"}, Label: "show these keys and every read", Footer: "? keys", Run: func(m *Model) tea.Cmd {
@@ -708,9 +708,10 @@ func (m *Model) setFilter(filter string) {
 }
 
 // toggle is enter: a row's Document that runs past the screen opens on a Reader, open in
-// place or not, and anything else folds or opens in place.
+// place or not, and so does one the side panel already shows, since opening it in place would
+// only draw it twice. Anything else folds or opens in place.
 func (m *Model) toggle() tea.Cmd {
-	if n, ok := m.selected(); ok && n.kind == nodeRow && n.row.Document != nil && m.Tall(n.row.Document) {
+	if n, ok := m.selected(); ok && n.kind == nodeRow && n.row.Document != nil && (m.panelWidth() > 0 || m.Tall(n.row.Document)) {
 		m.Read(n.row.title(), n.row.Document)
 		return nil
 	}

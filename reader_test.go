@@ -64,7 +64,7 @@ func TestReaderJumpsSearchesAndKeepsItsPlaceOnAResize(t *testing.T) {
 	}
 }
 
-func TestEnterReadsTallTextFullScreenAndSpaceFoldsItInPlace(t *testing.T) {
+func TestEnterReadsTallTextAndTextThePanelShowsFullScreenAndSpaceFoldsItInPlace(t *testing.T) {
 	short := func(int) []Line { return []Line{{C("short text", "")}} }
 	frame := Frame{Columns: []Column{{Title: "ROW"}}, Groups: []Group{{Rows: []Row{
 		{Key: "tall", Cells: []Cell{C("the tall row", "")}, Document: wrappedDocument},
@@ -100,6 +100,12 @@ func TestEnterReadsTallTextFullScreenAndSpaceFoldsItInPlace(t *testing.T) {
 	m.Update(enterKey)
 	if m.reading != nil {
 		t.Fatal("a short row opened the reader rather than in place")
+	}
+
+	m.Update(tea.WindowSizeMsg{Width: PanelFrom, Height: 12})
+	m.Update(enterKey)
+	if m.reading == nil {
+		t.Error("a short row the side panel shows should open the reader rather than draw it twice")
 	}
 }
 
