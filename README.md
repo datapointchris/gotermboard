@@ -393,6 +393,15 @@ as a merge moves to the next row in its group. It says whether the key shows, so
 the next candidate where the filter or a fold hides one. A key that changed what the board holds
 calls `Rebuild` first, so the key is looked for in the new frame.
 
+A program that draws its own screen rather than a board builds its key table from the same rows.
+`KeyAction[H]` is a row for a screen of type `H`, and `Action` is a `Model`'s. `UniversalActions`
+is the keys every board binds, acting on a `Host`: `j` `k` `g` `G`, `ctrl+d` `ctrl+u`, `J` `K`,
+`[` `]`, `enter`, `space`, `?` and `q`. The host answers how to move, scroll, jump, open a row,
+show the keys and quit. `ActionsNow(host, own, UniversalActions[H]())` is every row that applies
+now, with each of the host's keys hiding the universal one while it applies. Its key handler,
+footer and `?` overlay all read that. A row's `Section` heads its group in an overlay that groups
+them, and a `Model`'s overlay lists its rows in one run.
+
 ## A key can ask on the footer for a line of text or one key from a menu
 
 `Model.Ask` puts a `Question` on the footer's lines. With `Typed` set it takes one line typed under
