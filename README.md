@@ -283,7 +283,13 @@ The `chart` package draws plain series as lines of cells:
 - `Sparkline` draws eighth-block columns, averaging more values than columns so the whole span shows.
   Any value above zero draws at least `▁`, so a quiet stretch reads apart from an empty one.
 - `Bars` draws an upright bar per value in its own color, over an axis labeled at the top, the middle
-  and zero.
+  and zero. A bar with a `Stack` draws each part over the one before it.
+- `Meter` draws one bar across a line to an eighth of a cell, each part after the one before it.
+- `Timeline` draws spans on one time axis, a row each, as a Gantt chart or a trace waterfall lays them
+  out. A bar starts on the cell its span starts in and ends to an eighth of a cell, so a span lasting
+  any time draws at least `▏`, and a moment draws a milestone's `◆`. A wait between two spans shows as
+  the gap between their bars. Given fewer lines than its spans, it drops its axis first, then ends on
+  a `+N` line for the rest.
 
 Each fills exactly the width and height it is given, so `chart.Beside` lays them side by side. A
 chart colors its cells with the codes the caller passes, and the board's palette paints them. It

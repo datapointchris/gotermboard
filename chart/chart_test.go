@@ -55,6 +55,12 @@ func TestEachChartFillsTheScreensWidthInItsColorsBetweenTheStripAndTheTable(t *t
 		chart.Bars{Bars: []chart.Bar{{Label: "a", Value: 3, Code: gotermboard.Green}, {Label: "b", Value: 7, Code: gotermboard.Red}}},
 		chart.Bars{Bars: []chart.Bar{{Label: "s", Stack: []chart.Part{{Value: 3, Code: gotermboard.Green}, {Value: 4, Code: gotermboard.Magenta}}}}},
 		chart.Meter{Parts: []chart.Part{{Value: 2, Code: gotermboard.Cyan}, {Value: 5, Code: gotermboard.Yellow}}, Max: 10},
+		chart.Timeline{Spans: []chart.Span{
+			{Label: "queue", Start: start, End: start.Add(3 * time.Minute), Code: gotermboard.Cyan, Text: "3m"},
+			{Label: "admitted", Start: start.Add(3 * time.Minute), Code: gotermboard.Green},
+			{Label: "work", Start: start.Add(4 * time.Minute), End: start.Add(40 * time.Minute), Code: gotermboard.Yellow},
+			{Label: "merged"},
+		}},
 	}
 	// An ntcharts or lipgloss upgrade that hands a style's color back as other than an
 	// ansi.IndexedColor would leave every chart uncolored.
@@ -65,6 +71,7 @@ func TestEachChartFillsTheScreensWidthInItsColorsBetweenTheStripAndTheTable(t *t
 		{gotermboard.Green, gotermboard.Red, gotermboard.RuleCode},
 		{gotermboard.Green, gotermboard.Magenta, gotermboard.RuleCode},
 		{gotermboard.Cyan, gotermboard.Yellow},
+		{gotermboard.Cyan, gotermboard.Green, gotermboard.Yellow},
 	}
 	for i, c := range charts {
 		drawn := map[string]bool{}
@@ -80,7 +87,7 @@ func TestEachChartFillsTheScreensWidthInItsColorsBetweenTheStripAndTheTable(t *t
 		}
 	}
 	for _, width := range []int{60, 140} {
-		lines := strings.Split(gotermboard.Once(chartBoard{charts}, gotermstyle.NewPalette(false), width, 40), "\n")
+		lines := strings.Split(gotermboard.Once(chartBoard{charts}, gotermstyle.NewPalette(false), width, 60), "\n")
 		drawn := 6 * len(charts)
 		if len(lines) <= 1+drawn || lines[0] != "STRIP" || !strings.Contains(lines[1+drawn], "TABLE") {
 			t.Fatalf("the charts should sit between the strip and the table at %d:\n%s", width, strings.Join(lines, "\n"))

@@ -1,7 +1,7 @@
 // Package chart draws plain series as lines of cells for a board: a time series with a forecast and
-// a band, a heatmap, a sparkline and columns. Each fills exactly the width and height it is given,
-// and colors its cells with the codes the caller passes, so the board's palette paints them in the
-// terminal's own colors.
+// a band, a heatmap, a sparkline, columns, a meter and a timeline of spans. Each fills exactly the
+// width and height it is given, and colors its cells with the codes the caller passes, so the
+// board's palette paints them in the terminal's own colors.
 package chart
 
 import (
