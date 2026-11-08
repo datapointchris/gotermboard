@@ -46,8 +46,8 @@ type TimeSeries struct {
 	// Max is not above Min, the axis runs from zero, or the lowest reading below it, to the largest
 	// reading.
 	Min, Max float64
-	// TimeLabel names the time under a column, drawn where the name changes. Nil names the hour,
-	// the weekday or the date by how long the axis runs.
+	// TimeLabel names the time under a column, drawn where the name changes. Nil names the
+	// minute, the hour, the weekday or the date by how long the axis runs.
 	TimeLabel func(time.Time) string
 	// ValueLabel writes a value on the value axis. Nil writes Compact.
 	ValueLabel func(float64) string
@@ -179,10 +179,13 @@ func (c TimeSeries) valueRange() (low, high float64) {
 	return low, high
 }
 
-// labelFor names a column's time by how long the axis runs: its hour within two days, its
-// weekday within two weeks, and its date beyond.
+// labelFor names a column's time by how long the axis runs: its minute within six hours, its
+// hour within two days, its weekday within two weeks, and its date beyond. An axis of minutes
+// named by the hour would carry one name.
 func labelFor(span time.Duration) func(time.Time) string {
 	switch {
+	case span <= 6*time.Hour:
+		return func(t time.Time) string { return t.Format("15:04") }
 	case span <= 48*time.Hour:
 		return func(t time.Time) string { return t.Format("15:00") }
 	case span <= 14*24*time.Hour:
