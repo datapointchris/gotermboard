@@ -58,7 +58,7 @@ func (m *Model) answering(key tea.KeyPressMsg) tea.Cmd {
 // questionLines is the open question in bold, then the line being typed, and the keys that answer.
 func (m *Model) questionLines(room int) (lines []string, keys string) {
 	for _, line := range m.wrapped(m.asking.Text) {
-		lines = append(lines, m.pal.Bold(line))
+		lines = append(lines, m.painter.bold(line))
 	}
 	keys = "enter confirms  esc cancels"
 	if m.asking.Typed {
@@ -79,7 +79,7 @@ func (m *Model) listingLines(room int) []string {
 	}
 	lines := make([]string, 0, room)
 	for _, line := range listing {
-		lines = append(lines, ansi.Truncate(line.Paint(m.pal), m.width, "…"))
+		lines = append(lines, ansi.Truncate(m.painter.line(line), m.width, "…"))
 	}
 	if cut {
 		lines = append(lines, ansi.Truncate(strconv.Itoa(len(m.asking.Listing)-len(listing))+" more", m.width, "…"))

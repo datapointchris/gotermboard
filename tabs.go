@@ -24,11 +24,10 @@ type Tab struct {
 // read, builds no frame and moves no strip. On its return it draws its last good read with that read's
 // age, and whatever is due reads at once.
 type Tabs struct {
-	names  []string
-	models []*Model
-	pal    gotermstyle.Palette
-	theme  *liveTheme
-	at     int
+	names   []string
+	models  []*Model
+	painter painter
+	at      int
 	// back is the tab each jump left, newest last, which esc returns to. A cycle empties it,
 	// because the reader then left the trail the jumps made.
 	back    []int
@@ -43,7 +42,7 @@ func NewTabs(tabs []Tab, pal gotermstyle.Palette, open string) (*Tabs, error) {
 		return nil, errors.New("a board needs at least one tab")
 	}
 	theme, themeErr := loadTheme()
-	t := &Tabs{pal: pal, theme: theme}
+	t := &Tabs{painter: painter{pal: pal, theme: theme}}
 	for _, tab := range tabs {
 		t.names = append(t.names, tab.Name)
 	}
@@ -54,7 +53,7 @@ func NewTabs(tabs []Tab, pal gotermstyle.Palette, open string) (*Tabs, error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.models = hiddenModels(tabs, pal, theme, ctx, cancel)
+	t.models = hiddenModels(tabs, t.painter, ctx, cancel)
 	t.hostActions()
 	t.active().sayThemeFault(themeErr)
 	return t, nil
@@ -83,11 +82,11 @@ func (t *Tabs) Keys() []string {
 }
 
 // hiddenModels share one context, so quitting from any tab ends every tab's reads, and one
-// theme, so a reload recolors every tab.
-func hiddenModels(tabs []Tab, pal gotermstyle.Palette, theme *liveTheme, ctx context.Context, cancel context.CancelFunc) []*Model {
+// painter's theme, so a reload recolors every tab.
+func hiddenModels(tabs []Tab, p painter, ctx context.Context, cancel context.CancelFunc) []*Model {
 	models := make([]*Model, 0, len(tabs))
 	for _, tab := range tabs {
-		model := newModel(tab.Board, pal, theme, ctx, cancel)
+		model := newModel(tab.Board, p, ctx, cancel)
 		model.hidden = true
 		models = append(models, model)
 	}
@@ -131,7 +130,7 @@ func (t *Tabs) tabLineHeight() int {
 
 // Init is Bubble Tea's. One clock runs, and it goes to whichever tab is showing.
 func (t *Tabs) Init() tea.Cmd {
-	return tea.Batch(tick(), t.active().reveal(time.Now()), t.theme.watch())
+	return tea.Batch(tick(), t.active().reveal(time.Now()), t.painter.theme.watch())
 }
 
 // Update is Bubble Tea's. A size goes to every tab, and so does any message this package does
@@ -148,7 +147,7 @@ func (t *Tabs) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd := t.active().Update(msg)
 		return t, cmd
 	case themeLoadedMsg:
-		return t, t.theme.reloaded(msg, t.active().sayThemeFault)
+		return t, t.painter.theme.reloaded(msg, t.active().sayThemeFault)
 	}
 	cmds := make([]tea.Cmd, 0, len(t.models))
 	for _, model := range t.models {
@@ -178,9 +177,9 @@ func (t *Tabs) tabLine() string {
 	for i, name := range t.names {
 		switch {
 		case i != t.at:
-			parts = append(parts, t.pal.Paint(t.theme.code("ui.muted"), " "+name+" "))
-		case t.pal.On():
-			parts = append(parts, t.pal.Paint(emboldened(t.theme.code("ui.warning")), " "+name+" "))
+			parts = append(parts, t.painter.cell(Cell{Text: " " + name + " ", Role: "ui.muted"}))
+		case t.painter.on():
+			parts = append(parts, t.painter.cell(Cell{Text: " " + name + " ", Code: Bold, Role: "ui.warning"}))
 		default:
 			parts = append(parts, "["+name+"]")
 		}

@@ -78,3 +78,35 @@ func TestTheCursorsRowWearsTheThemesSelectionAcrossItsWidthOrBoldBehindABarWitho
 	}
 	columnHolds(selected, other)
 }
+
+func TestARoleOnAGroupsLabelDrawsInTheThemeFileAndRecolorsOnAReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "current.json")
+	writeTheme := func(hex string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(`{"ui": {"warning": "`+hex+`"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTheme("#ff0000")
+	t.Setenv(tuitheme.PathEnv, path)
+	frame := Frame{Columns: []Column{{Title: "NAME"}}, Groups: []Group{{
+		Key: "g", Title: Line{{Text: "deploys", Role: "ui.warning"}}, Counted: true, Count: 2,
+		Rows: []Row{{Key: "r", Cells: []Cell{C("one", "")}}},
+	}}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(true))
+	wears := func(code string) {
+		t.Helper()
+		screen := m.screen()
+		if !strings.Contains(screen, code+"deploys") || !strings.Contains(screen, code+" · 2") {
+			t.Errorf("the group's label and count should draw in %q:\n%q", code, screen)
+		}
+	}
+	wears("\033[0;38;2;255;0;0m")
+	writeTheme("#00ff00")
+	theme, err := tuitheme.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Update(themeLoadedMsg{theme: theme})
+	wears("\033[0;38;2;0;255;0m")
+}

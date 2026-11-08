@@ -39,9 +39,8 @@ type Cell struct {
 	Text string
 	Code string
 	// Role is the TUI theme role the cell draws in, such as syntax.keyword, with Code's
-	// attributes over it. Where a board or a Reader paints a Document's lines, the role resolves
-	// in its live theme, so a reload recolors it. Line.Paint resolves it in the built-in theme,
-	// and a row's own cells draw their Code alone.
+	// attributes over it. A board, its tabs and a Reader resolve it in their live theme wherever
+	// they draw the cell, so a reload recolors it. Line.Paint resolves it in the built-in theme.
 	Role  string
 	Ticks bool
 	// Section says this cell starts the words of a heading, where a Reader's [ and ] land, and
@@ -893,14 +892,15 @@ func narrowWidest(widths []int, among int, over func() bool) {
 	}
 }
 
+// groupLabel is the group's title, then its count in the color of the title's first cell.
 func groupLabel(g *Group) Line {
 	label := slices.Clone(g.Title)
 	if g.Counted {
-		code := ""
+		count := Cell{Text: " · " + strconv.Itoa(g.Count)}
 		if len(g.Title) > 0 {
-			code = g.Title[0].Code
+			count.Code, count.Role = g.Title[0].Code, g.Title[0].Role
 		}
-		label = append(label, C(" · "+strconv.Itoa(g.Count), code))
+		label = append(label, count)
 	}
 	return label
 }
@@ -979,16 +979,16 @@ func stickyBand(lines []drawn, top, height int) []string {
 // carries the one header row, so every group shares its columns. A group with cells
 // of its own has no room for the titles, so they take a line of their own at the top. A
 // board's Look.Rules puts them there too, and adds a rule under them.
-func draw(pal gotermstyle.Palette, theme *tuitheme.Theme, columns []Column, nodes []node, widths []int, width int, cursor string, look cursorLook, board Look) []drawn {
+func draw(p painter, columns []Column, nodes []node, widths []int, width int, cursor string, look cursorLook, board Look) []drawn {
 	titled := false
 	lines := make([]drawn, 0, len(nodes))
 	ownLine := board.Rules || slices.ContainsFunc(nodes, func(n node) bool { return n.kind == nodeGroup && len(n.group.Cells) > 0 })
 	if ownLine && len(columns) > 0 {
 		titled = true
-		first := pal.Bold(fit(columns[0].Title, max(widths[0]-1, 0), false))
-		lines = append(lines, drawn{text: ansi.Truncate(" "+first+columnTitles(pal, columns, widths), width, "…"), pinned: true})
+		first := p.bold(fit(columns[0].Title, max(widths[0]-1, 0), false))
+		lines = append(lines, drawn{text: ansi.Truncate(" "+first+columnTitles(p, columns, widths), width, "…"), pinned: true})
 		if board.Rules {
-			lines = append(lines, drawn{text: RuleThin.across(pal, width, ""), pinned: true})
+			lines = append(lines, drawn{text: RuleThin.across(p, width, ""), pinned: true})
 		}
 	}
 	inside := make([][]string, len(nodes))
@@ -996,7 +996,7 @@ func draw(pal gotermstyle.Palette, theme *tuitheme.Theme, columns []Column, node
 		from := len(lines)
 		wantsTitles := n.kind == nodeGroup && n.depth == 0 && n.open && n.drawsRows && !titled
 		titled = titled || wantsTitles
-		lines = append(lines, drawNode(pal, theme, n, columns, widths, width, cursor, look, wantsTitles)...)
+		lines = append(lines, drawNode(p, n, columns, widths, width, cursor, look, wantsTitles)...)
 		var owners []string
 		if n.parent >= 0 {
 			owners = inside[n.parent]
@@ -1026,10 +1026,10 @@ func firstLine(lines []drawn, n node) string {
 }
 
 // drawNode is the lines one node takes.
-func drawNode(pal gotermstyle.Palette, theme *tuitheme.Theme, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
-	lines := drawNodeBody(pal, theme, n, columns, widths, width, cursor, look, wantsTitles)
+func drawNode(p painter, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
+	lines := drawNodeBody(p, n, columns, widths, width, cursor, look, wantsTitles)
 	if n.kind == nodeGroup && n.group.Overline != RuleNone {
-		lines = append([]drawn{{text: n.group.Overline.line(pal, width, n.group.Tone)}}, lines...)
+		lines = append([]drawn{{text: n.group.Overline.line(p, width, n.group.Tone)}}, lines...)
 	}
 	return lines
 }
@@ -1046,11 +1046,11 @@ const (
 )
 
 // line is the rule a group draws, one column short of width.
-func (w RuleWeight) line(pal gotermstyle.Palette, width int, tone string) string {
-	return w.across(pal, width-1, tone)
+func (w RuleWeight) line(p painter, width int, tone string) string {
+	return w.across(p, width-1, tone)
 }
 
-func (w RuleWeight) across(pal gotermstyle.Palette, n int, tone string) string {
+func (w RuleWeight) across(p painter, n int, tone string) string {
 	if tone == "" {
 		tone = RuleCode
 	}
@@ -1061,10 +1061,10 @@ func (w RuleWeight) across(pal gotermstyle.Palette, n int, tone string) string {
 	case RuleDotted:
 		glyph = "┈"
 	}
-	return pal.Paint(tone, strings.Repeat(glyph, max(n, 0)))
+	return p.cell(C(strings.Repeat(glyph, max(n, 0)), tone))
 }
 
-func drawNodeBody(pal gotermstyle.Palette, theme *tuitheme.Theme, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
+func drawNodeBody(p painter, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
 	pointer := " "
 	selected := n.selectable() && n.key == cursor
 	wear := func(lines []drawn) []drawn {
@@ -1077,7 +1077,7 @@ func drawNodeBody(pal gotermstyle.Palette, theme *tuitheme.Theme, n node, column
 	case selected:
 		pointer = look.pointer()
 	case n.wearsCue():
-		pointer = pal.Paint(CueCode, CueGlyph)
+		pointer = p.cell(C(CueGlyph, CueCode))
 	}
 	var text string
 	var wrapped Line
@@ -1085,34 +1085,34 @@ func drawNodeBody(pal gotermstyle.Palette, theme *tuitheme.Theme, n node, column
 	case nodeBlank:
 		text = ""
 	case nodeRule:
-		return []drawn{{text: n.weight.line(pal, width, "")}}
+		return []drawn{{text: n.weight.line(p, width, "")}}
 	case nodeGroup:
 		if len(n.group.Span) > 0 {
-			return append(wear(spanLines(pal, n, pointer, columns, widths, width)), belowLines(pal, n, width)...)
+			return append(wear(spanLines(p, n, pointer, columns, widths, width)), belowLines(p, n, width)...)
 		}
-		text = pointer + drawGroup(pal, n, columns, widths, wantsTitles)
+		text = pointer + drawGroup(p, n, columns, widths, wantsTitles)
 		wrapped = n.group.WrapLast
 	case nodeRow:
-		text = pointer + drawRow(pal, n, columns, widths)
+		text = pointer + drawRow(p, n, columns, widths)
 		wrapped = n.row.WrapLast
 	case nodeUnder:
-		return underLines(pal, n, width)
+		return underLines(p, n, width)
 	case nodeDetail:
 		var lines []drawn
 		for _, piece := range wrap(n.cell.Text, max(width-indentOf(n.depth), 20)) {
-			lines = append(lines, drawn{text: strings.Repeat(" ", indentOf(n.depth)) + pal.Paint(n.cell.Code, piece)})
+			lines = append(lines, drawn{text: strings.Repeat(" ", indentOf(n.depth)) + p.cell(n.cell.withText(piece))})
 		}
 		return lines
 	case nodeDocument:
 		var lines []drawn
 		indent := strings.Repeat(" ", n.column)
 		for _, line := range n.document(max(width-n.column, 20)) {
-			lines = append(lines, drawn{text: ansi.Truncate(indent+line.paint(pal, theme), width, "…")})
+			lines = append(lines, drawn{text: ansi.Truncate(indent+p.line(line), width, "…")})
 		}
 		return lines
 	}
 	lines := []drawn{{text: ansi.Truncate(text, width, "…"), key: selectableKey(n)}}
-	lines = append(lines, continuedLines(pal, wrapped, columns, widths)...)
+	lines = append(lines, continuedLines(p, wrapped, columns, widths)...)
 	if n.kind == nodeRow && len(n.row.Second) > 0 {
 		for i := 1; i < len(lines); i++ {
 			lines[i].continues = true
@@ -1121,21 +1121,21 @@ func drawNodeBody(pal gotermstyle.Palette, theme *tuitheme.Theme, n node, column
 		if selected {
 			second = look.pointer()
 		}
-		lines = append(lines, drawn{text: ansi.Truncate(second+secondLine(pal, n, columns, widths), width, "…"), continues: true})
+		lines = append(lines, drawn{text: ansi.Truncate(second+secondLine(p, n, columns, widths), width, "…"), continues: true})
 	}
 	lines = wear(lines)
 	if n.kind == nodeGroup {
-		lines = append(lines, belowLines(pal, n, width)...)
+		lines = append(lines, belowLines(p, n, width)...)
 	}
 	return lines
 }
 
 // secondLine is a row's Second past the pointer's column: its first cell where the row's first
 // sits, then the rest from the second column's start.
-func secondLine(pal gotermstyle.Palette, n node, columns []Column, widths []int) string {
+func secondLine(p painter, n node, columns []Column, widths []int) string {
 	second := n.row.Second
 	lead := strings.Repeat(" ", n.row.lead(n.depth)-1)
-	text := lead + pal.Paint(second[0].Code, fit(second[0].Text, n.row.cellRoom(n.depth, 0, widths), false))
+	text := lead + p.cell(second[0].withText(fit(second[0].Text, n.row.cellRoom(n.depth, 0, widths), false)))
 	if len(second) == 1 {
 		return text
 	}
@@ -1143,17 +1143,17 @@ func secondLine(pal gotermstyle.Palette, n node, columns []Column, widths []int)
 	if len(columns) > 1 {
 		spacer = columns[1].spacer()
 	}
-	return text + spacer + second[1:].Paint(pal)
+	return text + spacer + p.line(second[1:])
 }
 
 // underLines is a summary on its └─ row, running on under it where it wraps.
-func underLines(pal gotermstyle.Palette, n node, width int) []drawn {
+func underLines(p painter, n node, width int) []drawn {
 	lead := strings.Repeat(" ", indentOf(n.depth)) + "└─ "
 	if n.column >= ansi.StringWidth(lead)-indentOf(n.depth) {
 		lead = strings.Repeat(" ", n.column-ansi.StringWidth("└─ ")) + "└─ "
 	}
 	if !n.wraps {
-		return []drawn{{text: ansi.Truncate(lead+pal.Paint(n.cell.Code, n.cell.Text), width, "…")}}
+		return []drawn{{text: ansi.Truncate(lead+p.cell(n.cell), width, "…")}}
 	}
 	room := max(width-ansi.StringWidth(lead), 20)
 	var lines []drawn
@@ -1161,7 +1161,7 @@ func underLines(pal gotermstyle.Palette, n node, width int) []drawn {
 		if i == 1 {
 			lead = strings.Repeat(" ", ansi.StringWidth(lead))
 		}
-		lines = append(lines, drawn{text: lead + pal.Paint(n.cell.Code, piece)})
+		lines = append(lines, drawn{text: lead + p.cell(n.cell.withText(piece))})
 	}
 	return lines
 }
@@ -1174,22 +1174,22 @@ func selectableKey(n node) string {
 }
 
 // columnTitles is every title past the first column's, on the shared columns.
-func columnTitles(pal gotermstyle.Palette, columns []Column, widths []int) string {
+func columnTitles(p painter, columns []Column, widths []int) string {
 	var b strings.Builder
 	for i := 1; i < len(columns); i++ {
 		title := columns[i].Title
 		if i == len(columns)-1 {
-			b.WriteString(columns[i].spacer() + pal.Bold(title))
+			b.WriteString(columns[i].spacer() + p.bold(title))
 			break
 		}
-		b.WriteString(columns[i].spacer() + pal.Bold(fit(title, widths[i], columns[i].Right)))
+		b.WriteString(columns[i].spacer() + p.bold(fit(title, widths[i], columns[i].Right)))
 	}
 	return b.String()
 }
 
 // columnCells draws cells on the columns from one on. wrapped takes the last column
 // where it is set, and shows there as much of itself as that column holds.
-func columnCells(pal gotermstyle.Palette, cells []Cell, from int, wrapped Line, columns []Column, widths []int) string {
+func columnCells(p painter, cells []Cell, from int, wrapped Line, columns []Column, widths []int) string {
 	last := len(widths) - 1
 	var b strings.Builder
 	at := from
@@ -1198,9 +1198,9 @@ func columnCells(pal gotermstyle.Palette, cells []Cell, from int, wrapped Line, 
 			break
 		}
 		if at == last {
-			b.WriteString(columns[at].spacer() + pal.Paint(c.Code, ansi.Truncate(c.Text, widths[at], "…")))
+			b.WriteString(columns[at].spacer() + p.cell(c.withText(ansi.Truncate(c.Text, widths[at], "…"))))
 		} else {
-			b.WriteString(columns[at].spacer() + pal.Paint(c.Code, fit(c.Text, widths[at], columns[at].Right)))
+			b.WriteString(columns[at].spacer() + p.cell(c.withText(fit(c.Text, widths[at], columns[at].Right))))
 		}
 		at++
 	}
@@ -1211,14 +1211,14 @@ func columnCells(pal gotermstyle.Palette, cells []Cell, from int, wrapped Line, 
 		b.WriteString(columns[at].spacer() + strings.Repeat(" ", widths[at]))
 	}
 	if pieces := wrapLine(wrapped, widths[last]); len(pieces) > 0 {
-		b.WriteString(columns[last].spacer() + pieces[0].Paint(pal))
+		b.WriteString(columns[last].spacer() + p.line(pieces[0]))
 	}
 	return b.String()
 }
 
 // continuedLines is what a wrapping last column holds past its first line, each
 // starting at that column.
-func continuedLines(pal gotermstyle.Palette, wrapped Line, columns []Column, widths []int) []drawn {
+func continuedLines(p painter, wrapped Line, columns []Column, widths []int) []drawn {
 	if len(wrapped) == 0 {
 		return nil
 	}
@@ -1227,7 +1227,7 @@ func continuedLines(pal gotermstyle.Palette, wrapped Line, columns []Column, wid
 	pieces := wrapLine(wrapped, widths[last])
 	lines := make([]drawn, 0, len(pieces))
 	for _, piece := range pieces[min(1, len(pieces)):] {
-		lines = append(lines, drawn{text: indent + piece.Paint(pal)})
+		lines = append(lines, drawn{text: indent + p.line(piece)})
 	}
 	return lines
 }
@@ -1261,14 +1261,14 @@ func wrapLine(line Line, width int) []Line {
 }
 
 // belowLines are the lines a group keeps under its header, at its title's column.
-func belowLines(pal gotermstyle.Palette, n node, width int) []drawn {
+func belowLines(p painter, n node, width int) []drawn {
 	lines := make([]drawn, 0, len(n.group.Below)+1)
 	if n.group.Underline != RuleNone {
-		lines = append(lines, drawn{text: n.group.Underline.line(pal, width, n.group.Tone)})
+		lines = append(lines, drawn{text: n.group.Underline.line(p, width, n.group.Tone)})
 	}
 	indent := strings.Repeat(" ", indentOf(n.depth)+2)
 	for _, line := range n.group.Below {
-		lines = append(lines, drawn{text: ansi.Truncate(indent+line.elided(width-len(indent)).Paint(pal), width, "…")})
+		lines = append(lines, drawn{text: ansi.Truncate(indent+p.line(line.elided(width-len(indent))), width, "…")})
 	}
 	return lines
 }
@@ -1284,57 +1284,57 @@ func groupHead(n node) (string, Line) {
 
 // spanLines is a Span group: its label and Span, wrapping under the Span's start, then
 // Beside and the cells on their own line.
-func spanLines(pal gotermstyle.Palette, n node, pointer string, columns []Column, widths []int, width int) []drawn {
+func spanLines(p painter, n node, pointer string, columns []Column, widths []int, width int) []drawn {
 	head, label := groupHead(n)
 	column := spanColumn(n.depth, n.group)
 	indent := strings.Repeat(" ", column)
 	var lines []drawn
-	opening := pointer + head + label.Paint(pal) + columnGap
+	opening := pointer + head + p.line(label) + columnGap
 	for i, piece := range wrapWords(n.group.Span, max(width-column, 20)) {
 		if i == 0 {
 			lines = append(lines, drawn{
-				text: ansi.Truncate(opening+piece.Paint(pal), width, "…"), key: selectableKey(n),
-				whole: ansi.Truncate(opening+n.group.Span.Paint(pal), width, "…"),
+				text: ansi.Truncate(opening+p.line(piece), width, "…"), key: selectableKey(n),
+				whole: ansi.Truncate(opening+p.line(n.group.Span), width, "…"),
 			})
 			continue
 		}
-		lines = append(lines, drawn{text: ansi.Truncate(indent+piece.Paint(pal), width, "…")})
+		lines = append(lines, drawn{text: ansi.Truncate(indent+p.line(piece), width, "…")})
 	}
 	if len(n.group.Cells) == 0 && len(n.group.WrapLast) == 0 && len(n.group.Beside) == 0 {
 		return lines
 	}
 	room := max(widths[0]-column, 0)
 	beside := n.group.Beside.elided(room)
-	first := strings.Repeat(" ", min(column, widths[0])) + ansi.Truncate(beside.Paint(pal), room, "…")
+	first := strings.Repeat(" ", min(column, widths[0])) + ansi.Truncate(p.line(beside), room, "…")
 	first += strings.Repeat(" ", max(widths[0]-ansi.StringWidth(first), 0))
-	text := first + columnCells(pal, n.group.Cells, 1, n.group.WrapLast, columns, widths)
+	text := first + columnCells(p, n.group.Cells, 1, n.group.WrapLast, columns, widths)
 	lines = append(lines, drawn{text: ansi.Truncate(text, width, "…")})
-	return append(lines, continuedLines(pal, n.group.WrapLast, columns, widths)...)
+	return append(lines, continuedLines(p, n.group.WrapLast, columns, widths)...)
 }
 
-func drawGroup(pal gotermstyle.Palette, n node, columns []Column, widths []int, titles bool) string {
+func drawGroup(p painter, n node, columns []Column, widths []int, titles bool) string {
 	head, label := groupHead(n)
 	if len(n.group.Cells) > 0 || len(n.group.WrapLast) > 0 {
 		room := max(widths[0]-1-ansi.StringWidth(head), 1)
-		painted := ansi.Truncate(label.Paint(pal), room, "…")
+		painted := ansi.Truncate(p.line(label), room, "…")
 		out := head + painted + strings.Repeat(" ", max(room-ansi.StringWidth(painted), 0))
-		return out + columnCells(pal, n.group.Cells, 1, n.group.WrapLast, columns, widths)
+		return out + columnCells(p, n.group.Cells, 1, n.group.WrapLast, columns, widths)
 	}
 	if n.depth > 0 {
-		out := head + label.Paint(pal)
+		out := head + p.line(label)
 		if (!n.open || n.group.Still) && len(n.group.Summary) > 0 {
-			out += "  " + n.group.Summary.Paint(pal)
+			out += "  " + p.line(n.group.Summary)
 		}
 		return out
 	}
 	pad := strings.Repeat(" ", max(widths[0]-1-ansi.StringWidth(head)-label.width(), 0))
-	out := head + label.Paint(pal) + pad
+	out := head + p.line(label) + pad
 	switch {
 	case titles:
-		out += columnTitles(pal, columns, widths)
+		out += columnTitles(p, columns, widths)
 	case !n.open || !n.drawsRows:
 		if len(n.group.Summary) > 0 {
-			out += columnGap + n.group.Summary.Paint(pal)
+			out += columnGap + p.line(n.group.Summary)
 		}
 	}
 	return out
@@ -1343,38 +1343,36 @@ func drawGroup(pal gotermstyle.Palette, n node, columns []Column, widths []int, 
 // rowIndent is the cells ahead of a row's symbol. The last two hold MarkGlyph and the
 // chevron, each in a cell of its own, so neither moves a column or takes the symbol's. The
 // chevron in the last sits one cell in from its parent's, so the nesting shows.
-func rowIndent(pal gotermstyle.Palette, n node) string {
+func rowIndent(p painter, n node) string {
 	mark := " "
 	if n.row.Marked {
-		mark = pal.Paint(MarkCode, MarkGlyph)
+		mark = p.cell(C(MarkGlyph, MarkCode))
 	}
 	return strings.Repeat(" ", indentOf(n.depth)-3) + mark + n.foldMark()
 }
 
-func drawRow(pal gotermstyle.Palette, n node, columns []Column, widths []int) string {
+func drawRow(p painter, n node, columns []Column, widths []int) string {
 	r := n.row
-	indent := rowIndent(pal, n)
+	indent := rowIndent(p, n)
 	if len(r.Cells) == 0 {
 		span := r.Span
 		if r.changed {
 			span = span.emboldened()
 		}
-		return indent + span.Paint(pal)
+		return indent + p.line(span)
 	}
 	symbol := ""
 	if cell := r.Symbol; cell.Text != "" {
-		symbol = pal.Paint(cell.Code, cell.Text) + " "
+		symbol = p.cell(cell) + " "
 	}
-	first := r.Cells[0]
-	text := fit(first.Text, r.cellRoom(n.depth, 0, widths), false)
-	code := first.Code
+	first := r.Cells[0].withText(fit(r.Cells[0].Text, r.cellRoom(n.depth, 0, widths), false))
 	if r.Marked {
-		code = MarkCode
+		first.Code, first.Role = MarkCode, ""
 	}
 	if r.changed {
-		code = emboldened(code)
+		first.Code = emboldened(first.Code)
 	}
-	return indent + symbol + pal.Paint(code, text) + columnCells(pal, r.Cells[1:], 1, r.WrapLast, columns, widths)
+	return indent + symbol + p.cell(first) + columnCells(p, r.Cells[1:], 1, r.WrapLast, columns, widths)
 }
 
 // wrapWords breaks a line at spaces to width, each cell keeping its color. A word wider
