@@ -319,6 +319,9 @@ The `chart` package draws plain series as lines of cells:
   and runs to the axis's end, so a chart of work under way sets `To` to now. A wait between two spans
   shows as the gap between their bars. Given fewer lines than a row per span and the axis, it drops
   its axis first, then ends on a `+N` line for the rest.
+- `StackedArea` stacks layers over time from zero, as a cumulative flow diagram reads, over the axes
+  `TimeSeries` draws. Each layer's edge falls to an eighth of a row. Where two layers meet inside a
+  cell, the lower one's block sits on the upper one's color, painted as the cell's background.
 
 Each fills exactly the width and height it is given, so `chart.Beside` lays them side by side. A
 chart colors its cells with the codes the caller passes, and the board's palette paints them. It

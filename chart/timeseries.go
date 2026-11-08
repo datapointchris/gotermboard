@@ -59,39 +59,11 @@ const dotEvery = 2
 // Lines is the chart in width by height cells. The time axis takes the last two lines where
 // there are four or more, and the value axis takes the left columns where there are twelve or more.
 func (c TimeSeries) Lines(width, height int) []gotermboard.Line {
-	from, to := c.span()
-	if width < 1 || height < 1 || !to.After(from) {
-		return blank(width, height)
-	}
-	low, high := c.valueRange()
-	xStep, yStep := 0, 0
-	plotHeight := height
-	if height >= 4 {
-		xStep, plotHeight = 1, height-2
-	}
-	if width >= 12 {
-		yStep = max(2, plotHeight/4)
-	}
-	timeLabel, valueLabel := c.TimeLabel, c.ValueLabel
-	if timeLabel == nil {
-		timeLabel = labelFor(to.Sub(from))
-	}
-	if valueLabel == nil {
-		valueLabel = Compact
-	}
 	var cs codes
-	lc := linechart.New(width, height, seconds(from), seconds(to), low, high,
-		linechart.WithXYSteps(xStep, yStep),
-		linechart.WithStyles(cs.style(gotermboard.RuleCode), cs.style(""), cs.style("")),
-		linechart.WithXLabelFormatter(func(_ int, v float64) string {
-			return timeLabel(time.UnixMilli(int64(v * 1e3)).In(from.Location()))
-		}),
-		linechart.WithYLabelFormatter(func(_ int, v float64) string { return valueLabel(v) }),
-	)
-	if lc.GraphWidth() < 1 || lc.GraphHeight() < 1 {
+	lc, ok := c.axes(width, height, &cs)
+	if !ok {
 		return blank(width, height)
 	}
-	lc.DrawXYAxisAndLabel()
 	for _, s := range c.Series {
 		drawLine(&lc, s, cs.style(s.Code))
 	}
@@ -126,34 +98,82 @@ func (c TimeSeries) Legend() gotermboard.Line {
 	return line
 }
 
-func (c TimeSeries) span() (from, to time.Time) {
-	from, to = c.From, c.To
-	each := func(points []Point) {
-		for _, p := range points {
-			if c.From.IsZero() && (from.IsZero() || p.At.Before(from)) {
-				from = p.At
-			}
-			if c.To.IsZero() && p.At.After(to) {
-				to = p.At
-			}
-		}
-	}
+// axes is the chart's linechart with its axes drawn, and false where width and height leave no
+// plotting area.
+func (c TimeSeries) axes(width, height int, cs *codes) (linechart.Model, bool) {
+	var sets [][]Point
 	for _, s := range c.Series {
-		each(s.Points)
+		sets = append(sets, s.Points)
 	}
 	for _, b := range c.Bands {
-		each(b.Low)
-		each(b.High)
+		sets = append(sets, b.Low, b.High)
 	}
-	if !from.IsZero() && !to.After(from) {
-		if c.From.IsZero() {
-			from = from.Add(-time.Hour)
-		}
-		if c.To.IsZero() {
-			to = to.Add(time.Hour)
+	from, to := spanOver(c.From, c.To, sets)
+	low, high := c.valueRange()
+	return timeAxes(width, height, from, to, low, high, c.TimeLabel, c.ValueLabel, cs)
+}
+
+// spanOver is the time axis from and to bound, each zero one taken from the readings' first or last
+// time, and moved an hour out where every reading shares one time.
+func spanOver(from, to time.Time, sets [][]Point) (time.Time, time.Time) {
+	first, last := from, to
+	for _, points := range sets {
+		for _, p := range points {
+			if from.IsZero() && (first.IsZero() || p.At.Before(first)) {
+				first = p.At
+			}
+			if to.IsZero() && p.At.After(last) {
+				last = p.At
+			}
 		}
 	}
-	return from, to
+	if !first.IsZero() && !last.After(first) {
+		if from.IsZero() {
+			first = first.Add(-time.Hour)
+		}
+		if to.IsZero() {
+			last = last.Add(time.Hour)
+		}
+	}
+	return first, last
+}
+
+// timeAxes is a linechart from from to to and low to high with its axes drawn, and false where
+// there is no span or no plotting area. The time axis takes the last two lines where there are four
+// or more, and the value axis the left columns where there are twelve or more.
+func timeAxes(width, height int, from, to time.Time, low, high float64,
+	timeLabel func(time.Time) string, valueLabel func(float64) string, cs *codes,
+) (linechart.Model, bool) {
+	if width < 1 || height < 1 || !to.After(from) {
+		return linechart.Model{}, false
+	}
+	xStep, yStep := 0, 0
+	plotHeight := height
+	if height >= 4 {
+		xStep, plotHeight = 1, height-2
+	}
+	if width >= 12 {
+		yStep = max(2, plotHeight/4)
+	}
+	if timeLabel == nil {
+		timeLabel = labelFor(to.Sub(from))
+	}
+	if valueLabel == nil {
+		valueLabel = Compact
+	}
+	lc := linechart.New(width, height, seconds(from), seconds(to), low, high,
+		linechart.WithXYSteps(xStep, yStep),
+		linechart.WithStyles(cs.style(gotermboard.RuleCode), cs.style(""), cs.style("")),
+		linechart.WithXLabelFormatter(func(_ int, v float64) string {
+			return timeLabel(time.UnixMilli(int64(v * 1e3)).In(from.Location()))
+		}),
+		linechart.WithYLabelFormatter(func(_ int, v float64) string { return valueLabel(v) }),
+	)
+	if lc.GraphWidth() < 1 || lc.GraphHeight() < 1 {
+		return linechart.Model{}, false
+	}
+	lc.DrawXYAxisAndLabel()
+	return lc, true
 }
 
 func (c TimeSeries) valueRange() (low, high float64) {
