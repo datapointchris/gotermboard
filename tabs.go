@@ -29,6 +29,10 @@ type Tabs struct {
 	pal    gotermstyle.Palette
 	theme  *liveTheme
 	at     int
+	// back is the tab each jump left, newest last, which esc returns to. A cycle empties it,
+	// because the reader then left the trail the jumps made.
+	back    []int
+	outside []Outside
 }
 
 // NewTabs is a program of these tabs, opening on the one named open, or the first where
@@ -51,11 +55,31 @@ func NewTabs(tabs []Tab, pal gotermstyle.Palette, open string) (*Tabs, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.models = hiddenModels(tabs, pal, theme, ctx, cancel)
-	for _, model := range t.models {
-		model.hosted = t.cycleActions()
-	}
+	t.hostActions()
 	t.active().sayThemeFault(themeErr)
 	return t, nil
+}
+
+// hostActions gives each tab's model the keys Tabs binds: esc back ahead of the board's own keys,
+// and the rest beside the table's.
+func (t *Tabs) hostActions() {
+	for _, model := range t.models {
+		model.ahead, model.hosted = t.backActions(), t.besideTable()
+	}
+}
+
+// besideTable is the keys Tabs binds beside the table's: tab's, then t's.
+func (t *Tabs) besideTable() []Action { return append(t.cycleActions(), t.jumpActions()...) }
+
+// Keys is every key Tabs binds beside the table's, which a board's own key would hide: tab and
+// shift+tab where there are tabs to cycle, and JumpKey where a row could go somewhere. A board
+// taking keys from its own config asks this and TableKeys which ones it would take.
+func (t *Tabs) Keys() []string {
+	var keys []string
+	for _, action := range t.besideTable() {
+		keys = append(keys, action.Keys...)
+	}
+	return keys
 }
 
 // hiddenModels share one context, so quitting from any tab ends every tab's reads, and one
@@ -78,12 +102,19 @@ func (t *Tabs) cycleActions() []Action {
 	if len(t.models) < 2 {
 		return nil
 	}
+	cycle := func(by int) func(*Model) tea.Cmd {
+		return func(*Model) tea.Cmd {
+			t.back = nil
+			return t.show(t.at + by)
+		}
+	}
 	return []Action{
-		{Keys: []string{"tab"}, Label: "go to the next tab", Footer: "tab next view", Run: func(*Model) tea.Cmd { return t.show(t.at + 1) }},
-		{Keys: []string{"shift+tab"}, Label: "go to the previous tab", Run: func(*Model) tea.Cmd { return t.show(t.at - 1) }},
+		{Keys: []string{"tab"}, Label: "go to the next tab", Footer: "tab next view", Run: cycle(1)},
+		{Keys: []string{"shift+tab"}, Label: "go to the previous tab", Run: cycle(-1)},
 	}
 }
 
+// show hides the tab showing and shows the one at at, from its last good reads.
 func (t *Tabs) show(at int) tea.Cmd {
 	t.active().hide()
 	t.at = (at + len(t.models)) % len(t.models)

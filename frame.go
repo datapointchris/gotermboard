@@ -221,6 +221,8 @@ type Row struct {
 	// Marked draws MarkGlyph in the row's indent and its first cell in MarkCode. No
 	// column moves for it.
 	Marked bool
+	// Entities is what the row is about, which JumpKey lists and a jump's cursor looks for.
+	Entities []EntityRef
 	// changed is set while the row wears the change cue.
 	changed bool
 }
@@ -344,6 +346,8 @@ type Group struct {
 	Panel Document
 	// Text is more the filter matches beyond what the group draws.
 	Text string
+	// Entities is what the group is about, as Row.Entities has it.
+	Entities []EntityRef
 	// changed is set while the header wears the change cue.
 	changed bool
 }
