@@ -105,12 +105,10 @@ func highlighted(language, source string) []gotermboard.Line {
 // blockRole is the role of code no syntax role covers.
 const blockRole = "markdown.raw.block"
 
-// tokenRole is the theme role a token draws in, named for the nvim-treesitter capture a theme
-// file takes its colors from, so code reads in a board as it does in the editor. A narrower
-// name falls back to the wider one in a theme that lacks it, as syntax.type.builtin does to
-// syntax.type. A diff's added and removed lines take ui.success and ui.error, because the
-// built-in theme has no syntax.diff role to fall back to. The specific checks come first, since
-// each falls inside a wider category.
+// tokenRole is the theme role a token draws in, named for the nvim-treesitter capture closest to
+// the chroma token, so a theme file made from an editor's colors reaches it. A narrower name
+// falls back to the wider one in a theme that lacks it, as syntax.type.builtin does to
+// syntax.type. The specific checks come first, since each falls inside a wider category.
 func tokenRole(token chroma.TokenType) string {
 	switch {
 	case token.InCategory(chroma.Comment):
@@ -156,9 +154,9 @@ func tokenRole(token chroma.TokenType) string {
 	case token.InCategory(chroma.Punctuation):
 		return "syntax.punctuation"
 	case token == chroma.GenericInserted:
-		return "ui.success"
+		return "syntax.diff.plus"
 	case token == chroma.GenericDeleted:
-		return "ui.error"
+		return "syntax.diff.minus"
 	case token == chroma.GenericHeading:
 		return "syntax.function"
 	case token == chroma.GenericSubheading:
