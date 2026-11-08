@@ -1,7 +1,6 @@
 package gotermboard
 
 import (
-	"math"
 	"slices"
 
 	tea "charm.land/bubbletea/v2"
@@ -31,8 +30,8 @@ type Action = KeyAction[*Model]
 // Host is a screen of rows that UniversalActions act on: a host that draws its own screen, or a
 // Model.
 type Host interface {
-	// MoveBy moves the cursor by rows, stopping on the first and the last, so g and G move by
-	// more rows than any list holds.
+	// MoveBy moves the cursor by rows, stopping on the first and the last. g and G move by 1<<30
+	// rows, so the cursor plus rows stays inside an int on a 32-bit build.
 	MoveBy(rows int) tea.Cmd
 	// HalfScreen is half the list's height in lines.
 	HalfScreen() int
@@ -68,7 +67,7 @@ const (
 )
 
 // pastEitherEnd is a move longer than any list, which MoveBy stops at its first or last row.
-const pastEitherEnd = math.MaxInt32
+const pastEitherEnd = 1 << 30
 
 // UniversalActions is the keys every TUI built on this package binds, acting on a Host: moving by rows, to either
 // end and by half a screen, scrolling the open text, jumping between groups, opening a row, the
