@@ -127,13 +127,13 @@ func (t *Tabs) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return t, tea.Batch(cmds...)
 }
 
-// View is Bubble Tea's.
+// View is Bubble Tea's. The tab line sits inside the showing tab's margin.
 func (t *Tabs) View() tea.View {
-	screen := t.active().screen()
+	inside := t.active().inside()
 	if t.tabLineHeight() > 0 {
-		screen = t.tabLine() + "\n" + screen
+		inside = t.tabLine() + "\n" + inside
 	}
-	v := tea.NewView(screen)
+	v := tea.NewView(t.active().framed(inside))
 	v.AltScreen = true
 	return v
 }

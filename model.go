@@ -33,10 +33,37 @@ type TailBoard interface {
 	Tails() bool
 }
 
-// TwoLineBoard is a Board whose rows read in two lines, the second a row's Under, so its
-// summaries start shown. f still hides them.
+// TwoLineBoard is a Board whose rows' Under summaries start shown. f still hides them.
 type TwoLineBoard interface {
 	TwoLines() bool
+}
+
+// LookBoard is a Board drawn in a Look of its own rather than the default, whose zero Look
+// draws nothing differently.
+type LookBoard interface {
+	// Look is how the board draws on a screen this wide, read again as the screen changes size.
+	Look(width int) Look
+}
+
+// Look is how a board's screen is laid out where it does not take the default.
+type Look struct {
+	// Sides is the blank columns at each side of the screen, and Ends the blank lines above
+	// and below it. A screen too small for them keeps a column and a line to draw in.
+	Sides, Ends int
+	// Spread fills the table's width with its columns at their own widths, dealing what they
+	// leave out between them from the left, rather than the last column taking it. A column
+	// with no title continues the one before it and takes none of the spread. A table whose
+	// rows or groups set WrapLast keeps the slack in its last column, where the text wraps.
+	Spread bool
+	// Rules puts the column titles on a line of their own with a rule under it, and a rule
+	// above the footer.
+	Rules bool
+	// BoldCursor draws the cursor's row bold over the theme's selection, as it is where there
+	// is none.
+	BoldCursor bool
+	// NoRowChevrons leaves a row's chevron cell blank, for a board whose every row opens, where
+	// a chevron tells no row apart. A group's chevron still draws, and no column moves.
+	NoRowChevrons bool
 }
 
 // CursorBoard is a Board told which key the cursor is on, for a read that follows it.
@@ -73,7 +100,8 @@ type MovingBoard interface {
 	StripAt(now time.Time) []Line
 }
 
-// PanelFrom is the narrowest screen that gets the side panel.
+// PanelFrom is the narrowest width inside a board's Look margin that gets the side panel. On
+// a board with no Look, that is the screen's width.
 const PanelFrom = 160
 
 // tickEvery redraws the ages and starts what is due.
@@ -87,9 +115,12 @@ type Model struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	frame    Frame
+	frame Frame
+	// width and height are what the board draws in, inside its Look's margin, and margin is
+	// that margin: Sides and Ends as the screen's size leaves them.
 	width    int
 	height   int
+	margin   Look
 	grouping int
 
 	display  display
@@ -152,10 +183,51 @@ func NewModel(board Board, pal gotermstyle.Palette) *Model {
 
 func newModel(board Board, pal gotermstyle.Palette, theme *liveTheme, ctx context.Context, cancel context.CancelFunc) *Model {
 	twoLines, ok := board.(TwoLineBoard)
-	return &Model{
-		board: board, pal: pal, theme: theme, ctx: ctx, cancel: cancel, width: 80, height: 24, cue: newChangeCue(),
+	m := &Model{
+		board: board, pal: pal, theme: theme, ctx: ctx, cancel: cancel, cue: newChangeCue(),
 		display: display{folded: map[string]bool{}, opened: map[string]bool{}, matched: newRowMatches(), under: ok && twoLines.TwoLines()},
 	}
+	m.resize(80, 24)
+	return m
+}
+
+// look is the board's Look at the screen's width, and the zero Look for a board with none.
+func (m *Model) look() Look {
+	if board, ok := m.board.(LookBoard); ok {
+		return board.Look(m.width + 2*m.margin.Sides)
+	}
+	return Look{}
+}
+
+// resize takes a screen of width by height, and draws inside the margin the board's Look asks
+// for, less what the screen cannot spare.
+func (m *Model) resize(width, height int) {
+	m.margin = Look{}
+	if board, ok := m.board.(LookBoard); ok {
+		look := board.Look(width)
+		m.margin = Look{Sides: min(max(look.Sides, 0), max((width-1)/2, 0)), Ends: min(max(look.Ends, 0), max((height-1)/2, 0))}
+	}
+	m.width, m.height = width-2*m.margin.Sides, height-2*m.margin.Ends
+}
+
+// framed is the screen's lines inside the margin.
+func (m *Model) framed(lines string) string {
+	if m.margin == (Look{}) {
+		return lines
+	}
+	side := strings.Repeat(" ", m.margin.Sides)
+	var b strings.Builder
+	b.WriteString(strings.Repeat("\n", m.margin.Ends))
+	for i, line := range strings.Split(lines, "\n") {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		if line != "" {
+			b.WriteString(side + line)
+		}
+	}
+	b.WriteString(strings.Repeat("\n", m.margin.Ends))
+	return b.String()
 }
 
 // sayThemeFault puts why the theme file would not load on the footer.
@@ -172,7 +244,7 @@ func Once(board Board, pal gotermstyle.Palette, width, height int) string {
 	theme, err := loadTheme()
 	m := newModel(board, pal, theme, ctx, cancel)
 	m.sayThemeFault(err)
-	m.width, m.height = width, height
+	m.resize(width, height)
 	m.rebuild(time.Now())
 	m.tellCursor()
 	return m.screen()
@@ -354,7 +426,7 @@ func (m *Model) tellCursor() {
 func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
+		m.resize(msg.Width, msg.Height)
 		if !m.hidden {
 			m.layOutCharts()
 		}
@@ -513,7 +585,7 @@ func actionTable() []Action {
 				return nil
 			},
 			Applies: func(m *Model) bool {
-				_, widths := m.laidOut()
+				_, _, widths := m.laidOut()
 				return anyUnder(m.frame.Groups, widths, 0)
 			},
 		},
@@ -937,15 +1009,16 @@ func (m *Model) moveToLastRow() {
 }
 
 func (m *Model) nodes() []node {
-	nodes, _ := m.laidOut()
+	nodes, _, _ := m.laidOut()
 	return nodes
 }
 
-// laidOut is what shows of the frame at the table's width, and the width each column takes.
-func (m *Model) laidOut() ([]node, []int) {
+// laidOut is what shows of the frame at the table's width, the columns with their gaps, and
+// the width each column takes.
+func (m *Model) laidOut() ([]node, []Column, []int) {
 	d := m.display
 	d.panelShown = m.panelWidth() > 0
-	return d.nodes(m.frame.Groups, m.frame.Columns, m.tableWidth())
+	return d.nodes(m.frame.Groups, m.frame.Columns, m.tableWidth(), m.look())
 }
 
 // panelDrawsDocumentOf says the side panel is drawn and draws the row's own Document.
@@ -1086,8 +1159,11 @@ func (m *Model) bodyHeight() int { return m.heights().body }
 
 // table is the laid-out table: the lines that stay on screen, and those that scroll.
 func (m *Model) table() (pinned, scrolling []drawn) {
-	nodes, widths := m.laidOut()
-	return splitPinned(draw(m.pal, m.theme.current, m.frame.Columns, nodes, widths, m.tableWidth(), m.cursor, m.theme.cursorLook(m.pal)))
+	nodes, columns, widths := m.laidOut()
+	look := m.look()
+	cursor := m.theme.cursorLook(m.pal)
+	cursor.bold = look.BoldCursor
+	return splitPinned(draw(m.pal, m.theme.current, columns, nodes, widths, m.tableWidth(), m.cursor, cursor, look))
 }
 
 // scrollHeight is what the lines that stay on screen leave for those that scroll.
@@ -1098,11 +1174,15 @@ func (m *Model) follow() {
 	h := m.scrollHeight(pinned)
 	at := slices.IndexFunc(lines, func(l drawn) bool { return l.key != "" && l.key == m.cursor })
 	if at >= 0 && !m.scrolled {
+		end := at
+		for end+1 < len(lines) && lines[end+1].continues {
+			end++
+		}
 		if at < m.top {
 			m.top = at
 		}
-		if at >= m.top+h {
-			m.top = at - h + 1
+		if end >= m.top+h {
+			m.top = min(at, end-h+1)
 		}
 	}
 	m.top = max(0, min(m.top, len(lines)-h))
@@ -1123,6 +1203,9 @@ func (m *Model) clearOfBand(lines []drawn, at, height int) {
 // shows until the next key, so a kept filter never hides a refusal.
 func (m *Model) footer() []string {
 	var lines []string
+	if m.look().Rules {
+		lines = append(lines, RuleThin.across(m.pal, m.width, ""))
+	}
 	if work := m.underWay(); work != "" {
 		lines = append(lines, ansi.Truncate(m.pal.Paint(Yellow, spinner[m.spinAt])+" "+work, m.width, "…"))
 	}
@@ -1154,7 +1237,10 @@ func (m *Model) View() tea.View {
 	return v
 }
 
-func (m *Model) screen() string {
+func (m *Model) screen() string { return m.framed(m.inside()) }
+
+// inside is the screen within its margin.
+func (m *Model) inside() string {
 	if m.reading != nil {
 		return m.reading.screen()
 	}

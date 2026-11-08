@@ -3,6 +3,8 @@ package gotermboard
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -142,6 +144,89 @@ func TestATwoLineBoardDrawsEachRowsSecondLineUntilFHidesIt(t *testing.T) {
 	}
 }
 
+type lookBoard struct{ fixedBoard }
+
+func (lookBoard) Look(int) Look {
+	return Look{Sides: 4, Ends: 1, Spread: true, Rules: true, BoldCursor: true, NoRowChevrons: true}
+}
+
+func TestALookDrawsInsideItsMarginWithTwoLineRowsRuledApartAndTheCursorsRowBoldOnTheSelection(t *testing.T) {
+	document := func(int) []Line { return []Line{{C("text", "")}} }
+	frame := Frame{
+		StartAt: "one",
+		Columns: []Column{{Title: "STATUS"}, {Title: "TITLE"}, {Title: "SIZE", Right: true}, {Right: true}, {Title: "BRANCH"}},
+		Groups: []Group{{Key: "g", Title: Line{C("group", Bold)}, BetweenRows: RuleDotted, Rows: []Row{
+			{
+				Key: "one", Cells: []Cell{C("ready", Green), C("first title", ""), C("12", ""), C("+30", Green), C("main", Blue)},
+				Second: Line{C("passing", Green), C("~/one", Cyan), C("   #1", Yellow)}, Document: document,
+			},
+			{
+				Key: "two", Cells: []Cell{C("behind", Cyan), C("second", ""), C("1", ""), C("+40", Green), C("fix", Blue)},
+				Second: Line{C("failing", Red), C("~/two", Cyan)}, Document: document,
+			},
+		}}},
+	}
+	path := filepath.Join(t.TempDir(), "current.json")
+	if err := os.WriteFile(path, []byte(`{"ui": {"selection": {"fg": "#c5c8c6", "bg": "#373b41"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(tuitheme.PathEnv, path)
+	const width, height, sides = 80, 11, 4
+	m := NewModel(lookBoard{fixedBoard{frame}}, gotermstyle.NewPalette(true))
+	m.Update(tea.WindowSizeMsg{Width: width, Height: height})
+	lines := strings.Split(m.screen(), "\n")
+	plain := make([]string, len(lines))
+	for i, line := range lines {
+		plain[i] = ansi.Strip(line)
+	}
+	screen := strings.Join(plain, "\n")
+	if len(lines) != height || plain[0] != "" || plain[height-1] != "" {
+		t.Fatalf("want %d lines with a blank one at each end:\n%s", height, screen)
+	}
+	for _, text := range plain[1 : height-1] {
+		if text != "" && !strings.HasPrefix(text, strings.Repeat(" ", sides)) || ansi.StringWidth(text) > width-sides {
+			t.Errorf("a line runs into the margin: %q", text)
+		}
+	}
+	at := func(row int, word string) int {
+		before, _, found := strings.Cut(plain[row], word)
+		if !found {
+			t.Fatalf("no %q on line %d:\n%s", word, row, screen)
+		}
+		return ansi.StringWidth(before)
+	}
+	// The titles, their rule, the group, then row one's two lines, a blank, the dotted rule and row two.
+	if !strings.Contains(plain[2], "─") || !strings.Contains(plain[7], "┈") || plain[6] != "" {
+		t.Errorf("want a rule under the titles and a blank and a dotted rule between the rows:\n%s", screen)
+	}
+	if at(1, "BRANCH")+len("BRANCH") != width-sides || at(4, "main") != at(1, "BRANCH") {
+		t.Errorf("the spread columns should end on the table's edge, the branch under its title:\n%s", screen)
+	}
+	if at(4, "+30") != at(1, "SIZE")+len("SIZE")+2 {
+		t.Errorf("an untitled column should keep beside the one before it:\n%s", screen)
+	}
+	if at(5, "passing") != at(4, "ready") || at(5, "~/one") != at(4, "first title") {
+		t.Errorf("a second line's first cell sits under the row's first, and the rest from the second column:\n%s", screen)
+	}
+	if strings.Contains(screen, "▸") || !strings.Contains(plain[height-3], "─") {
+		t.Errorf("want no row chevron and a rule over the keys:\n%s", screen)
+	}
+	tint := "\033[48;2;55;59;65m"
+	for _, row := range []int{4, 5} {
+		if !strings.Contains(lines[row], tint+Bold) || ansi.StringWidth(lines[row]) != width-sides {
+			t.Errorf("both of the cursor's lines should be bold on the selection to the table's edge: %q", lines[row])
+		}
+	}
+	if strings.Contains(lines[8], tint) {
+		t.Errorf("a row off the cursor took the selection: %q", lines[8])
+	}
+
+	m.Update(typedKey("G"))
+	if !strings.Contains(ansi.Strip(m.screen()), "~/two") {
+		t.Errorf("the cursor's last row should show its second line:\n%s", ansi.Strip(m.screen()))
+	}
+}
+
 func TestNoLineOfAFrameIsWiderThanItsScreen(t *testing.T) {
 	long := strings.Repeat("a long value that would wrap ", 12)
 	frame := Frame{
@@ -151,7 +236,10 @@ func TestNoLineOfAFrameIsWiderThanItsScreen(t *testing.T) {
 			Key: "working", Title: Line{C("WORKING", BoldYellow)}, Count: 1, Counted: true, Summary: Line{C(long, "")},
 			Rows: []Row{
 				{Key: "span", Span: Line{C(long, "")}, Detail: []Cell{C(long, "")}},
-				{Key: "cells", Symbol: C("●", Yellow), Cells: []Cell{C(long, ""), C(long, Cyan), C(long, "")}, Detail: []Cell{C(long, "")}},
+				{
+					Key: "cells", Symbol: C("●", Yellow), Cells: []Cell{C(long, ""), C(long, Cyan), C(long, "")}, Detail: []Cell{C(long, "")},
+					Second: Line{C(long, ""), C(long, Cyan)},
+				},
 				{Key: "wraps", Cells: []Cell{C("short", ""), C("kind", "")}, WrapLast: Line{C(long, Green)}},
 			},
 			Groups: []Group{{
@@ -174,7 +262,10 @@ func TestNoLineOfAFrameIsWiderThanItsScreen(t *testing.T) {
 		said.Say(strings.Repeat(long, 3))
 		filtering.Update(typedKey("/"))
 		filtering.Update(tea.PasteMsg{Content: long})
-		screens := map[string]string{"once": Once(fixedBoard{frame}, pal, size.width, size.height), "said": said.screen(), "filtering": filtering.screen()}
+		screens := map[string]string{
+			"once": Once(fixedBoard{frame}, pal, size.width, size.height), "said": said.screen(), "filtering": filtering.screen(),
+			"look": Once(lookBoard{fixedBoard{frame}}, pal, size.width, size.height),
+		}
 		for name, screen := range screens {
 			lines := strings.Split(screen, "\n")
 			if len(lines) > size.height {
