@@ -206,8 +206,8 @@ centers it on a wider screen, and keeps the same words at the top through a resi
 `k`, `ctrl+d` and `ctrl+u`, `g` and `G` move through it, `[` and `]` jump between sections,
 and `/` searches with `n` and `N`. A query with no capital in it ignores case. `y` copies
 `CopyText`, or the text as drawn, over OSC 52. `e` opens `EditFile` in `$VISUAL` or `$EDITOR`
-and lays the text out again after. `EditorCommand(path)` is that editor on any file, for a
-board's own key to hand the terminal with `tea.ExecProcess`.
+and lays the text out again after, or shows the last line the editor wrote to stderr where it
+failed. `EditorCommand(path)` is that editor on any file, for a board's own key to hand over.
 
 Its top line names where the text sits: the groups the table's band would name over the row that
 opened it, its title, then each heading still open above the top row. A heading joins once its own
@@ -342,11 +342,11 @@ held.
 
 ## A key's command reports back to its board
 
-A key's `Run` returns a command, and a command that runs in the background or hands the terminal
-over with `tea.ExecProcess` ends in a message. A board implementing `ReceivingBoard` is handed every
-message the model does not handle itself, with the model, so it can `Say` what came of the command,
-`Rebuild`, or return the next command. `Tabs` hands such a message to every tab, because the tab
-that started the command may be hidden by the time it ends, so a board switches on its own types.
+A key's `Run` returns a command, and a command that runs in the background ends in a message. A
+board implementing `ReceivingBoard` is handed every message the model does not handle itself, with
+the model, so it can `Say` what came of the command, `Rebuild`, or return the next command. `Tabs`
+hands such a message to every tab, because the tab that started the command may be hidden by the
+time it ends, so a board switches on its own types.
 
 A board implementing `BusyBoard` names its work under way from `UnderWay()`. The footer draws it
 after a spinner, above what the last key did, and a key does not clear it. The spinner turns only
@@ -368,3 +368,38 @@ func (b *board) Receive(m *gotermboard.Model, msg tea.Msg) tea.Cmd {
  return nil
 }
 ```
+
+## A key leaves the board for another program and comes back
+
+`Model.HandOver(cmd, then)` gives the terminal to `cmd` until it exits. Its stderr still reaches
+the terminal, and a copy comes back to `then` with how it ended. `LastLine(stderr, err)` is the
+sentence a failure says: the last line it wrote, or its exit status where it wrote nothing. A child
+the program leaves running with stderr open holds the board a second at most.
+
+Before `then` runs, the board receives a `HandedBack` through `ReceivingBoard`, to read again what
+the program may have changed. Only the tab whose key handed the terminal over receives it, hidden or
+not. `EditorCommand(path)` is the user's editor on a file, ready to hand over.
+
+```go
+func (b *board) edit(m *gotermboard.Model) tea.Cmd {
+ return m.HandOver(gotermboard.EditorCommand(b.path), func(m *gotermboard.Model, err error, stderr []byte) tea.Cmd {
+  if err != nil {
+   m.Say("the editor failed: " + gotermboard.LastLine(stderr, err))
+  }
+  return nil
+ })
+}
+
+func (b *board) Receive(m *gotermboard.Model, msg tea.Msg) tea.Cmd {
+ if _, ok := msg.(gotermboard.HandedBack); ok {
+  b.source.Force()
+ }
+ return nil
+}
+```
+
+`OpenWindow(name, dir, argv...)` opens `argv` in a new tmux window and leaves the terminal with the
+board. Several arguments run with no shell, so none needs quoting. tmux opens a window whether or
+not its program starts, so `OpenWindow` looks for tmux and `argv[0]` on `PATH` first. A lone
+argument holding a space is a shell command, which tmux runs through its default shell, so the
+caller looks for what it runs. Outside tmux it opens nothing and says why.

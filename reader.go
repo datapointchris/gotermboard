@@ -2,8 +2,6 @@ package gotermboard
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"unicode"
@@ -112,32 +110,24 @@ func (r *Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r, cmd
 	case editedMsg:
 		if msg.err != nil {
-			r.said = "the editor failed: " + msg.err.Error()
+			r.said = "the editor failed: " + LastLine(msg.stderr, msg.err)
 		}
 		r.resize(r.width, r.height)
 	}
 	return r, nil
 }
 
-type editedMsg struct{ err error }
-
-// edit hands the terminal to the editor.
-func (r *Reader) edit() tea.Cmd {
-	return tea.ExecProcess(EditorCommand(r.EditFile), func(err error) tea.Msg { return editedMsg{err} })
+type editedMsg struct {
+	err    error
+	stderr []byte
 }
 
-// EditorCommand is the user's editor on path: $VISUAL, then $EDITOR, then vi, split on
-// spaces, so EDITOR="code --wait" works. A board's key hands it the terminal with
-// tea.ExecProcess, as the Reader's e does.
-func EditorCommand(path string) *exec.Cmd {
-	command := []string{"vi"}
-	for _, variable := range []string{"VISUAL", "EDITOR"} {
-		if configured := strings.Fields(os.Getenv(variable)); len(configured) > 0 {
-			command = configured
-			break
-		}
-	}
-	return exec.Command(command[0], append(command[1:], path)...)
+// edit hands the terminal to the editor. A Reader runs as a program of its own too, with no
+// Model to hand over through.
+func (r *Reader) edit() tea.Cmd {
+	editor := EditorCommand(r.EditFile)
+	stderr := keepStderr(editor)
+	return tea.ExecProcess(editor, func(err error) tea.Msg { return editedMsg{exitOf(err), stderr.Bytes()} })
 }
 
 func (r *Reader) copyToClipboard() tea.Cmd {
