@@ -457,7 +457,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		case readingMode:
 			m.reading.paste(msg.Content)
 		case askingMode:
-			if m.asking.Typed {
+			if m.asking.typed() {
 				m.answer.paste(msg.Content)
 			}
 		case filteringMode:
