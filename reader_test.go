@@ -64,11 +64,12 @@ func TestReaderJumpsSearchesAndKeepsItsPlaceOnAResize(t *testing.T) {
 	}
 }
 
-func TestEnterReadsTallTextAndTextThePanelShowsFullScreenAndSpaceFoldsItInPlace(t *testing.T) {
+func TestEnterReadsTallTextAndTextThePanelDrawsFullScreenAndSpaceFoldsItInPlace(t *testing.T) {
 	short := func(int) []Line { return []Line{{C("short text", "")}} }
 	frame := Frame{Columns: []Column{{Title: "ROW"}}, Groups: []Group{{Rows: []Row{
 		{Key: "tall", Cells: []Cell{C("the tall row", "")}, Document: wrappedDocument},
 		{Key: "short", Cells: []Cell{C("the short row", "")}, Document: short},
+		{Key: "paneled", Cells: []Cell{C("the paneled row", "")}, Document: short, Panel: func(int) []Line { return []Line{{C("its facts", "")}} }},
 	}}}}
 	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
@@ -105,7 +106,13 @@ func TestEnterReadsTallTextAndTextThePanelShowsFullScreenAndSpaceFoldsItInPlace(
 	m.Update(tea.WindowSizeMsg{Width: PanelFrom, Height: 12})
 	m.Update(enterKey)
 	if m.reading == nil {
-		t.Error("a short row the side panel shows should open the reader rather than draw it twice")
+		t.Fatal("a short row the side panel draws should open the reader rather than draw it twice")
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m.Update(downKey)
+	m.Update(enterKey)
+	if m.reading != nil {
+		t.Error("a short row whose Panel the side panel draws should open its Document in place")
 	}
 }
 
@@ -167,5 +174,12 @@ func TestARowThatStartsOpenFoldsToItsLineOnSpaceAndReadsFullScreenOnEnter(t *tes
 	m.Update(spaceKey)
 	if got := m.screen(); !strings.Contains(got, "▸the first line") || strings.Contains(got, "section 0") {
 		t.Fatalf("space should fold the row to its first line:\n%s", got)
+	}
+
+	frame.Groups[0].Rows[0].ReaderTitle = "the newest entry"
+	m = NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: PanelFrom, Height: 12})
+	if got := m.screen(); !strings.Contains(got, "▸the first line") || !strings.Contains(got, "│ the newest entry") || strings.Count(got, "section 0") != 1 {
+		t.Errorf("beside the panel, the row should start folded and the panel draw it once under its title:\n%s", got)
 	}
 }

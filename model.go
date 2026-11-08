@@ -450,7 +450,7 @@ func actionTable() []Action {
 		{Keys: []string{"G", "end"}, Label: "go to the bottom", Run: moved(func(m *Model) int { return len(m.nodes()) })},
 		{Keys: []string{"ctrl+d", "pgdown"}, Label: "half a screen down the open text, or down the rows", Run: halfScreen(1)},
 		{Keys: []string{"ctrl+u", "pgup"}, Label: "half a screen up the open text, or up the rows", Run: halfScreen(-1)},
-		{Keys: []string{"enter"}, Label: "fold a group, or open a row, full screen where its document is tall or the panel shows it", Footer: "enter open", Run: (*Model).toggle, Applies: (*Model).cursorToggles},
+		{Keys: []string{"enter"}, Label: "fold a group, or open a row, full screen where its document is tall or the panel draws it", Footer: "enter open", Run: (*Model).toggle, Applies: (*Model).cursorToggles},
 		{Keys: []string{"space"}, Label: "fold a group, or open or close a row's text in place", Footer: "space fold", Run: (*Model).toggleInPlace, Applies: (*Model).cursorToggles},
 		// The way to the other keys and the way out sit ahead of what a narrow footer cuts.
 		{Keys: []string{"?"}, Label: "show these keys and every read", Footer: "? keys", Run: func(m *Model) tea.Cmd {
@@ -708,10 +708,10 @@ func (m *Model) setFilter(filter string) {
 }
 
 // toggle is enter: a row's Document that runs past the screen opens on a Reader, open in
-// place or not, and so does one the side panel already shows, since opening it in place would
-// only draw it twice. Anything else folds or opens in place.
+// place or not, and so does one the side panel draws, since opening it in place would only
+// draw it twice. Anything else folds or opens in place.
 func (m *Model) toggle() tea.Cmd {
-	if n, ok := m.selected(); ok && n.kind == nodeRow && n.row.Document != nil && (m.panelWidth() > 0 || m.Tall(n.row.Document)) {
+	if n, ok := m.selected(); ok && n.kind == nodeRow && n.row.Document != nil && (m.panelDrawsDocumentOf(n.row) || m.Tall(n.row.Document)) {
 		m.Read(n.row.title(), n.row.Document)
 		return nil
 	}
@@ -863,7 +863,14 @@ func (m *Model) nodes() []node {
 
 // laidOut is what shows of the frame at the table's width, and the width each column takes.
 func (m *Model) laidOut() ([]node, []int) {
-	return m.display.nodes(m.frame.Groups, m.frame.Columns, m.tableWidth())
+	d := m.display
+	d.panelShown = m.panelWidth() > 0
+	return d.nodes(m.frame.Groups, m.frame.Columns, m.tableWidth())
+}
+
+// panelDrawsDocumentOf says the side panel is drawn and draws the row's own Document.
+func (m *Model) panelDrawsDocumentOf(r *Row) bool {
+	return m.panelWidth() > 0 && r.panelDrawsDocument()
 }
 
 func selectableOf(nodes []node) []node {
@@ -1139,7 +1146,8 @@ func (m *Model) panelLines(height int) []string {
 	return lines
 }
 
-// panelText is a node's panelSource, and a group's label and summary where it holds neither.
+// panelText is a node's panelSource, under a row's ReaderTitle where it is the row's Document,
+// and a group's label and summary where it holds neither.
 func (m *Model) panelText(n node, width int) []string {
 	var authored Document
 	var cells []Cell
@@ -1153,6 +1161,11 @@ func (m *Model) panelText(n node, width int) []string {
 		authored, cells = n.row.panelSource()
 	}
 	var lines []string
+	if n.kind == nodeRow && n.row.panelDrawsDocument() && n.row.ReaderTitle != "" {
+		for _, piece := range wrapWords(Line{C(n.row.ReaderTitle, Bold)}, width) {
+			lines = append(lines, piece.Paint(m.pal))
+		}
+	}
 	if authored != nil {
 		for _, line := range authored(width) {
 			for _, piece := range wrapWords(line, width) {

@@ -151,14 +151,16 @@ type Row struct {
 	Detail []Cell
 	// Document is what opens under the row and the side panel shows, in Detail's place.
 	Document Document
-	// ReaderTitle heads the Reader enter opens on a tall Document. Empty, the row's own
-	// words head it.
+	// ReaderTitle heads the Reader enter opens on a tall Document, and the side panel where
+	// it draws the Document. Empty, the row's own words head the Reader.
 	ReaderTitle string
 	// StartsOpen shows the row's Detail or Document under it until a key closes it, so a
-	// view can draw its newest entry whole and still fold it to its first line.
+	// view can draw its newest entry whole and still fold it to its first line. A row whose
+	// Document the side panel draws starts folded while the panel shows, since the panel
+	// draws it whole beside the table.
 	StartsOpen bool
 	// Panel is what the side panel shows in place of both, each line wrapping at spaces
-	// with its cells' own colors.
+	// with its cells' own colors. Without one, the panel draws the Document.
 	Panel Document
 	// Text is more the filter matches beyond what the row draws.
 	Text string
@@ -211,6 +213,10 @@ func (r *Row) panelSource() (Document, []Cell) {
 	}
 	return r.Document, r.Detail
 }
+
+// panelDrawsDocument says the side panel draws the row's own Document, which a Panel would
+// replace.
+func (r *Row) panelDrawsDocument() bool { return r.Panel == nil && r.Document != nil }
 
 // hasPanelText says the side panel has something of the row's own to show.
 func (r *Row) hasPanelText() bool {
@@ -407,6 +413,8 @@ type display struct {
 	// matched keeps what the filter reads of each row, because one draw walks the rows several
 	// times, the clock draws a frame a second, and a row's text can run to pages.
 	matched *rowMatches
+	// panelShown says the side panel is drawn beside the table.
+	panelShown bool
 }
 
 // rowMatches is each row's answer to the filter and its text lowercased. Answers and the rows
@@ -548,7 +556,7 @@ func (d display) isRowOpen(r *Row) bool {
 	if opened, set := d.opened[r.Key]; set {
 		return opened
 	}
-	return r.StartsOpen
+	return r.StartsOpen && (!d.panelShown || !r.panelDrawsDocument())
 }
 
 // anyUnder says whether any group or row, folded or not, has a summary to draw at these column

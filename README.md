@@ -107,7 +107,7 @@ ahead of them in the first column. `Column.Min` holds that column wide enough to
 `Document` on a `Row` or a `Group` is a function of width, because hanging bullets, tables
 and boxes of code cannot be wrapped after they are drawn. A row's opens under it on `space`,
 however tall it is. `enter` opens it the same way, or on the full-screen reader where it runs
-past the screen or the side panel already shows it, whether or not it shows in place. `StartsOpen` on a row shows its text
+past the screen or the side panel draws it, whether or not it shows in place. `StartsOpen` on a row shows its text
 from the first frame, so a view can draw its newest entry whole and still fold it to its first
 line. A group's draws under `Below` whether the group is folded or not. The `markdown` package
 makes one from markdown, in ANSI 0-15 so it follows the theme:
@@ -171,7 +171,9 @@ table never jumps as the cursor moves.
 
 `Panel` on a row or a group is what the side panel shows in `Detail`'s place, a function of
 the panel's width whose lines wrap at spaces with each cell's own color. A row with no `Panel`
-shows its `Document`. A board implementing `CursorBoard` is
+shows its `Document`, under its `ReaderTitle` in bold where it has one. Such a row then reads
+its `Document` beside the table rather than under itself: `StartsOpen` leaves it folded while
+the panel shows, and `enter` opens it on the full-screen reader. A board implementing `CursorBoard` is
 told each key the cursor lands on, so a read that only one row needs can follow it.
 `Frame.StartAt` names the key the cursor starts on. Without one it starts on the first line
 holding cells, or the last on a `TailBoard`, past any group with no panel text. With no such line
