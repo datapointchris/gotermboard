@@ -61,6 +61,7 @@ func TestEachChartFillsTheScreensWidthInItsColorsBetweenTheStripAndTheTable(t *t
 			{Label: "work", Start: start.Add(4 * time.Minute), End: start.Add(40 * time.Minute), Code: gotermboard.Yellow},
 			{Label: "merged"},
 		}},
+		chart.StackedArea{Layers: []chart.Layer{{Points: used, Code: gotermboard.Green}, {Points: used, Code: gotermboard.Magenta}}},
 	}
 	// An ntcharts or lipgloss upgrade that hands a style's color back as other than an
 	// ansi.IndexedColor would leave every chart uncolored.
@@ -72,6 +73,7 @@ func TestEachChartFillsTheScreensWidthInItsColorsBetweenTheStripAndTheTable(t *t
 		{gotermboard.Green, gotermboard.Magenta, gotermboard.RuleCode},
 		{gotermboard.Cyan, gotermboard.Yellow},
 		{gotermboard.Cyan, gotermboard.Green, gotermboard.Yellow},
+		{gotermboard.Green, gotermboard.Magenta, gotermboard.RuleCode},
 	}
 	for i, c := range charts {
 		drawn := map[string]bool{}
@@ -87,7 +89,7 @@ func TestEachChartFillsTheScreensWidthInItsColorsBetweenTheStripAndTheTable(t *t
 		}
 	}
 	for _, width := range []int{60, 140} {
-		lines := strings.Split(gotermboard.Once(chartBoard{charts}, gotermstyle.NewPalette(false), width, 60), "\n")
+		lines := strings.Split(gotermboard.Once(chartBoard{charts}, gotermstyle.NewPalette(false), width, 70), "\n")
 		drawn := 6 * len(charts)
 		if len(lines) <= 1+drawn || lines[0] != "STRIP" || !strings.Contains(lines[1+drawn], "TABLE") {
 			t.Fatalf("the charts should sit between the strip and the table at %d:\n%s", width, strings.Join(lines, "\n"))
