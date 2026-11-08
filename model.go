@@ -335,6 +335,7 @@ type Action struct {
 	Footer string
 	Run    func(*Model) tea.Cmd
 	// Applies says whether this view can use the key now. Nil means always.
+	// A board's key hides the table's action for it even while Applies is false.
 	Applies func(*Model) bool
 }
 
