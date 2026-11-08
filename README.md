@@ -518,3 +518,12 @@ on `PATH`. A lone argument holding a space is a shell command, which tmux runs t
 shell, so `needs` names the programs it runs. Outside tmux it opens nothing and says why.
 `OpenWindowBehind` takes the same arguments and leaves the board's window current, for a command
 that runs on its own while the board stays in front.
+
+`OpenClaudeSession(ClaudeSession{On, Dir, Fallback, Brief})` is a key that opens a Claude session
+on a record. Inside tmux it opens in a window named `claude <On>`, and outside tmux it holds the
+terminal until it ends. The brief closes by asking the session to say what it would do and wait,
+and with a `Fallback` it says where the session runs and why. The command ends in a
+`ClaudeSessionOutcome` either way, whose `Said` says what came of it, with a failed session's last
+stderr line. A `Model` shows `Said` on the footer of the tab showing, then hands the outcome to its
+`ReceivingBoard`. `HeldTerminal` says the session held the terminal and ended, so what it changed
+is there to read again. A program that draws its own screen shows `Said` itself.

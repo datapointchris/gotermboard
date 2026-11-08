@@ -76,7 +76,8 @@ type CursorBoard interface {
 // what came of the command, Rebuild, or return the next command. Tabs hands such a message to
 // every tab, because the tab whose key started the command may be hidden by the time it ends,
 // so a board ignores a message of a type it does not own. A HandedBack is the exception, and
-// reaches only the board whose model handed the terminal over.
+// reaches only the board whose model handed the terminal over. A ClaudeSessionOutcome reaches
+// only the board of the tab showing.
 type ReceivingBoard interface {
 	Receive(m *Model, msg tea.Msg) tea.Cmd
 }
@@ -479,6 +480,11 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(cmd, m.nextMove())
 	case HandedBack:
 		if msg.model == m {
+			return m.receive(msg)
+		}
+	case ClaudeSessionOutcome:
+		if !m.hidden {
+			m.said = msg.Said
 			return m.receive(msg)
 		}
 	default:
