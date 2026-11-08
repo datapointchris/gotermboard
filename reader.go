@@ -36,6 +36,7 @@ type Reader struct {
 	title    string
 	document Document
 	pal      gotermstyle.Palette
+	theme    *liveTheme
 	// path is what holds the row that opened this reader, outermost first.
 	path []Line
 	// row is the key of the row whose Document this reads, so a read that lands lays out the
@@ -61,9 +62,25 @@ type Reader struct {
 	hit        int
 }
 
-// NewReader is a Reader over document, sized until the terminal says otherwise.
+// NewReader is a Reader over document, sized until the terminal says otherwise. It draws in
+// the TUI theme file gotermstyle's tuitheme finds, and reads it again on SIGUSR2 while it runs
+// as the program.
 func NewReader(title string, document Document, pal gotermstyle.Palette) *Reader {
-	r := &Reader{title: title, document: document, pal: pal, quit: func() tea.Cmd { return tea.Quit }}
+	theme, err := loadTheme()
+	r := newReader(title, document, pal, theme)
+	r.sayThemeFault(err)
+	return r
+}
+
+// sayThemeFault puts why the theme file would not load on the footer.
+func (r *Reader) sayThemeFault(err error) {
+	if err != nil {
+		r.said = err.Error()
+	}
+}
+
+func newReader(title string, document Document, pal gotermstyle.Palette, theme *liveTheme) *Reader {
+	r := &Reader{title: title, document: document, pal: pal, theme: theme, quit: func() tea.Cmd { return tea.Quit }}
 	r.resize(80, 24)
 	return r
 }
@@ -79,13 +96,15 @@ func (r *Reader) Once(width int) string {
 }
 
 // Init is Bubble Tea's.
-func (r *Reader) Init() tea.Cmd { return nil }
+func (r *Reader) Init() tea.Cmd { return r.theme.watch() }
 
 // Update is Bubble Tea's.
 func (r *Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		r.resize(msg.Width, msg.Height)
+	case themeLoadedMsg:
+		return r, r.theme.reloaded(msg, r.sayThemeFault)
 	case tea.PasteMsg:
 		r.paste(msg.Content)
 	case tea.KeyPressMsg:
@@ -436,7 +455,7 @@ func (r *Reader) matchedIn(text string) []bool {
 	return matched
 }
 
-// marked is row with each match reversed, its other cells as they were.
+// marked is row with each match in the theme's match code, its other cells as they were.
 func (r *Reader) marked(row Line) Line {
 	if r.query == "" {
 		return row
@@ -445,6 +464,7 @@ func (r *Reader) marked(row Line) Line {
 	if !slices.Contains(matched, true) {
 		return row
 	}
+	match := r.theme.matchCode(r.pal)
 	var out Line
 	at := 0
 	for _, cell := range row {
@@ -456,7 +476,7 @@ func (r *Reader) marked(row Line) Line {
 			}
 			code := cell.Code
 			if matched[at+start] {
-				code = Reverse
+				code = match
 			}
 			out = append(out, C(string(runes[start:end]), code))
 			start = end

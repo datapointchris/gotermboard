@@ -1,6 +1,7 @@
 package gotermboard
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,6 +15,10 @@ func typedKey(text string) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: []rune(text)[0], Text: text}
 }
 
+// sentenceCode is how wrappedDocument's sentences draw: bold in the built-in match color, as
+// a bold code span does, so a match the search marks has to differ from that to show.
+var sentenceCode = emboldened(Yellow)
+
 // wrappedDocument is sixty sentences wrapped to the width, a heading before every tenth.
 func wrappedDocument(width int) []Line {
 	var rows []Line
@@ -23,10 +28,10 @@ func wrappedDocument(width int) []Line {
 		}
 		sentence := "sentence number " + strconv.Itoa(i) + " has words"
 		for len(sentence) > width {
-			rows = append(rows, Line{C(sentence[:width], "")})
+			rows = append(rows, Line{C(sentence[:width], sentenceCode)})
 			sentence = sentence[width:]
 		}
-		rows = append(rows, Line{C(sentence, "")})
+		rows = append(rows, Line{C(sentence, sentenceCode)})
 	}
 	return rows
 }
@@ -54,8 +59,10 @@ func TestReaderJumpsSearchesAndKeepsItsPlaceOnAResize(t *testing.T) {
 		r.pressed(typedKey(string(c)))
 	}
 	r.pressed(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if !strings.Contains(r.screen(), Reverse+"number 37") {
-		t.Fatalf("the match is not reversed on screen:\n%s", r.screen())
+	at := slices.IndexFunc(r.rows, func(row Line) bool { return strings.Contains(row.Text(), "number 37 ") })
+	matched := slices.IndexFunc(r.marked(r.rows[at]), func(c Cell) bool { return c.Text == "number 37" })
+	if matched < 0 || r.marked(r.rows[at])[matched].Code == sentenceCode {
+		t.Fatalf("the match should draw unlike the bold match-colored text around it: %+v", r.marked(r.rows[at]))
 	}
 
 	first := r.rows[r.top].Text()
@@ -179,7 +186,7 @@ func TestClosingATallRowScrolledThroughWithThirtyRowsBelowItLeavesTheCursorOnScr
 		t.Fatalf("ctrl+d should have scrolled through the row's text:\n%s", m.screen())
 	}
 	m.Update(spaceKey)
-	if got := m.screen(); !strings.Contains(got, "› ▸") {
+	if got := m.screen(); !strings.Contains(got, "▌ ▸") {
 		t.Fatalf("closing the row should leave the cursor on screen:\n%s", got)
 	}
 }

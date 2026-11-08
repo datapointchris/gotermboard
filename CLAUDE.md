@@ -9,7 +9,9 @@ A Go library that Go command-line tools import, shipped as git tags. Its one `ma
   no `/vN` suffix. A breaking change ships as a minor while the module is on 0.x.
 - **It knows nothing of what its callers show.** A row, a group and a column are
   generic. A caller's domain words never reach this package.
-- **Colors are ANSI 0-15, through gotermstyle**, so a board follows the terminal's theme.
+- **Colors come from the TUI theme file through gotermstyle, or ANSI 0–15 without one**, so
+  a board follows the terminal's theme. Only the cursor's row, the tab line and search
+  matches read the file so far. Every other color is still a fixed ANSI 0–15 code.
 - **A hidden tab starts no read, builds no frame and moves no strip.** A tab's return draws its last good
   read first, then reads what is due.
 - **No cue or mark moves a column.** A change cue sits in the pointer's column, and a mark

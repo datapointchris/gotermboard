@@ -27,16 +27,19 @@ type Tabs struct {
 	names  []string
 	models []*Model
 	pal    gotermstyle.Palette
+	theme  *liveTheme
 	at     int
 }
 
 // NewTabs is a program of these tabs, opening on the one named open, or the first where
-// open is empty. A name no tab has is an error naming the ones there are.
+// open is empty. A name no tab has is an error naming the ones there are. Every tab draws in
+// the one TUI theme file gotermstyle's tuitheme finds, read again on SIGUSR2.
 func NewTabs(tabs []Tab, pal gotermstyle.Palette, open string) (*Tabs, error) {
 	if len(tabs) == 0 {
 		return nil, errors.New("a board needs at least one tab")
 	}
-	t := &Tabs{pal: pal}
+	theme, themeErr := loadTheme()
+	t := &Tabs{pal: pal, theme: theme}
 	for _, tab := range tabs {
 		t.names = append(t.names, tab.Name)
 	}
@@ -47,18 +50,20 @@ func NewTabs(tabs []Tab, pal gotermstyle.Palette, open string) (*Tabs, error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.models = hiddenModels(tabs, pal, ctx, cancel)
+	t.models = hiddenModels(tabs, pal, theme, ctx, cancel)
 	for _, model := range t.models {
 		model.hosted = t.cycleActions()
 	}
+	t.active().sayThemeFault(themeErr)
 	return t, nil
 }
 
-// hiddenModels share one context, so quitting from any tab ends every tab's reads.
-func hiddenModels(tabs []Tab, pal gotermstyle.Palette, ctx context.Context, cancel context.CancelFunc) []*Model {
+// hiddenModels share one context, so quitting from any tab ends every tab's reads, and one
+// theme, so a reload recolors every tab.
+func hiddenModels(tabs []Tab, pal gotermstyle.Palette, theme *liveTheme, ctx context.Context, cancel context.CancelFunc) []*Model {
 	models := make([]*Model, 0, len(tabs))
 	for _, tab := range tabs {
-		model := newModel(tab.Board, pal, ctx, cancel)
+		model := newModel(tab.Board, pal, theme, ctx, cancel)
 		model.hidden = true
 		models = append(models, model)
 	}
@@ -94,7 +99,9 @@ func (t *Tabs) tabLineHeight() int {
 }
 
 // Init is Bubble Tea's. One clock runs, and it goes to whichever tab is showing.
-func (t *Tabs) Init() tea.Cmd { return tea.Batch(tick(), t.active().reveal(time.Now())) }
+func (t *Tabs) Init() tea.Cmd {
+	return tea.Batch(tick(), t.active().reveal(time.Now()), t.theme.watch())
+}
 
 // Update is Bubble Tea's. A size goes to every tab, and so does any message this package does
 // not own, which is a ReceivingBoard's. A key, a paste and the clocks go to the tab showing.
@@ -109,6 +116,8 @@ func (t *Tabs) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg, refreshedMsg, moveMsg, spinMsg, tea.KeyPressMsg, tea.PasteMsg:
 		_, cmd := t.active().Update(msg)
 		return t, cmd
+	case themeLoadedMsg:
+		return t, t.theme.reloaded(msg, t.active().sayThemeFault)
 	}
 	cmds := make([]tea.Cmd, 0, len(t.models))
 	for _, model := range t.models {
@@ -129,23 +138,18 @@ func (t *Tabs) View() tea.View {
 	return v
 }
 
-// The tab line marks the current tab by color and weight rather than a box, as a tmux status
-// line marks its window: bold in an accent, and the rest in the rules' gray.
-const (
-	currentTabCode = BoldYellow
-	otherTabCode   = RuleCode
-)
-
-// tabLine names the tabs, each padded by a space and two spaces apart. Where there is no
-// color, brackets take the current tab's padding, so no name moves.
+// tabLine names the tabs, each padded by a space and two spaces apart. It marks the current
+// tab by color and weight rather than a box, as a tmux status line marks its window: bold in
+// ui.warning, and the rest in ui.muted, so it reads like a tmux bar drawn from the same theme.
+// Where there is no color, brackets take the current tab's padding, so no name moves.
 func (t *Tabs) tabLine() string {
 	parts := make([]string, 0, len(t.names))
 	for i, name := range t.names {
 		switch {
 		case i != t.at:
-			parts = append(parts, t.pal.Paint(otherTabCode, " "+name+" "))
+			parts = append(parts, t.pal.Paint(t.theme.code("ui.muted"), " "+name+" "))
 		case t.pal.On():
-			parts = append(parts, t.pal.Paint(currentTabCode, " "+name+" "))
+			parts = append(parts, t.pal.Paint(emboldened(t.theme.code("ui.warning")), " "+name+" "))
 		default:
 			parts = append(parts, "["+name+"]")
 		}

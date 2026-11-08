@@ -82,6 +82,7 @@ const tickEvery = time.Second
 type Model struct {
 	board  Board
 	pal    gotermstyle.Palette
+	theme  *liveTheme
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -135,19 +136,31 @@ type Model struct {
 	charts []string
 }
 
-// NewModel is a model reading board, sized until the terminal says otherwise.
+// NewModel is a model reading board, sized until the terminal says otherwise. It draws in
+// the TUI theme file gotermstyle's tuitheme finds, and reads it again on SIGUSR2 while it runs
+// as the program. A file that will not load at start leaves ANSI 0-15, and on a reload keeps
+// the colors on screen. The footer says why.
 func NewModel(board Board, pal gotermstyle.Palette) *Model {
 	ctx, cancel := context.WithCancel(context.Background())
-	m := newModel(board, pal, ctx, cancel)
+	theme, err := loadTheme()
+	m := newModel(board, pal, theme, ctx, cancel)
+	m.sayThemeFault(err)
 	m.rebuild(time.Now())
 	return m
 }
 
-func newModel(board Board, pal gotermstyle.Palette, ctx context.Context, cancel context.CancelFunc) *Model {
+func newModel(board Board, pal gotermstyle.Palette, theme *liveTheme, ctx context.Context, cancel context.CancelFunc) *Model {
 	twoLines, ok := board.(TwoLineBoard)
 	return &Model{
-		board: board, pal: pal, ctx: ctx, cancel: cancel, width: 80, height: 24, cue: newChangeCue(),
+		board: board, pal: pal, theme: theme, ctx: ctx, cancel: cancel, width: 80, height: 24, cue: newChangeCue(),
 		display: display{folded: map[string]bool{}, opened: map[string]bool{}, matched: newRowMatches(), under: ok && twoLines.TwoLines()},
+	}
+}
+
+// sayThemeFault puts why the theme file would not load on the footer.
+func (m *Model) sayThemeFault(err error) {
+	if err != nil {
+		m.said = err.Error()
 	}
 }
 
@@ -155,7 +168,9 @@ func newModel(board Board, pal gotermstyle.Palette, ctx context.Context, cancel 
 func Once(board Board, pal gotermstyle.Palette, width, height int) string {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	m := newModel(board, pal, ctx, cancel)
+	theme, err := loadTheme()
+	m := newModel(board, pal, theme, ctx, cancel)
+	m.sayThemeFault(err)
 	m.width, m.height = width, height
 	m.rebuild(time.Now())
 	m.tellCursor()
@@ -204,7 +219,7 @@ func tick() tea.Cmd {
 }
 
 // Init starts every source's first read and the clock.
-func (m *Model) Init() tea.Cmd { return tea.Batch(tick(), m.reveal(time.Now())) }
+func (m *Model) Init() tea.Cmd { return tea.Batch(tick(), m.reveal(time.Now()), m.theme.watch()) }
 
 // reveal draws the last good reads, with no change cue, and starts what is due. The reads
 // claim before the frame is built, so the frame sees the quiet last until they return.
@@ -362,6 +377,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case refreshedMsg:
 		m.rebuild(time.Now())
 		m.relayReading()
+	case themeLoadedMsg:
+		return m.theme.reloaded(msg, m.sayThemeFault)
 	case tea.PasteMsg:
 		switch m.mode() {
 		case readingMode:
@@ -654,7 +671,7 @@ func (m *Model) HalfScreen() int { return max(1, m.bodyHeight()/2) }
 // Read opens document on a full-screen Reader over the board, until esc or space closes it.
 // The reader's top line names the groups holding the cursor's line, then title.
 func (m *Model) Read(title string, document Document) {
-	m.reading = NewReader(title, document, m.pal)
+	m.reading = newReader(title, document, m.pal, m.theme)
 	m.reading.path = m.cursorPath()
 	m.reading.back = func() { m.reading = nil }
 	m.reading.quit = func() tea.Cmd {
@@ -1057,7 +1074,7 @@ func (m *Model) bodyHeight() int { return m.heights().body }
 // table is the laid-out table: the lines that stay on screen, and those that scroll.
 func (m *Model) table() (pinned, scrolling []drawn) {
 	nodes, widths := m.laidOut()
-	return splitPinned(draw(m.pal, m.frame.Columns, nodes, widths, m.tableWidth(), m.cursor))
+	return splitPinned(draw(m.pal, m.frame.Columns, nodes, widths, m.tableWidth(), m.cursor, m.theme.cursorLook(m.pal)))
 }
 
 // scrollHeight is what the lines that stay on screen leave for those that scroll.

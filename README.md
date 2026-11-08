@@ -54,14 +54,33 @@ every source past its interval reads at once. A source inside its interval keeps
 pace, so cycling the tabs quickly starts nothing extra. A program with one tab draws no
 tab line, and Tab does nothing in it.
 
-The tab line marks the current tab by color and weight rather than a box, as a tmux status
-line marks its window: bold bright yellow, with the rest in bright black, each padded by a
-space and two spaces apart. Both are ANSI slots, so the terminal's theme sets them.
-
 `Once` draws one frame from what a board's sources already hold, and `OnceSize` picks
 its size: `COLUMNS` by `LINES`, then the terminal, then a fallback you pass. A screen that
 is no board picks its printed frame's size the same way with `printedframe.Size`, which
 imports nothing that draws.
+
+## A theme file colors the cursor's row and the tab line, and SIGUSR2 recolors a running board
+
+`NewTabs`, `NewModel`, `NewReader` and `Once` read the TUI theme file that gotermstyle's
+`tuitheme.DefaultPath` names. Without one, a board draws in the terminal's own 16 colors. A
+file that will not load at start leaves those 16 too, and the footer says why.
+
+- **The cursor's row takes the file's `ui.selection` background across the table's width**:
+  its indent, its cells and the gaps between columns. Each cell keeps its own foreground, so a
+  state's color still reads on it. Without a file the row is bold, with `▌` in the pointer's
+  column. No column moves either way.
+- **The tab line marks the current tab by color and weight rather than a box**, as a tmux
+  status line marks its window. The current tab is bold in `ui.warning` and the rest are in
+  `ui.muted`, so the tab line reads like a tmux bar drawn from the same theme. Each name is
+  padded by a space, two spaces apart.
+- **A reader's search matches draw in `ui.match`, bold, over the `ui.selection` background**,
+  or reversed without a file, so a match inside a code span still stands out.
+- **SIGUSR2 reads the file again**, so a theme change recolors a running board with no
+  restart. A file that will not load keeps the colors on screen. The program's `Init` starts
+  the wait, so a model wrapping `Tabs` calls its `Init` and hands it the messages it does not
+  handle itself.
+- **A test that draws a board sets `TUI_THEME_FILE` to a path that does not exist**, so it
+  draws the built-in theme whatever file the machine running it has.
 
 ## One line says how the reads stand
 
