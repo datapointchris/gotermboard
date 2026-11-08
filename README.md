@@ -219,7 +219,9 @@ path line the same way: the `breadcrumb` package imports nothing that draws, so 
 out of that screen's build.
 
 `Model.Read` opens one over the board from a board's own key, and `esc` or `space` returns to the
-board. `Model.Tall` says whether a document runs past the screen. `NewReader` runs as a program of its
+board. `Model.Tall` says whether a document runs past the screen. A program that draws its own screen
+rather than a board hands each key, paste and size to a `NewReader` while it shows one, and
+`ClosesWith` names what `esc` and `space` return to. `NewReader` runs as a program of its
 own, which is all `cmd/read-markdown` does with a file or a pipe:
 
 ```bash

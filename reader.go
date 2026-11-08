@@ -83,6 +83,11 @@ func newReader(title string, document Document, pal gotermstyle.Palette, theme *
 	return r
 }
 
+// ClosesWith is for a program drawing the reader inside a screen of its own, as Model.Read
+// does over a board: esc and space call back once nothing is left to clear, where on a reader
+// running as the program they do nothing.
+func (r *Reader) ClosesWith(back func()) { r.back = back }
+
 // Once is the whole document at width, for output nobody scrolls.
 func (r *Reader) Once(width int) string {
 	var b strings.Builder
