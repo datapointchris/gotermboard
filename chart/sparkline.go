@@ -18,8 +18,8 @@ type Sparkline struct {
 	Fill bool
 }
 
-// Lines is the sparkline in width by height cells, one value to a column. More values than columns
-// are averaged in even runs, so the whole span shows.
+// Lines is the sparkline in width by height cells. More values than columns are averaged in even
+// runs, so the whole span shows, and with Fill fewer values are each widened into a run of columns.
 func (s Sparkline) Lines(width, height int) []gotermboard.Line {
 	values := buckets(s.Values, width)
 	if s.Fill {

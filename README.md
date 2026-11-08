@@ -281,8 +281,9 @@ The `chart` package draws plain series as lines of cells:
 - `Heatmap` shades a grid such as hour against weekday, from `░` to `█` in one color. A shade orders
   by density in any theme, where a ramp of the sixteen colors orders differently in each. Given fewer
   lines than it has rows, it drops its column names first, then ends on a `+N` line for the rest.
-- `Sparkline` draws eighth-block columns, averaging more values than columns so the whole span shows, and with `Fill` widening fewer so they span it.
-  Any value above zero draws at least `▁`, so a quiet stretch reads apart from an empty one.
+- `Sparkline` draws eighth-block columns, averaging more values than columns so the whole span
+  shows, and with `Fill` widening fewer so they span it. Any value above zero draws at least `▁`, so
+  a quiet stretch reads apart from an empty one.
 - `Bars` draws an upright bar per value in its own color, over an axis labeled at the top, the middle
   and zero. A bar with a `Stack` draws each part over the one before it.
 - `Meter` draws one bar across a line to an eighth of a cell, each part after the one before it.
