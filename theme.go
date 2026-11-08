@@ -70,9 +70,12 @@ func (lt *liveTheme) reloaded(msg themeLoadedMsg, say func(error)) tea.Cmd {
 // code is role's color and style, as a Cell's Code.
 func (lt *liveTheme) code(role string) string { return lt.current.Code(role) }
 
+// builtInTheme is the theme a line draws in outside a board.
+var builtInTheme = tuitheme.Default()
+
 // builtInSelection is the selection the built-in theme gives, a light slab in ANSI 0-15
 // that the cursor's row never wears.
-var builtInSelection = tuitheme.Default().Style("ui.selection")
+var builtInSelection = builtInTheme.Style("ui.selection")
 
 // cursorLook is how the cursor's row is drawn on pal.
 func (lt *liveTheme) cursorLook(pal gotermstyle.Palette) cursorLook {

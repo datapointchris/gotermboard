@@ -40,7 +40,7 @@ func (l *layout) table(t *east.Table, prefix gotermboard.Line, width int, base s
 	for at, cells := range grid {
 		l.tableRow(cells, alignments[at], widths, prefix)
 		if at == 0 {
-			l.out = append(l.out, slices.Concat(prefix, gotermboard.Line{gotermboard.C(strings.Join(rule, "─┼─"), grayCode)}))
+			l.out = append(l.out, slices.Concat(prefix, gotermboard.Line{inRole(strings.Join(rule, "─┼─"), borderRole)}))
 		}
 	}
 }
@@ -66,7 +66,7 @@ func (l *layout) tableRow(cells []gotermboard.Line, aligned []east.Alignment, wi
 		row := slices.Clone(prefix)
 		for i, w := range widths {
 			if i > 0 {
-				row = append(row, gotermboard.C(" │ ", grayCode))
+				row = append(row, inRole(" │ ", borderRole))
 			}
 			var piece gotermboard.Line
 			if line < len(wrappedCells[i]) {

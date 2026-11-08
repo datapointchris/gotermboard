@@ -1,12 +1,15 @@
 package markdown
 
 import (
-	"slices"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/datapointchris/gotermboard"
+	"github.com/datapointchris/gotermstyle"
+	"github.com/datapointchris/gotermstyle/tuitheme"
 )
 
 func texts(lines []gotermboard.Line) []string {
@@ -64,7 +67,7 @@ func TestATableKeepsItsShortColumnWholeAndFitsTheWidth(t *testing.T) {
 	}
 }
 
-func TestCodeWrapsAndHighlightsInALanguageItNamesAndAnyOtherFenceStaysPlainAndCut(t *testing.T) {
+func TestCodeWrapsInALanguageItNamesAndAnyOtherFenceStaysPlainAndCut(t *testing.T) {
 	code := "  func read() string { return \"a very long string that runs past the box\" }"
 	lines := New(nil).Lines("```go\n"+code+"\n```\n\n```\nfunc plain with a long line that runs past the box\n```\n", 30)
 	if got := lines[0].Text(); got != "╭─ go" {
@@ -94,12 +97,24 @@ func TestCodeWrapsAndHighlightsInALanguageItNamesAndAnyOtherFenceStaysPlainAndCu
 	if len(codeRows) < 2 || rejoined.String() != code {
 		t.Errorf("wrapping should keep all of the code, got %d rows of %q", len(codeRows), rejoined.String())
 	}
-	if !slices.ContainsFunc(codeRows[0], func(c gotermboard.Cell) bool { return c.Code == gotermboard.Magenta }) {
-		t.Errorf("a keyword should wear a color: %+v", codeRows[0])
-	}
 	plain := lines[len(lines)-2]
-	if got := plain.Text(); !strings.HasSuffix(got, "…") || ansi.StringWidth(got) != 30 || plain[1].Code != "" {
+	if got := plain.Text(); !strings.HasSuffix(got, "…") || ansi.StringWidth(got) != 30 || plain[1].Role != blockRole {
 		t.Errorf("a fence naming no language stays plain and is cut at the box: %+v", plain)
+	}
+}
+
+func TestAThemeFilesSyntaxColorReachesACodeToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "current.json")
+	if err := os.WriteFile(path, []byte(`{"syntax": {"keyword": "#ff0000"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(tuitheme.PathEnv, path)
+	renderer := New(nil)
+	reader := gotermboard.NewReader("", func(width int) []gotermboard.Line {
+		return renderer.Lines("```go\nfunc main() {}\n```\n", width)
+	}, gotermstyle.NewPalette(true))
+	if out := reader.Once(40); !strings.Contains(out, "\033[0;38;2;255;0;0mfunc") {
+		t.Errorf("a keyword should draw in the theme file's syntax.keyword: %q", out)
 	}
 }
 
@@ -133,10 +148,27 @@ func TestACallerColorsWhatItRecognizesInProseAndNeverInCode(t *testing.T) {
 	var runs []string
 	renderer := New(func(text, code string) gotermboard.Line {
 		runs = append(runs, text)
-		return gotermboard.Line{gotermboard.C(text, code)}
+		before, after, found := strings.Cut(text, "1544")
+		if !found {
+			return gotermboard.Line{gotermboard.C(text, code)}
+		}
+		return gotermboard.Line{gotermboard.C(before, code), gotermboard.C("1544", gotermboard.Cyan), gotermboard.C(after, code)}
 	})
-	renderer.Lines("see 1544 and `1600`\n\n```\n1700\n```\n", 40)
+	lines := renderer.Lines("## see 1544 now\n\n[issue 1544 here](https://example.com)\n\n`1600`\n\n```\n1700\n```\n", 60)
 	if joined := strings.Join(runs, "|"); !strings.Contains(joined, "1544") || strings.Contains(joined, "1600") || strings.Contains(joined, "1700") {
 		t.Errorf("prose reaches the caller and code does not: %q", runs)
+	}
+	want := map[string]string{"see": "markdown.heading.2", "now": "markdown.heading.2", "issue": "markdown.link.label", "here": "markdown.link.label"}
+	for _, line := range []gotermboard.Line{lines[0], lines[2]} {
+		for _, cell := range line {
+			for _, word := range strings.Fields(cell.Text) {
+				if word == "1544" && (cell.Code != gotermboard.Cyan || cell.Role != "") {
+					t.Errorf("the number the caller colored should keep its color alone: %+v", cell)
+				}
+				if role, named := want[word]; named && cell.Role != role {
+					t.Errorf("%q around the caller's color should keep the run's role %s: %+v", word, role, cell)
+				}
+			}
+		}
 	}
 }

@@ -92,7 +92,7 @@ func (r *Reader) ClosesWith(back func()) { r.back = back }
 func (r *Reader) Once(width int) string {
 	var b strings.Builder
 	for _, line := range r.document(width) {
-		b.WriteString(line.Paint(r.pal))
+		b.WriteString(line.paint(r.pal, r.theme.current))
 		b.WriteByte('\n')
 	}
 	return b.String()
@@ -215,7 +215,7 @@ func (r *Reader) pathLine(segments []Line, room int) string {
 	dropped, widths := breadcrumb.Fit(widths, ansi.StringWidth(" › "), room)
 	painted := make([]string, 0, len(widths))
 	for i, segment := range segments[dropped:] {
-		painted = append(painted, ansi.Truncate(segment.Paint(r.pal), widths[i], "…"))
+		painted = append(painted, ansi.Truncate(segment.paint(r.pal, r.theme.current), widths[i], "…"))
 	}
 	return strings.Join(painted, r.pal.Paint(RuleCode, " › "))
 }
@@ -467,11 +467,11 @@ func (r *Reader) marked(row Line) Line {
 			for end < len(runes) && matched[at+end] == matched[at+start] {
 				end++
 			}
-			code := cell.Code
+			piece := cell.withText(string(runes[start:end]))
 			if matched[at+start] {
-				code = match
+				piece = C(piece.Text, match)
 			}
-			out = append(out, C(string(runes[start:end]), code))
+			out = append(out, piece)
 			start = end
 		}
 		at += len(runes)
@@ -492,7 +492,7 @@ func (r *Reader) screen() string {
 	} else {
 		margin := r.margin()
 		for _, row := range r.rows[r.top:min(r.top+body, len(r.rows))] {
-			lines = append(lines, ansi.Truncate(margin+r.marked(row).Paint(r.pal), r.width, "…"))
+			lines = append(lines, ansi.Truncate(margin+r.marked(row).paint(r.pal, r.theme.current), r.width, "…"))
 		}
 	}
 	for len(lines) < body+1 {

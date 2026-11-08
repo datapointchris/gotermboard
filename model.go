@@ -1087,7 +1087,7 @@ func (m *Model) bodyHeight() int { return m.heights().body }
 // table is the laid-out table: the lines that stay on screen, and those that scroll.
 func (m *Model) table() (pinned, scrolling []drawn) {
 	nodes, widths := m.laidOut()
-	return splitPinned(draw(m.pal, m.frame.Columns, nodes, widths, m.tableWidth(), m.cursor, m.theme.cursorLook(m.pal)))
+	return splitPinned(draw(m.pal, m.theme.current, m.frame.Columns, nodes, widths, m.tableWidth(), m.cursor, m.theme.cursorLook(m.pal)))
 }
 
 // scrollHeight is what the lines that stay on screen leave for those that scroll.
@@ -1249,7 +1249,7 @@ func (m *Model) panelText(n node, width int) []string {
 	if authored != nil {
 		for _, line := range authored(width) {
 			for _, piece := range wrapWords(line, width) {
-				lines = append(lines, piece.Paint(m.pal))
+				lines = append(lines, piece.paint(m.pal, m.theme.current))
 			}
 		}
 		return lines

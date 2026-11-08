@@ -1,6 +1,8 @@
-// Package markdown lays markdown out as a board's lines at a given width, in colors that
-// follow the terminal's theme. It wraps before it styles, so each line carries its own
-// colors, and a bullet's wrapped lines hang under its text.
+// Package markdown lays markdown out as a board's lines at a given width, naming a TUI theme
+// role for each cell, such as markdown.heading.2 or syntax.keyword. The board resolves a role in
+// its theme as it draws, so a reload recolors a document already laid out.
+// It wraps before it styles, so each line carries its own colors, and a bullet's wrapped lines
+// hang under its text.
 package markdown
 
 import (
@@ -43,7 +45,8 @@ type Renderer struct {
 }
 
 // New is a Renderer. textRun, when not nil, turns a run of prose into cells, so a caller
-// can color what it recognizes there. Code never reaches it.
+// can color what it recognizes there. code is the run's attributes, and a cell handed back in
+// code also wears the run's theme role. A code span or block never reaches it.
 func New(textRun func(text, code string) gotermboard.Line) *Renderer {
 	return &Renderer{textRun: textRun, rendered: map[rendering][]gotermboard.Line{}}
 }
@@ -126,8 +129,8 @@ func (l *layout) block(node ast.Node, first, rest gotermboard.Line, width int, b
 	case *ast.List:
 		l.list(v, first, rest, width, base)
 	case *ast.Blockquote:
-		bar := gotermboard.C("│ ", grayCode)
-		base.italic = true
+		bar := inRole("│ ", borderRole)
+		base.role, base.italic = "markdown.quote", true
 		l.blocks(v, slices.Concat(first, gotermboard.Line{bar}), slices.Concat(rest, gotermboard.Line{bar}), width-2, base)
 	case *ast.FencedCodeBlock:
 		l.code(string(v.Language(l.source)), l.linesOf(v), first, rest, width)
@@ -136,7 +139,7 @@ func (l *layout) block(node ast.Node, first, rest gotermboard.Line, width int, b
 	case *east.Table:
 		l.table(v, first, width, base)
 	case *ast.ThematicBreak:
-		l.emit(first, rest, []gotermboard.Line{{gotermboard.C(strings.Repeat("─", min(width, 40)), grayCode)}})
+		l.emit(first, rest, []gotermboard.Line{{inRole(strings.Repeat("─", min(width, 40)), borderRole)}})
 	case *ast.HTMLBlock:
 		// Raw HTML shows as written, so a placeholder like <slug> reads as its author typed it.
 		source := l.linesOf(v)
@@ -161,18 +164,19 @@ func (l *layout) linesOf(node ast.Node) string {
 	return b.String()
 }
 
+// heading draws a heading in its level's theme role, bold whatever the theme says, so it stands
+// out in a theme that only colors it. The first is a reversed slab, and the next two hang off a
+// bar in their own color.
 func (l *layout) heading(v *ast.Heading, first, rest gotermboard.Line, width int) {
-	s := style{bold: true}
+	s := style{role: "markdown.heading." + strconv.Itoa(v.Level), bold: true}
 	var mark gotermboard.Line
 	switch v.Level {
 	case 1:
-		s.color, s.reverse = gotermboard.Blue, true
+		s.reverse = true
 	case 2:
-		s.color = gotermboard.Blue
-		mark = gotermboard.Line{gotermboard.C("▌ ", gotermboard.Blue)}
+		mark = gotermboard.Line{inRole("▌ ", s.role)}
 	case 3:
-		s.color = gotermboard.Cyan
-		mark = gotermboard.Line{gotermboard.C("▎ ", gotermboard.Cyan)}
+		mark = gotermboard.Line{inRole("▎ ", s.role)}
 	}
 	markWidth := len([]rune(mark.Text()))
 	opensAt := len(l.out)
@@ -200,7 +204,7 @@ func (l *layout) list(v *ast.List, first, rest gotermboard.Line, width int, base
 	number := v.Start
 	for item := v.FirstChild(); item != nil; item = item.NextSibling() {
 		text := mark(number)
-		marker := gotermboard.C(text+strings.Repeat(" ", markWidth-len([]rune(text))), gotermboard.Blue)
+		marker := inRole(text+strings.Repeat(" ", markWidth-len([]rune(text))), "markdown.list")
 		l.blocks(item, slices.Concat(lead, gotermboard.Line{marker}), slices.Concat(rest, spaces(markWidth)), width-markWidth, base)
 		lead = rest
 		number++
