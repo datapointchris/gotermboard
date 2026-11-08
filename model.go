@@ -361,6 +361,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		}
 	case refreshedMsg:
 		m.rebuild(time.Now())
+		m.relayReading()
 	case tea.PasteMsg:
 		switch m.mode() {
 		case readingMode:
@@ -635,6 +636,19 @@ func (m *Model) Read(title string, document Document) {
 	m.reading.resize(m.width, m.height)
 }
 
+// relayReading lays an open reader out again after a read lands, keeping its place, so text a
+// source fills after enter shows without closing it. A reader a row opened reads that row's
+// Document in the new frame.
+func (m *Model) relayReading() {
+	if m.reading == nil {
+		return
+	}
+	if n, ok := m.selected(); ok && m.reading.row != "" && n.kind == nodeRow && n.row.Key == m.reading.row && n.row.Document != nil {
+		m.reading.document = n.row.Document
+	}
+	m.reading.resize(m.width, m.height)
+}
+
 // Tall says document runs past the screen, so enter reads it on a Reader.
 func (m *Model) Tall(document Document) bool {
 	return len(document(m.tableWidth())) >= m.bodyHeight()
@@ -720,6 +734,7 @@ func (m *Model) setFilter(filter string) {
 func (m *Model) toggle() tea.Cmd {
 	if n, ok := m.selected(); ok && n.kind == nodeRow && n.row.Document != nil && (m.panelDrawsDocumentOf(n.row) || m.Tall(n.row.Document)) {
 		m.Read(n.row.title(), n.row.Document)
+		m.reading.row = n.row.Key
 		return nil
 	}
 	return m.toggleInPlace()

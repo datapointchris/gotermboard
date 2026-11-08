@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/datapointchris/gotermstyle"
@@ -113,6 +114,32 @@ func TestEnterReadsTallTextAndTextThePanelDrawsFullScreenAndSpaceFoldsItInPlace(
 	m.Update(enterKey)
 	if m.reading != nil {
 		t.Error("a short row whose Panel the side panel draws should open its Document in place")
+	}
+}
+
+// lateBoard's one tall row ends on tail as it stood when the frame was built.
+type lateBoard struct{ tail string }
+
+func (b *lateBoard) Sources() []Refresher { return nil }
+func (b *lateBoard) Groupings() []string  { return nil }
+func (b *lateBoard) Frame(time.Time, string) Frame {
+	tail := b.tail
+	document := func(width int) []Line { return append(wrappedDocument(width), Line{C(tail, "")}) }
+	return Frame{Columns: []Column{{Title: "ROW"}}, Groups: []Group{{Rows: []Row{
+		{Key: "tall", Cells: []Cell{C("the tall row", "")}, Document: document},
+	}}}}
+}
+
+func TestAnOpenReaderShowsTheTextAReadBringsWhereItStands(t *testing.T) {
+	board := &lateBoard{tail: "the comments are unread"}
+	m := NewModel(board, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	m.Update(enterKey)
+	m.Update(typedKey("G"))
+	board.tail = "89 points"
+	m.Update(refreshedMsg{})
+	if got := m.screen(); m.reading == nil || !strings.Contains(got, "89 points") {
+		t.Fatalf("the reader at the document's end should show what the read brought:\n%s", got)
 	}
 }
 

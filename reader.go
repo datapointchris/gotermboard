@@ -38,6 +38,9 @@ type Reader struct {
 	pal      gotermstyle.Palette
 	// path is what holds the row that opened this reader, outermost first.
 	path []Line
+	// row is the key of the row whose Document this reads, so a read that lands lays out the
+	// new frame's. Empty, the reader keeps the Document it opened with.
+	row string
 	// back is what esc does once nothing is left to clear. Nil means esc stays put.
 	back func()
 	quit func() tea.Cmd
