@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/datapointchris/gotermstyle"
+	"github.com/datapointchris/gotermstyle/tuitheme"
 )
 
 func TestAFailedReadKeepsTheLastGoodValueAndSaysHowOldItIs(t *testing.T) {
@@ -299,7 +300,7 @@ func TestEachTabKeepsItsCursorAndFolds(t *testing.T) {
 	if !strings.Contains(got, "[one]") || !strings.Contains(got, "▾ GROUP") {
 		t.Errorf("the first tab should keep its group open:\n%s", got)
 	}
-	if !strings.Contains(got, "›  second") {
+	if !strings.Contains(got, "▌  second") {
 		t.Errorf("the first tab should keep its cursor on the second row:\n%s", got)
 	}
 }
@@ -333,7 +334,7 @@ func (b *changingBoard) Frame(time.Time, string) Frame {
 func TestARowThatChangedWearsTheCueForAWhileAndAnAgeNeverLightsIt(t *testing.T) {
 	board := &changingBoard{state: "running", age: "1s"}
 	now := time.Now()
-	m := newModel(board, gotermstyle.NewPalette(false), context.Background(), func() {})
+	m := newModel(board, gotermstyle.NewPalette(false), &liveTheme{current: tuitheme.Default()}, context.Background(), func() {})
 	m.width, m.height = 100, 20
 	m.reveal(now)
 	m.cursor, m.placed = "g", true
@@ -780,7 +781,7 @@ func TestAnOpenRowAndItsGroupsHoldTheTopWhileItsTextScrollsUnderThem(t *testing.
 
 	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	got := top(4)
-	if !strings.Contains(got[0], "OUTER") || !strings.Contains(got[1], "INNER") || !strings.Contains(got[2], "› ") || !strings.Contains(got[2], "first") {
+	if !strings.Contains(got[0], "OUTER") || !strings.Contains(got[1], "INNER") || !strings.Contains(got[2], "▌ ") || !strings.Contains(got[2], "first") {
 		t.Errorf("the groups and the cursor's row should hold the top:\n%s", strings.Join(got, "\n"))
 	}
 	if !strings.Contains(got[3], "first line 9") {
@@ -788,7 +789,7 @@ func TestAnOpenRowAndItsGroupsHoldTheTopWhileItsTextScrollsUnderThem(t *testing.
 	}
 
 	m.ScrollBy(22)
-	if got := top(3); !strings.Contains(got[2], "second") || strings.Contains(got[2], "›") {
+	if got := top(3); !strings.Contains(got[2], "second") || strings.Contains(got[2], "▌") {
 		t.Errorf("the next row's text under the band should put that row in its place:\n%s", strings.Join(got, "\n"))
 	}
 
@@ -799,7 +800,7 @@ func TestAnOpenRowAndItsGroupsHoldTheTopWhileItsTextScrollsUnderThem(t *testing.
 	}
 
 	m.Update(downKey)
-	if got := top(3); !strings.Contains(got[2], "› ") || !strings.Contains(got[2], "second") {
+	if got := top(3); !strings.Contains(got[2], "▌ ") || !strings.Contains(got[2], "second") {
 		t.Errorf("a cursor moved under the band should bring its row out below it:\n%s", m.screen())
 	}
 }

@@ -1,0 +1,169 @@
+package gotermboard
+
+import (
+	"os"
+	"strconv"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/datapointchris/gotermstyle"
+	"github.com/datapointchris/gotermstyle/tuitheme"
+)
+
+// liveTheme is the TUI theme file a program draws in, which every tab and reader of the
+// program shares, so one reload recolors them all. A Theme never changes once loaded, so a
+// reload swaps current.
+type liveTheme struct {
+	path    string
+	current *tuitheme.Theme
+	signals chan os.Signal
+}
+
+// loadTheme reads the theme file where tuitheme looks for it. A missing file is the built-in
+// theme in ANSI 0-15 with no error. A file that will not load is the built-in theme too, and
+// the error says why.
+func loadTheme() (*liveTheme, error) {
+	path, err := tuitheme.DefaultPath()
+	if err != nil {
+		return &liveTheme{current: tuitheme.Default()}, err
+	}
+	theme, err := tuitheme.Load(path)
+	return &liveTheme{path: path, current: theme}, err
+}
+
+// themeLoadedMsg is the theme file read again on a reload request, or why it would not load.
+type themeLoadedMsg struct {
+	theme *tuitheme.Theme
+	err   error
+}
+
+// watch waits for the next request to read the theme file again, which a theme generator
+// sends as SIGUSR2, then reads it. Each themeLoadedMsg arms the next wait.
+func (lt *liveTheme) watch() tea.Cmd {
+	if lt.path == "" {
+		return nil
+	}
+	if lt.signals == nil {
+		lt.signals = make(chan os.Signal, 1)
+		tuitheme.Notify(lt.signals)
+	}
+	signals, path := lt.signals, lt.path
+	return func() tea.Msg {
+		<-signals
+		theme, err := tuitheme.Load(path)
+		return themeLoadedMsg{theme: theme, err: err}
+	}
+}
+
+// take draws in a theme read again. One that would not load leaves the theme on screen, and
+// the error says why.
+func (lt *liveTheme) take(msg themeLoadedMsg) error {
+	if msg.err != nil {
+		return msg.err
+	}
+	lt.current = msg.theme
+	return nil
+}
+
+// code is role's color and style, as a Cell's Code.
+func (lt *liveTheme) code(role string) string { return lt.current.Code(role) }
+
+// builtInSelection is the selection the built-in theme gives, a light slab in ANSI 0-15
+// that the cursor's row never wears.
+var builtInSelection = tuitheme.Default().Style("ui.selection")
+
+// cursorLook is how the cursor's row is drawn on pal.
+func (lt *liveTheme) cursorLook(pal gotermstyle.Palette) cursorLook {
+	selection := lt.current.Style("ui.selection")
+	if !pal.On() || selection == builtInSelection {
+		return cursorLook{pal: pal}
+	}
+	return cursorLook{pal: pal, tint: background(selection.Bg)}
+}
+
+// background is c as SGR background parameters, or "" where c is unset.
+func background(c tuitheme.Color) string {
+	if slot, ok := c.Slot(); ok {
+		if slot < 8 {
+			return strconv.Itoa(40 + slot)
+		}
+		return strconv.Itoa(100 + slot - 8)
+	}
+	if r, g, b, ok := c.RGB(); ok {
+		return "48;2;" + strconv.Itoa(int(r)) + ";" + strconv.Itoa(int(g)) + ";" + strconv.Itoa(int(b))
+	}
+	return ""
+}
+
+// cursorLook is how the cursor's row is drawn: across the table's width in the theme file's
+// selection background where it gives one, else in bold behind ▌ in the pointer's column. Each
+// cell keeps its own color either way, so a state's color still reads on the cursor's row.
+type cursorLook struct {
+	pal gotermstyle.Palette
+	// tint is the selection background's SGR parameters, empty without a theme file.
+	tint string
+}
+
+// pointer is what the pointer's column holds on the cursor's row.
+func (c cursorLook) pointer() string {
+	if c.tint != "" {
+		return " "
+	}
+	return c.pal.Bold("▌")
+}
+
+// wear draws a row's lines as the cursor's, a tinted line padded to width so the tint runs
+// under the gaps between columns and out to the table's edge.
+func (c cursorLook) wear(lines []drawn, width int) []drawn {
+	if !c.pal.On() {
+		return lines
+	}
+	code, room := Bold, 0
+	if c.tint != "" {
+		code, room = "\033["+c.tint+"m", width
+	}
+	for i := range lines {
+		lines[i].text = laidOver(lines[i].text, code, room)
+		if lines[i].whole != "" {
+			lines[i].whole = laidOver(lines[i].whole, code, room)
+		}
+	}
+	return lines
+}
+
+// laidOver is a painted line with code set again after each color in it, so code holds
+// through the cells' own colors and the resets between them. It ends padded to width.
+func laidOver(line, code string, width int) string {
+	var b strings.Builder
+	b.WriteString(code)
+	for i := 0; i < len(line); {
+		if end := sgrEnd(line, i); end > 0 {
+			b.WriteString(line[i:end])
+			b.WriteString(code)
+			i = end
+			continue
+		}
+		b.WriteByte(line[i])
+		i++
+	}
+	b.WriteString(strings.Repeat(" ", max(width-ansi.StringWidth(line), 0)))
+	b.WriteString(gotermstyle.CodeReset)
+	return b.String()
+}
+
+// sgrEnd is where the SGR sequence starting at i ends, or 0 where none starts there.
+func sgrEnd(line string, i int) int {
+	if !strings.HasPrefix(line[i:], "\033[") {
+		return 0
+	}
+	for j := i + 2; j < len(line); j++ {
+		if c := line[j]; c >= 0x40 && c <= 0x7e {
+			if c == 'm' {
+				return j + 1
+			}
+			return 0
+		}
+	}
+	return 0
+}

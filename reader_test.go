@@ -54,8 +54,8 @@ func TestReaderJumpsSearchesAndKeepsItsPlaceOnAResize(t *testing.T) {
 		r.pressed(typedKey(string(c)))
 	}
 	r.pressed(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if !strings.Contains(r.screen(), Reverse+"number 37") {
-		t.Fatalf("the match is not reversed on screen:\n%s", r.screen())
+	if !strings.Contains(r.screen(), emboldened(r.theme.code("ui.match"))+"number 37") {
+		t.Fatalf("the match is not in the match color on screen:\n%s", r.screen())
 	}
 
 	first := r.rows[r.top].Text()
@@ -179,7 +179,7 @@ func TestClosingATallRowScrolledThroughWithThirtyRowsBelowItLeavesTheCursorOnScr
 		t.Fatalf("ctrl+d should have scrolled through the row's text:\n%s", m.screen())
 	}
 	m.Update(spaceKey)
-	if got := m.screen(); !strings.Contains(got, "› ▸") {
+	if got := m.screen(); !strings.Contains(got, "▌ ▸") {
 		t.Fatalf("closing the row should leave the cursor on screen:\n%s", got)
 	}
 }

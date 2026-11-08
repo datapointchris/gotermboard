@@ -837,7 +837,7 @@ func stickyBand(lines []drawn, top, height int) []string {
 // draw lays the nodes out to width. The first group holding rows and left open
 // carries the one header row, so every group shares its columns. A group with cells
 // of its own has no room for the titles, so they take a line of their own at the top.
-func draw(pal gotermstyle.Palette, columns []Column, nodes []node, widths []int, width int, cursor string) []drawn {
+func draw(pal gotermstyle.Palette, columns []Column, nodes []node, widths []int, width int, cursor string, look cursorLook) []drawn {
 	titled := false
 	lines := make([]drawn, 0, len(nodes))
 	if slices.ContainsFunc(nodes, func(n node) bool { return n.kind == nodeGroup && len(n.group.Cells) > 0 }) {
@@ -850,7 +850,7 @@ func draw(pal gotermstyle.Palette, columns []Column, nodes []node, widths []int,
 		from := len(lines)
 		wantsTitles := n.kind == nodeGroup && n.depth == 0 && n.open && n.drawsRows && !titled
 		titled = titled || wantsTitles
-		lines = append(lines, drawNode(pal, n, columns, widths, width, cursor, wantsTitles)...)
+		lines = append(lines, drawNode(pal, n, columns, widths, width, cursor, look, wantsTitles)...)
 		var owners []string
 		if n.parent >= 0 {
 			owners = inside[n.parent]
@@ -880,8 +880,8 @@ func firstLine(lines []drawn, n node) string {
 }
 
 // drawNode is the lines one node takes.
-func drawNode(pal gotermstyle.Palette, n node, columns []Column, widths []int, width int, cursor string, wantsTitles bool) []drawn {
-	lines := drawNodeBody(pal, n, columns, widths, width, cursor, wantsTitles)
+func drawNode(pal gotermstyle.Palette, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
+	lines := drawNodeBody(pal, n, columns, widths, width, cursor, look, wantsTitles)
 	if n.kind == nodeGroup && n.group.Overline != RuleNone {
 		lines = append([]drawn{{text: n.group.Overline.line(pal, width, n.group.Tone)}}, lines...)
 	}
@@ -909,12 +909,18 @@ func (w RuleWeight) line(pal gotermstyle.Palette, width int, tone string) string
 	return pal.Paint(tone, strings.Repeat(glyph, max(width-1, 0)))
 }
 
-func drawNodeBody(pal gotermstyle.Palette, n node, columns []Column, widths []int, width int, cursor string, wantsTitles bool) []drawn {
+func drawNodeBody(pal gotermstyle.Palette, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
 	pointer := " "
 	selected := n.selectable() && n.key == cursor
+	wear := func(lines []drawn) []drawn {
+		if selected {
+			return look.wear(lines, width)
+		}
+		return lines
+	}
 	switch {
 	case selected:
-		pointer = pal.Bold("›")
+		pointer = look.pointer()
 	case n.wearsCue():
 		pointer = pal.Paint(CueCode, CueGlyph)
 	}
@@ -927,12 +933,12 @@ func drawNodeBody(pal gotermstyle.Palette, n node, columns []Column, widths []in
 		return []drawn{{text: pal.Paint(RuleCode, strings.Repeat("─", max(width-1, 0)))}}
 	case nodeGroup:
 		if len(n.group.Span) > 0 {
-			return append(spanLines(pal, n, pointer, columns, widths, width, selected), belowLines(pal, n, width)...)
+			return append(wear(spanLines(pal, n, pointer, columns, widths, width)), belowLines(pal, n, width)...)
 		}
-		text = pointer + drawGroup(pal, n, columns, widths, wantsTitles, selected)
+		text = pointer + drawGroup(pal, n, columns, widths, wantsTitles)
 		wrapped = n.group.WrapLast
 	case nodeRow:
-		text = pointer + drawRow(pal, n, columns, widths, selected)
+		text = pointer + drawRow(pal, n, columns, widths)
 		wrapped = n.row.WrapLast
 	case nodeUnder:
 		return underLines(pal, n, width)
@@ -951,7 +957,7 @@ func drawNodeBody(pal gotermstyle.Palette, n node, columns []Column, widths []in
 		return lines
 	}
 	lines := []drawn{{text: ansi.Truncate(text, width, "…"), key: selectableKey(n)}}
-	lines = append(lines, continuedLines(pal, wrapped, widths)...)
+	lines = wear(append(lines, continuedLines(pal, wrapped, widths)...))
 	if n.kind == nodeGroup {
 		lines = append(lines, belowLines(pal, n, width)...)
 	}
@@ -1089,21 +1095,18 @@ func belowLines(pal gotermstyle.Palette, n node, width int) []drawn {
 }
 
 // groupHead is a group's indent and fold mark, then its label as this frame wears it.
-func groupHead(n node, selected bool) (string, Line) {
+func groupHead(n node) (string, Line) {
 	label := groupLabel(n.group)
 	if n.group.changed {
 		label = label.emboldened()
-	}
-	if selected {
-		label = Line{C(label.Text(), Reverse)}
 	}
 	return strings.Repeat(" ", indentOf(n.depth)-1) + n.foldMark() + " ", label
 }
 
 // spanLines is a Span group: its label and Span, wrapping under the Span's start, then
 // Beside and the cells on their own line.
-func spanLines(pal gotermstyle.Palette, n node, pointer string, columns []Column, widths []int, width int, selected bool) []drawn {
-	head, label := groupHead(n, selected)
+func spanLines(pal gotermstyle.Palette, n node, pointer string, columns []Column, widths []int, width int) []drawn {
+	head, label := groupHead(n)
 	column := spanColumn(n.depth, n.group)
 	indent := strings.Repeat(" ", column)
 	var lines []drawn
@@ -1130,8 +1133,8 @@ func spanLines(pal gotermstyle.Palette, n node, pointer string, columns []Column
 	return append(lines, continuedLines(pal, n.group.WrapLast, widths)...)
 }
 
-func drawGroup(pal gotermstyle.Palette, n node, columns []Column, widths []int, titles, selected bool) string {
-	head, label := groupHead(n, selected)
+func drawGroup(pal gotermstyle.Palette, n node, columns []Column, widths []int, titles bool) string {
+	head, label := groupHead(n)
 	if len(n.group.Cells) > 0 || len(n.group.WrapLast) > 0 {
 		room := max(widths[0]-1-ansi.StringWidth(head), 1)
 		painted := ansi.Truncate(label.Paint(pal), room, "…")
@@ -1169,16 +1172,13 @@ func rowIndent(pal gotermstyle.Palette, n node) string {
 	return strings.Repeat(" ", indentOf(n.depth)-3) + mark + n.foldMark()
 }
 
-func drawRow(pal gotermstyle.Palette, n node, columns []Column, widths []int, selected bool) string {
+func drawRow(pal gotermstyle.Palette, n node, columns []Column, widths []int) string {
 	r := n.row
 	indent := rowIndent(pal, n)
 	if len(r.Cells) == 0 {
 		span := r.Span
 		if r.changed {
 			span = span.emboldened()
-		}
-		if selected {
-			span = Line{C(span.Text(), Reverse)}
 		}
 		return indent + span.Paint(pal)
 	}
@@ -1194,9 +1194,6 @@ func drawRow(pal gotermstyle.Palette, n node, columns []Column, widths []int, se
 	}
 	if r.changed {
 		code = emboldened(code)
-	}
-	if selected {
-		code = Reverse
 	}
 	return indent + symbol + pal.Paint(code, text) + columnCells(pal, r.Cells[1:], 1, r.WrapLast, columns, widths)
 }
