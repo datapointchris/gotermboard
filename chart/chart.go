@@ -180,13 +180,15 @@ func padded(line gotermboard.Line, width int) gotermboard.Line {
 	return line
 }
 
-// Compact writes a value short enough for an axis: 1.2M, 12k, 12 or 1.5.
+// Compact writes a value short enough for an axis: 1.2M, 12k, 1.6k, 12 or 1.5.
 func Compact(v float64) string {
 	switch a := max(v, -v); {
 	case a >= 1e6:
 		return strconv.FormatFloat(v/1e6, 'f', 1, 64) + "M"
-	case a >= 1e3:
+	case a >= 1e4:
 		return strconv.FormatFloat(v/1e3, 'f', 0, 64) + "k"
+	case a >= 1e3:
+		return strconv.FormatFloat(v/1e3, 'f', 1, 64) + "k"
 	case v == float64(int64(v)):
 		return strconv.FormatInt(int64(v), 10)
 	}
