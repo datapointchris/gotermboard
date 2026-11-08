@@ -148,10 +148,27 @@ func TestACallerColorsWhatItRecognizesInProseAndNeverInCode(t *testing.T) {
 	var runs []string
 	renderer := New(func(text, code string) gotermboard.Line {
 		runs = append(runs, text)
-		return gotermboard.Line{gotermboard.C(text, code)}
+		before, after, found := strings.Cut(text, "1544")
+		if !found {
+			return gotermboard.Line{gotermboard.C(text, code)}
+		}
+		return gotermboard.Line{gotermboard.C(before, code), gotermboard.C("1544", gotermboard.Cyan), gotermboard.C(after, code)}
 	})
-	renderer.Lines("see 1544 and `1600`\n\n```\n1700\n```\n", 40)
+	lines := renderer.Lines("## see 1544 now\n\n[issue 1544 here](https://example.com)\n\n`1600`\n\n```\n1700\n```\n", 60)
 	if joined := strings.Join(runs, "|"); !strings.Contains(joined, "1544") || strings.Contains(joined, "1600") || strings.Contains(joined, "1700") {
 		t.Errorf("prose reaches the caller and code does not: %q", runs)
+	}
+	want := map[string]string{"see": "markdown.heading.2", "now": "markdown.heading.2", "issue": "markdown.link.label", "here": "markdown.link.label"}
+	for _, line := range []gotermboard.Line{lines[0], lines[2]} {
+		for _, cell := range line {
+			for _, word := range strings.Fields(cell.Text) {
+				if word == "1544" && (cell.Code != gotermboard.Cyan || cell.Role != "") {
+					t.Errorf("the number the caller colored should keep its color alone: %+v", cell)
+				}
+				if role, named := want[word]; named && cell.Role != role {
+					t.Errorf("%q around the caller's color should keep the run's role %s: %+v", word, role, cell)
+				}
+			}
+		}
 	}
 }

@@ -1,6 +1,6 @@
-// Package markdown lays markdown out as a board's lines at a given width, each cell in the TUI
-// theme role tuitheme names for it, such as markdown.heading.2 or syntax.keyword. The board
-// resolves a role in its theme as it draws, so a reload recolors a document already laid out.
+// Package markdown lays markdown out as a board's lines at a given width, naming a TUI theme
+// role for each cell, such as markdown.heading.2 or syntax.keyword. The board resolves a role in
+// its theme as it draws, so a reload recolors a document already laid out.
 // It wraps before it styles, so each line carries its own colors, and a bullet's wrapped lines
 // hang under its text.
 package markdown

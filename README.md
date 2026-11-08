@@ -59,7 +59,7 @@ its size: `COLUMNS` by `LINES`, then the terminal, then a fallback you pass. A s
 is no board picks its printed frame's size the same way with `printedframe.Size`, which
 imports nothing that draws.
 
-## A theme file colors the cursor's row, the tab line and markdown, and SIGUSR2 recolors a running board
+## A theme file colors a board by role, and SIGUSR2 recolors a running board
 
 `NewTabs`, `NewModel`, `NewReader` and `Once` read the TUI theme file that gotermstyle's
 `tuitheme.DefaultPath` names. Without one, a board draws in the terminal's own 16 colors. A
@@ -76,14 +76,12 @@ file that will not load at start leaves those 16 too, and the footer says why.
 - **A reader's search matches draw in `ui.match`, bold, over the `ui.selection` background**,
   or reversed without a file, so a match inside a code span still stands out.
 - **A Document's cell draws in the role its `Role` names, with its `Code` laid over that as
-  attributes.** The `markdown` package names one for every cell. Code takes the nvim-treesitter
-  capture names under `syntax`, such as `syntax.keyword` or `syntax.type.builtin`, so a theme
-  file made from an editor's colors draws code as the editor does. A name the file lacks falls
-  back to the wider one, so `syntax.type.builtin` draws as `syntax.type`. Headings, links, code
-  spans, list marks and quotes take the `markdown` roles. Boxes and rules take `ui.border`, and a
-  diff's added and removed lines take `ui.success` and `ui.error`. A heading stays bold whatever
-  its role says. The board looks a role up as it draws, so a reload recolors a document already
-  laid out. `Line.Paint` draws a role in the built-in theme.
+  attributes.** The `markdown` package names one for every cell, and its code takes the
+  nvim-treesitter capture closest to each token, under `syntax`, so a theme file made from an
+  editor's colors reaches it. A name the file lacks falls back to the wider one, so
+  `syntax.type.builtin` draws as `syntax.type`. A heading stays bold whatever its role says. The
+  board looks a role up as it draws, so a reload recolors a document already laid out.
+  `Line.Paint` draws a role in the built-in theme.
 - **SIGUSR2 reads the file again**, so a theme change recolors a running board with no
   restart. A file that will not load keeps the colors on screen. The program's `Init` starts
   the wait, so a model wrapping `Tabs` calls its `Init` and hands it the messages it does not
@@ -153,7 +151,8 @@ every word has to reach the reader.
 
 Its argument colors what a caller recognizes in prose, such as a number that names a record. It
 is handed each run's text and attributes. A cell it returns in those attributes takes the run's
-role, and a cell it colors keeps the color it was given.
+role, and a cell it colors keeps the color it was given. A caller tinting a document's uncolored
+words afterward tests `Cell.Plain`, because a cell colored by its role carries no `Code`.
 
 ## What holds the text stays at the top while it scrolls
 

@@ -39,8 +39,9 @@ type Cell struct {
 	Text string
 	Code string
 	// Role is the TUI theme role the cell draws in, such as syntax.keyword, with Code's
-	// attributes over it. Only a Document's or a Panel's lines read it so far: a board and a
-	// Reader draw it in their theme, which a reload recolors, and Line.Paint in the built-in one.
+	// attributes over it. Where a board or a Reader paints a Document's lines, the role resolves
+	// in its live theme, so a reload recolors it. Line.Paint resolves it in the built-in theme,
+	// and a row's own cells draw their Code alone.
 	Role  string
 	Ticks bool
 	// Section says this cell starts the words of a heading, where a Reader's [ and ] land, and
@@ -53,6 +54,10 @@ type Cell struct {
 
 // C is a Cell.
 func C(text, code string) Cell { return Cell{Text: text, Code: code} }
+
+// Plain says the cell names neither a Code nor a Role, so it draws in the terminal's own text
+// color. A caller tinting a Document's uncolored words tests this rather than Code alone.
+func (c Cell) Plain() bool { return c.Code == "" && c.Role == "" }
 
 // Ticking is a Cell whose text follows the clock.
 func Ticking(text, code string) Cell { return Cell{Text: text, Code: code, Ticks: true} }
@@ -91,7 +96,7 @@ func (l Line) elided(room int) Line {
 	if len(l) == 0 || !l[0].item || l.width() <= room {
 		return l
 	}
-	more := func(kept int) Line { return Line{C("+"+strconv.Itoa(len(l)-kept), l[0].Code)} }
+	more := func(kept int) Line { return Line{l[0].withText("+" + strconv.Itoa(len(l)-kept))} }
 	for kept := len(l) - 1; kept > 0; kept-- {
 		if l[:kept].width()+more(kept).width() <= room {
 			return append(slices.Clone(l[:kept]), more(kept)...)
@@ -113,8 +118,11 @@ func (l Line) paint(pal gotermstyle.Palette, theme *tuitheme.Theme) string {
 	return b.String()
 }
 
-// withText is a piece of the cell, in the cell's color and role.
-func (c Cell) withText(text string) Cell { return Cell{Text: text, Code: c.Code, Role: c.Role} }
+// withText is a piece of the cell. It copies the whole cell, so a piece keeps every field.
+func (c Cell) withText(text string) Cell {
+	c.Text = text
+	return c
+}
 
 // code is what the cell draws in: its Role in theme, then its Code. The role's code leads,
 // because it opens with a reset that would undo an attribute set before it.
@@ -1086,11 +1094,11 @@ func wrapLine(line Line, width int) []Line {
 		for text := c.Text; text != ""; {
 			w := ansi.StringWidth(text)
 			if w <= room {
-				current = append(current, C(text, c.Code))
+				current = append(current, c.withText(text))
 				room -= w
 				break
 			}
-			current = append(current, C(ansi.Cut(text, 0, room), c.Code))
+			current = append(current, c.withText(ansi.Cut(text, 0, room)))
 			text = ansi.Cut(text, room, w)
 			out = append(out, current)
 			current, room = nil, width
