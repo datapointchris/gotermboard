@@ -3,6 +3,20 @@
 A Go library that Go command-line tools import, shipped as git tags. Its one `main` package,
 `cmd/read-markdown`, puts a file on the reader and holds no logic the library lacks.
 
+## Never write the breaking-change trailer in a commit message
+
+The words `BREAKING CHANGE` — either number, colon or not, subject or body — ask the release for a
+major. `commit-analyzer-cz` matches them unanchored against the raw message and ORs the result with
+the configured major rules, so no config stops it, and it majors even a `fix:` commit.
+
+While the release workflow passes `allow-initial-development-versions: true`, that major is cut as
+a minor. The day the module leaves 0.x, the same words cut a major. The module path carries no
+`/vN` suffix, so `go get …@latest` cannot see the major, and every caller stays on the old line
+while the release looks shipped.
+
+**The ban covers a commit that merely discusses the trailer.** Name it some other way — "that
+marker" — and never quote it.
+
 ## Constraints that must not regress
 
 - **A major here is an outage rather than a version**, because the module path carries
