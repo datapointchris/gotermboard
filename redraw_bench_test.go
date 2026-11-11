@@ -13,8 +13,9 @@ import (
 // logBoard is a board shaped as a log is: a group a day, four columns, a summary under every row,
 // a document on every row, read from its newest row, with a strip that moves.
 type logBoard struct {
-	frame  Frame
-	frames int
+	frame    Frame
+	revision uint64
+	frames   int
 }
 
 func (b *logBoard) Sources() []Refresher { return nil }
@@ -25,7 +26,9 @@ func (b *logBoard) Look(int) Look        { return Look{Rules: true, NoRowChevron
 
 func (b *logBoard) Frame(time.Time, string) Frame {
 	b.frames++
-	return b.frame
+	frame := b.frame
+	frame.Revision = b.revision
+	return frame
 }
 
 func (b *logBoard) MoveEvery() time.Duration { return time.Second }
@@ -110,6 +113,11 @@ func BenchmarkRedraw(b *testing.B) {
 		{name: "key", step: keys(upKey, downKey)},
 		{name: "page", step: keys(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}, tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})},
 		{name: "ends", step: keys(typedKey("g"), typedKey("G"))},
+		{
+			name:  "tickHeld",
+			setup: func(m *Model, board *logBoard) { board.revision = 1; m.Update(tickMsg(time.Now())) },
+			step:  func(m *Model, _ *logBoard, _ int) { m.Update(tickMsg(time.Now())) },
+		},
 		{name: "tickNew", step: func(m *Model, _ *logBoard, _ int) { m.Update(tickMsg(time.Now())) }},
 		{name: "beat", step: func(m *Model, _ *logBoard, _ int) {
 			m.Update(moveMsg{model: m, clock: m.moveClock, at: time.Now()})

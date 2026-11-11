@@ -33,6 +33,8 @@ type changeCue struct {
 	// quietFrom is when the quiet began. It holds past settleFor until the reads that
 	// started by then return.
 	quietFrom time.Time
+	// ends is when the first cue showing has run CueFor, and zero while none shows.
+	ends time.Time
 }
 
 func newChangeCue() changeCue {
@@ -47,12 +49,16 @@ func newChangeCue() changeCue {
 
 func (c *changeCue) hush(now time.Time) { c.quiet, c.quietFrom = true, now }
 
+// due says a cue showing has run its time, so a frame kept past now has to be marked again.
+func (c *changeCue) due(now time.Time) bool { return !c.ends.IsZero() && !now.Before(c.ends) }
+
 // mark compares the frame's groups with the last frame's and sets each one's cue. A node points at
 // its group or row, so a layout made before the mark shows what the mark set.
 func (c *changeCue) mark(groups []Group, now time.Time) {
 	seen, since := c.spareSeen, c.spareSince
 	clear(seen)
 	clear(since)
+	c.ends = time.Time{}
 	c.markGroups(groups, 0, now, seen, since)
 	c.spareSeen, c.spareSince, c.seen, c.since = c.seen, c.since, seen, since
 }
@@ -98,6 +104,9 @@ func (c *changeCue) note(path, fingerprint uint64, now time.Time, seen map[uint6
 		return false
 	}
 	since[path] = at
+	if ends := at.Add(CueFor); c.ends.IsZero() || ends.Before(c.ends) {
+		c.ends = ends
+	}
 	return true
 }
 

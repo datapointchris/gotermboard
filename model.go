@@ -484,7 +484,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		}
 	case tickMsg:
 		now := time.Time(msg)
-		m.rebuild(now)
+		m.rebuildKeeping(now, true)
 		return tea.Batch(tick(), m.dueReads(now), m.nextMove())
 	case moveMsg:
 		if msg.model == m && msg.clock == m.moveClock {
@@ -496,7 +496,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.spinAt = (m.spinAt + 1) % len(spinner)
 		}
 	case refreshedMsg:
-		m.rebuild(time.Now())
+		m.rebuildKeeping(time.Now(), true)
 		m.relayReading()
 	case themeLoadedMsg:
 		return m.painter.theme.reloaded(msg, m.sayThemeFault)
@@ -1048,17 +1048,36 @@ func (m *Model) cursorShows() bool {
 	return shows
 }
 
-// rebuild reads the board's frame and lays it out as new.
-func (m *Model) rebuild(now time.Time) {
+// rebuild reads the board's frame and lays it out as new. Rebuild, a tab's return and a new
+// grouping come through here, because each says what the board shows may have changed.
+func (m *Model) rebuild(now time.Time) { m.rebuildKeeping(now, false) }
+
+// rebuildKeeping reads the board's frame. Where mayKeep holds and the frame carries the last
+// frame's Revision, the last frame's Columns and Groups stand, with their layout, the filter's
+// answers and the change cues, and only the Strip, Charts and StartAt are taken. The clock and a
+// read that landed ask this way. A new grouping comes through Rebuild, which never keeps.
+func (m *Model) rebuildKeeping(now time.Time, mayKeep bool) {
 	wasLast := m.tails() && m.placed && m.onLastRow()
-	m.frame, m.drawnFrom = m.board.Frame(now, m.currentGrouping()), m.readNow()
-	m.frameCount++
-	m.layout = nil
-	m.display.matched.newFrame()
+	grouping := m.currentGrouping()
+	next := m.board.Frame(now, grouping)
+	same := mayKeep && next.Revision != 0 && next.Revision == m.frame.Revision
+	m.drawnFrom = m.readNow()
+	if same {
+		m.frame.Strip, m.frame.Charts, m.frame.StartAt = next.Strip, next.Charts, next.StartAt
+	} else {
+		m.frame = next
+		m.frameCount++
+		m.layout = nil
+		m.display.matched.newFrame()
+		m.panelHasText = anyPanelText(m.frame.Groups)
+	}
 	m.drawStrip(now)
 	m.layOutCharts()
-	m.panelHasText = anyPanelText(m.frame.Groups)
-	m.cue.mark(m.frame.Groups, now)
+	// A kept frame's cues stand until the first of them has run its time. Nothing else can move one,
+	// because a row lights only where its cells differ from the frame before.
+	if !same || m.cue.due(now) {
+		m.cue.mark(m.frame.Groups, now)
+	}
 	if settled := m.cue.quietFrom.Add(settleFor); m.cue.quiet && !now.Before(settled) && !m.readsUnderWayFrom(settled) {
 		m.cue.quiet = false
 	}

@@ -20,8 +20,14 @@ type randomBoard struct {
 	look      Look
 	tails     bool
 	twoLines  bool
+	revision  uint64
 	groupings []string
-	text      map[string]string
+	// numbered says the board sets Revision. Its twin leaves it zero and must draw the same.
+	numbered bool
+	// ownKeys gives every row a key no other row holds. Two rows of one group that share a key share
+	// one change cue, which a frame laid out again lights on every frame and a kept frame lights once.
+	ownKeys bool
+	text    map[string]string
 	// frames counts the frames built. The strip and the charts carry it, so a model that kept an
 	// old frame's strip or charts draws a different screen from one that took the new ones.
 	frames int
@@ -37,6 +43,9 @@ func (b *randomBoard) Frame(_ time.Time, grouping string) Frame {
 	frame := b.frame
 	if grouping == "two" {
 		frame.Groups = frame.Groups[:max(len(frame.Groups)/2, 1)]
+	}
+	if b.numbered {
+		frame.Revision = b.revision
 	}
 	b.frames++
 	count := strconv.Itoa(b.frames)
@@ -55,6 +64,7 @@ func (b *randomBoard) Frame(_ time.Time, grouping string) Frame {
 func (b *randomBoard) Receive(m *Model, msg tea.Msg) tea.Cmd {
 	if said, ok := msg.(randomSaid); ok {
 		b.text[said.key] = said.text
+		b.revision++
 		m.Rebuild()
 	}
 	return nil
@@ -198,6 +208,7 @@ func (b *randomBoard) group(key string, depth, columns int, keys *[]string) Grou
 	for range b.rng.IntN(9) {
 		rowKey := key + "/r" + strconv.Itoa(len(*keys))
 		switch {
+		case b.ownKeys:
 		case b.often(25):
 			rowKey = ""
 		case b.often(20) && len(*keys) > 0:
@@ -235,11 +246,12 @@ func (b *randomBoard) build() []string {
 		frame.StartAt = keys[b.rng.IntN(len(keys))]
 	}
 	b.frame = frame
+	b.revision++
 	return keys
 }
 
-func newRandomBoard(seed uint64) (*randomBoard, []string) {
-	b := &randomBoard{rng: rand.New(rand.NewPCG(seed, 7)), text: map[string]string{}}
+func newRandomBoard(seed uint64, numbered, ownKeys bool) (*randomBoard, []string) {
+	b := &randomBoard{rng: rand.New(rand.NewPCG(seed, 7)), numbered: numbered, ownKeys: ownKeys, text: map[string]string{}}
 	if b.often(2) {
 		b.look = Look{Sides: b.rng.IntN(3), Ends: b.rng.IntN(2), Spread: b.often(2), Rules: b.often(2), BoldCursor: b.often(2), NoRowChevrons: b.often(2)}
 	}
@@ -313,7 +325,7 @@ func TestTheCulledDrawMatchesTheWholeTableOnRandomBoards(t *testing.T) {
 	before := held
 	const steps = 80
 	for seed := range uint64(randomBoards(20)) {
-		b, keys := newRandomBoard(seed)
+		b, keys := newRandomBoard(seed, seed%2 == 0, false)
 		m := NewModel(b, gotermstyle.NewPalette(seed%3 != 0))
 		m.Update(tea.WindowSizeMsg{Width: 60 + int(seed%5)*40, Height: 12 + int(seed%4)*12})
 		rng := rand.New(rand.NewPCG(seed, 11))
@@ -332,9 +344,45 @@ func TestTheCulledDrawMatchesTheWholeTableOnRandomBoards(t *testing.T) {
 	}
 }
 
+// TestABoardThatNumbersItsFramesDrawsWhatItsTwinDrawsEveryFrame steps two models alike. One board
+// sets Revision and the other leaves it zero, so the first keeps its layout across the frames that
+// did not change and the second lays every frame out. Every screen has to match, the change cue's
+// coming and going with it.
+func TestABoardThatNumbersItsFramesDrawsWhatItsTwinDrawsEveryFrame(t *testing.T) {
+	const steps = 120
+	screens := 0
+	for seed := range uint64(randomBoards(20)) {
+		numbered, keys := newRandomBoard(seed, true, true)
+		plain, _ := newRandomBoard(seed, false, true)
+		pal := gotermstyle.NewPalette(true)
+		kept, laid := NewModel(numbered, pal), NewModel(plain, pal)
+		size := tea.WindowSizeMsg{Width: 60 + int(seed%5)*40, Height: 12 + int(seed%4)*12}
+		kept.Update(size)
+		laid.Update(size)
+		keptRNG, laidRNG := rand.New(rand.NewPCG(seed, 13)), rand.New(rand.NewPCG(seed, 13))
+		at := time.Now()
+		for step := range steps {
+			at = at.Add(time.Duration(step%7) * time.Second)
+			keys = randomStep(kept, numbered, keys, keptRNG, at)
+			randomStep(laid, plain, keys, laidRNG, at)
+			if got, want := kept.screen(), laid.screen(); got != want {
+				gotLines, wantLines := strings.Split(got, "\n"), strings.Split(want, "\n")
+				for i := range min(len(gotLines), len(wantLines)) {
+					if gotLines[i] != wantLines[i] {
+						t.Fatalf("seed %d, step %d, line %d: the board that numbers its frames drew\n%q\nand its twin drew\n%q", seed, step, i, gotLines[i], wantLines[i])
+					}
+				}
+				t.Fatalf("seed %d, step %d: %d lines against %d", seed, step, len(gotLines), len(wantLines))
+			}
+			screens++
+		}
+	}
+	t.Logf("%d screens matched", screens)
+}
+
 // TestADrawPaintsTheNodesOnScreenHoweverManyTheBoardHolds counts the nodes painted. A draw paints
-// no more nodes than the screen has lines, and a cursor key or a tick paints none ahead of its
-// draw, at 500 rows and at 50,000.
+// no more nodes than the screen has lines, and a cursor key or a tick whose Revision held paints
+// none ahead of its draw, at 500 rows and at 50,000.
 func TestADrawPaintsTheNodesOnScreenHoweverManyTheBoardHolds(t *testing.T) {
 	hook, follow, reveal, draw := paintHook, followHook, revealHook, drawHook
 	defer func() { paintHook, followHook, revealHook, drawHook = hook, follow, reveal, draw }()
@@ -344,10 +392,11 @@ func TestADrawPaintsTheNodesOnScreenHoweverManyTheBoardHolds(t *testing.T) {
 	const height = 50
 	for _, rows := range []int{500, 50000} {
 		m, board := newLogModel(rows)
+		board.revision = 1
 		m.Update(tickMsg(time.Now()))
 		m.View()
 		frames := board.frames
-		for name, step := range map[string]tea.Msg{"a cursor key": upKey, "a tick": tickMsg(time.Now()), "a half-screen key": tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}} {
+		for name, step := range map[string]tea.Msg{"a cursor key": upKey, "a tick whose Revision held": tickMsg(time.Now()), "a half-screen key": tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}} {
 			painted = 0
 			m.Update(step)
 			if painted != 0 {
