@@ -363,7 +363,7 @@ whole screen on every frame that changed.
 Every tick and every read that lands asks the board for a frame and lays its table out again, one
 pass over its rows. A board that sets `Frame.Revision` skips that pass. Where a frame carries the last
 frame's `Revision`, the table keeps the last frame's columns, groups, layout and change cues, and
-takes only the new `Strip`, `Charts` and `StartAt`.
+takes the rest from the new frame.
 
 ```go
 func (b *board) Frame(now time.Time, grouping string) gotermboard.Frame {

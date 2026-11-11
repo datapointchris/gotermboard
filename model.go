@@ -1064,7 +1064,8 @@ func (m *Model) rebuildKeeping(now time.Time, mayKeep bool) {
 	same := mayKeep && next.Revision != 0 && next.Revision == m.frame.Revision
 	m.drawnFrom = m.readNow()
 	if same {
-		m.frame.Strip, m.frame.Charts, m.frame.StartAt = next.Strip, next.Charts, next.StartAt
+		next.Columns, next.Groups = m.frame.Columns, m.frame.Groups
+		m.frame = next
 	} else {
 		m.frame = next
 		m.frameCount++

@@ -411,7 +411,7 @@ type Frame struct {
 	// Revision is a number the board changes whenever Columns or Groups would draw differently
 	// from the frame it returned before, a Document's text included. A tick or a read whose frame
 	// carries the last frame's Revision keeps the last frame's Columns and Groups, their layout and
-	// their change cues, and takes only its Strip, Charts and StartAt. Zero makes no claim, so the
+	// their change cues, and takes every other field from the new frame. Zero makes no claim, so the
 	// frame is laid out as new. A board whose cells show the clock's text leaves it zero.
 	Revision uint64
 }
