@@ -98,81 +98,23 @@ func titlesTakeOwnLine(nodes []node) bool {
 	return false
 }
 
-// height is how many lines drawNode gives node i, case by case as drawNodeBody draws them. It lays
-// an open document out, because only its own layout says how long it is, and keeps the lines.
+// height is how many lines drawNode gives node i, from the parts it paints. It keeps an open
+// document's lines, so the draw paints them without laying the document out again.
 func (k *keptLayout) height(ix *lineIndex, i int) int {
-	n := k.nodes[i]
-	switch n.kind {
-	case nodeGroup:
-		g := n.group
-		h := len(g.Below)
-		if g.Overline != RuleNone {
-			h++
-		}
-		if g.Underline != RuleNone {
-			h++
-		}
-		if len(g.Span) == 0 {
-			return h + 1 + continuedCount(g.WrapLast, k.widths)
-		}
-		h += len(wrapWords(g.Span, spanRoom(n, k.width)))
-		if len(g.Cells) > 0 || len(g.WrapLast) > 0 || len(g.Beside) > 0 {
-			h += 1 + continuedCount(g.WrapLast, k.widths)
-		}
-		return h
-	case nodeRow:
-		h := 1 + continuedCount(n.row.WrapLast, k.widths)
-		if len(n.row.Second) > 0 {
-			h++
-		}
-		return h
-	case nodeUnder:
-		if !n.wraps {
-			return 1
-		}
-		return len(wrap(n.cell.Text, underRoom(n, k.width)))
-	case nodeDetail:
-		return len(wrap(n.cell.Text, detailRoom(n, k.width)))
-	case nodeDocument:
-		lines := n.document(documentRoom(n, k.width))
+	parts := partsOf(k.nodes[i], k.widths, k.width)
+	if k.nodes[i].kind == nodeDocument {
 		if ix.documents == nil {
 			ix.documents = map[int][]Line{}
 		}
-		ix.documents[i] = lines
-		return len(lines)
+		ix.documents[i] = parts.document
 	}
-	return 1
+	return parts.lines()
 }
-
-// continuedCount is how many lines a wrapping last column takes past its first.
-func continuedCount(wrapped Line, widths []int) int {
-	if len(wrapped) == 0 {
-		return 0
-	}
-	return max(len(wrapLine(wrapped, widths[len(widths)-1]))-1, 0)
-}
-
-// The width each kind of text wraps in. The measure and the paint both ask these, so a node's
-// height and its lines come from one wrap.
-func spanRoom(n node, width int) int     { return max(width-spanColumn(n.depth, n.group), 20) }
-func detailRoom(n node, width int) int   { return max(width-indentOf(n.depth), 20) }
-func documentRoom(n node, width int) int { return max(width-n.column, 20) }
-
-func underRoom(n node, width int) int {
-	lead := indentOf(n.depth) + underMarkWidth
-	if n.column >= underMarkWidth {
-		lead = n.column
-	}
-	return max(width-lead, 20)
-}
-
-// underMarkWidth is the cells a summary's └─ and its space take.
-const underMarkWidth = 3
 
 // keyLine is the scrolling line the cursor lands on at node i, past a group's overline.
 func (k *keptLayout) keyLine(i int) int {
 	at := k.ix.starts[i] - k.ix.pinned
-	if n := k.nodes[i]; n.kind == nodeGroup && n.group.Overline != RuleNone {
+	if k.nodes[i].overlined() {
 		at++
 	}
 	return at
