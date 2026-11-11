@@ -41,3 +41,8 @@ marker" — and never quote it.
   of a look adds nothing until a board sets it.
 - **A moving strip redraws only itself.** A beat builds no frame and draws no table, and only
   the tab showing runs one.
+- **A draw paints only the nodes the screen cuts, and finds them through the line index.** The
+  cursor, the reveal and the sticky band read the index and paint nothing, so a redraw costs
+  what the screen shows rather than what the board holds. `table_reference_test.go` keeps the
+  whole-table draw, and `TestMain`'s hooks hold every draw, follow and reveal to it byte for
+  byte, and `paintHook` holds the lines each node paints to the height the index measured.

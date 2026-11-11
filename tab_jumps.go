@@ -372,7 +372,7 @@ func (m *Model) seekEntity() {
 		return
 	}
 	for _, group := range holding {
-		m.display.folded[group] = false
+		m.display.fold(group, false)
 	}
 	if m.MoveCursorTo(key) {
 		return

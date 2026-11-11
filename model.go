@@ -2,7 +2,7 @@ package gotermboard
 
 import (
 	"context"
-	"maps"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -169,8 +169,16 @@ type Model struct {
 	toldCursor string
 	// toldLastRow is what a LastRowBoard last heard, once lastRowTold says it heard anything.
 	toldLastRow, lastRowTold bool
-	// layout is laidOut's last answer, which a new frame drops.
-	layout *keptLayout
+	// layout is the frame's layout and its line index, which a new frame drops. nodesHint is how
+	// many nodes the last walk made, which sizes the next walk's slice.
+	layout    *keptLayout
+	nodesHint int
+	// frameCount numbers the frames taken, so an answer kept about one frame knows a newer one.
+	frameCount uint64
+	// looked is the last frame's answer to which line names what the tabs are locked to.
+	looked lookedFor
+	// footerDrawn is how many lines the footer under the strip took at the last draw.
+	footerDrawn int
 	// reading is the full-screen Reader over the board, while one is open.
 	reading *Reader
 	// moveClock numbers the strip's clock. A hide moves it on, so a beat sent before the hide
@@ -324,6 +332,7 @@ func (m *Model) reveal(now time.Time) tea.Cmd {
 	m.cue.hush(now)
 	reads := m.dueReads(now)
 	m.rebuild(now)
+	m.tellCursor()
 	return tea.Batch(reads, m.nextMove())
 }
 
@@ -398,8 +407,11 @@ type screenHeights struct{ strip, charts, body, footer int }
 
 // heights shares the screen's lines out in the order they draw. The table keeps a line, so the
 // charts give theirs up first.
-func (m *Model) heights() screenHeights {
-	h := screenHeights{strip: len(m.frame.Strip), footer: len(m.footer())}
+func (m *Model) heights() screenHeights { return m.heightsOver(len(m.footer())) }
+
+// heightsOver is heights over a footer of this many lines, for a draw that has built its footer.
+func (m *Model) heightsOver(footer int) screenHeights {
+	h := screenHeights{strip: len(m.frame.Strip), footer: footer}
 	h.charts = min(len(m.charts), max(0, m.height-h.strip-h.footer-1))
 	h.body = max(1, m.height-h.strip-h.charts-h.footer)
 	return h
@@ -438,9 +450,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // tellCursor says where the cursor is to a board that follows it, once per move, and whether it
 // sits on the last row to a board that asks, once per change.
 func (m *Model) tellCursor() {
+	// A hidden tab takes no key, so its cursor holds still, and reveal tells the board on its return.
+	if m.hidden {
+		return
+	}
 	if board, ok := m.board.(LastRowBoard); ok {
-		rows := selectableOf(m.nodes())
-		on := len(rows) == 0 || rows[len(rows)-1].key == m.cursor
+		k := m.kept()
+		on := len(k.ix.stops) == 0 || k.nodes[k.ix.stops[len(k.ix.stops)-1]].key == m.cursor
 		if !m.lastRowTold || on != m.toldLastRow {
 			m.lastRowTold, m.toldLastRow = true, on
 			board.CursorOnLastRow(on)
@@ -458,10 +474,11 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
+		// A hidden tab keeps the size and lays out when it shows, where reveal rebuilds it.
 		if !m.hidden {
 			m.layOutCharts()
+			m.follow()
 		}
-		m.follow()
 		if m.reading != nil {
 			m.reading.resize(m.width, m.height)
 		}
@@ -523,7 +540,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 // document out again after the board's Receive, because what the board received may be more
 // of that document.
 func (m *Model) receive(msg tea.Msg) tea.Cmd {
-	footer := len(m.footer())
+	footer := 0
+	if !m.hidden {
+		footer = len(m.footer())
+	}
 	var cmds []tea.Cmd
 	if board, ok := m.board.(ReceivingBoard); ok {
 		cmds = append(cmds, board.Receive(m, msg))
@@ -532,7 +552,7 @@ func (m *Model) receive(msg tea.Msg) tea.Cmd {
 	if back, ok := msg.(HandedBack); ok && back.then != nil {
 		cmds = append(cmds, back.then(m, back.Err, back.Stderr))
 	}
-	if len(m.footer()) != footer {
+	if !m.hidden && len(m.footer()) != footer {
 		m.follow()
 	}
 	return tea.Batch(cmds...)
@@ -563,10 +583,7 @@ func actionTable() []Action {
 				m.displayChanged()
 				return nil
 			},
-			Applies: func(m *Model) bool {
-				_, _, widths := m.laidOut()
-				return anyUnder(m.frame.Groups, widths, 0)
-			},
+			Applies: func(m *Model) bool { return m.kept().ix.anyUnder },
 		},
 		{
 			Keys: []string{"p"}, Label: "show or hide the side panel", Footer: "p panel",
@@ -634,9 +651,8 @@ func (m *Model) Cursor() string { return m.cursor }
 // the cursor's row and moves on, and says whether key shows. A row in a folded group, or one
 // the filter hides, does not. A key that changed what the board holds calls Rebuild first.
 func (m *Model) MoveCursorTo(key string) bool {
-	rows := selectableOf(m.nodes())
-	at := slices.IndexFunc(rows, func(n node) bool { return n.key != "" && n.key == key })
-	if at < 0 {
+	at, shows := m.kept().ix.stopAt[key]
+	if key == "" || !shows {
 		return false
 	}
 	m.cursor, m.cursorAt, m.placed, m.scrolled = key, at, true, false
@@ -652,7 +668,7 @@ func (m *Model) CloseInPlace() bool {
 	if !ok || n.kind != nodeRow || !n.open {
 		return false
 	}
-	m.display.opened[n.key] = false
+	m.display.open(n.key, false)
 	m.placed = true
 	m.revealDetail()
 	return true
@@ -706,7 +722,7 @@ func (m *Model) ToggleEveryRow() tea.Cmd {
 		}
 	}
 	for _, key := range rows {
-		m.display.opened[key] = !allOpen
+		m.display.open(key, !allOpen)
 	}
 	m.displayChanged()
 	return nil
@@ -864,9 +880,9 @@ func (m *Model) toggleInPlace() tea.Cmd {
 	}
 	switch n.kind {
 	case nodeGroup:
-		m.display.folded[n.key] = n.open
+		m.display.fold(n.key, n.open)
 	case nodeRow:
-		m.display.opened[n.key] = !n.open
+		m.display.open(n.key, !n.open)
 	}
 	// A cursor still looking for its starting line stays on the line this key acted on.
 	m.placed = true
@@ -899,20 +915,21 @@ func (r Row) title() string {
 // opened near the screen's foot shows its text, stopping with the row at the top.
 func (m *Model) revealDetail() {
 	m.displayChanged()
-	pinned, lines := m.table()
-	at := slices.IndexFunc(lines, func(l drawn) bool { return l.key != "" && l.key == m.cursor })
-	if at < 0 {
-		return
+	want := -1
+	if revealHook != nil {
+		want = revealHook(m)
 	}
-	end := at
-	for end+1 < len(lines) && lines[end+1].key == "" {
-		end++
+	k := m.kept()
+	if at, _, ok := k.cursorSpan(m.cursor); ok {
+		h := m.scrollHeight(k.ix.pinned)
+		if end := k.lastOpenedLine(k.ix.stopAt[m.cursor]); end >= m.top+h {
+			m.top = min(at, end-h+1)
+		}
+		m.clearOfBand(k, at, h)
 	}
-	h := m.scrollHeight(pinned)
-	if end >= m.top+h {
-		m.top = min(at, end-h+1)
+	if revealHook != nil && m.top != want {
+		panic(fmt.Sprintf("a reveal scrolled to line %d, and the whole table's draw scrolls to %d", m.top, want))
 	}
-	m.clearOfBand(lines, at, h)
 }
 
 // cursorPath is the words of each group the sticky band would name over the cursor's line,
@@ -995,8 +1012,12 @@ const (
 // and whether the frame's answer holds at now. A jump's search and the lock's tab line both
 // ask it.
 func (m *Model) lookFor(ref EntityRef, now time.Time) (string, []string, finding) {
-	if key, holding, ok := entityLine(m.frame.Groups, ref, nil); ok {
-		return key, holding, found
+	if m.looked.frame != m.frameCount || m.looked.ref != ref || !m.looked.asked {
+		m.looked = lookedFor{frame: m.frameCount, ref: ref, asked: true}
+		m.looked.key, m.looked.holding, m.looked.found = entityLine(m.frame.Groups, ref, nil)
+	}
+	if m.looked.found {
+		return m.looked.key, m.looked.holding, found
 	}
 	switch r := m.drawnFrom; {
 	case r.landed && (r.due.IsZero() || now.Before(r.due)):
@@ -1007,14 +1028,31 @@ func (m *Model) lookFor(ref EntityRef, now time.Time) (string, []string, finding
 	return "", nil, unanswered
 }
 
-// cursorShows says the cursor is on a line the table draws.
-func (m *Model) cursorShows() bool {
-	return m.placed && slices.ContainsFunc(selectableOf(m.nodes()), func(n node) bool { return n.key == m.cursor })
+// lookedFor is one frame's answer to which line names ref, which the tab line under a lock asks of
+// every hidden tab on every draw.
+type lookedFor struct {
+	frame   uint64
+	ref     EntityRef
+	asked   bool
+	key     string
+	holding []string
+	found   bool
 }
 
+// cursorShows says the cursor is on a line the table draws.
+func (m *Model) cursorShows() bool {
+	if !m.placed {
+		return false
+	}
+	_, shows := m.kept().ix.stopAt[m.cursor]
+	return shows
+}
+
+// rebuild reads the board's frame and lays it out as new.
 func (m *Model) rebuild(now time.Time) {
 	wasLast := m.tails() && m.placed && m.onLastRow()
 	m.frame, m.drawnFrom = m.board.Frame(now, m.currentGrouping()), m.readNow()
+	m.frameCount++
 	m.layout = nil
 	m.display.matched.newFrame()
 	m.drawStrip(now)
@@ -1046,59 +1084,72 @@ func (m *Model) tails() bool {
 }
 
 func (m *Model) onLastRow() bool {
-	rows := selectableOf(m.nodes())
-	return len(rows) > 0 && rows[len(rows)-1].key == m.cursor
+	k := m.kept()
+	return len(k.ix.stops) > 0 && k.stop(len(k.ix.stops)-1).key == m.cursor
 }
 
 func (m *Model) moveToLastRow() {
-	if rows := selectableOf(m.nodes()); len(rows) > 0 {
-		m.cursorAt = len(rows) - 1
-		m.cursor = rows[m.cursorAt].key
+	if k := m.kept(); len(k.ix.stops) > 0 {
+		m.cursorAt = len(k.ix.stops) - 1
+		m.cursor = k.stop(m.cursorAt).key
 	}
 }
 
-func (m *Model) nodes() []node {
-	nodes, _, _ := m.laidOut()
-	return nodes
-}
+func (m *Model) nodes() []node { return m.kept().nodes }
 
 // laidOut is what shows of the frame at the table's width, the columns with their gaps, and
 // the width each column takes. One key or draw asks it many times, and walking and measuring
 // a table of a thousand rows takes tens of milliseconds, so it answers again from the layout it
 // kept until the frame, the width, the Look or what the reader folded, opened or filtered moves.
 func (m *Model) laidOut() ([]node, []Column, []int) {
+	k := m.kept()
+	return k.nodes, k.columns, k.widths
+}
+
+// kept is the frame's layout and its line index, built again only where what it was laid out for
+// has moved.
+func (m *Model) kept() *keptLayout {
 	d := m.display
 	d.panelShown = m.panelWidth() > 0
 	width, look := m.tableWidth(), m.look()
 	if kept := m.layout; kept != nil && kept.fits(d, width, look) {
-		return kept.nodes, kept.columns, kept.widths
+		return kept
 	}
-	nodes, columns, widths := d.nodes(m.frame.Groups, m.frame.Columns, width, look)
-	m.layout = &keptLayout{
+	nodes, columns, widths := d.nodes(m.frame.Groups, m.frame.Columns, width, look, m.nodesHint)
+	m.nodesHint = len(nodes)
+	k := &keptLayout{
 		width: width, look: look, under: d.under, panelShown: d.panelShown, filter: d.filter, locked: refOf(d.lockedTo()),
-		folded: maps.Clone(d.folded), opened: maps.Clone(d.opened),
-		nodes: nodes, columns: columns, widths: widths,
+		toggles: d.toggles, nodes: nodes, columns: columns, widths: widths,
 	}
-	return nodes, columns, widths
+	k.ix = k.index(m.frame.Groups)
+	m.layout = k
+	return k
 }
 
-// keptLayout is one frame's layout and what it was laid out for beside the frame.
+// keptLayout is one frame's layout, its line index, and what it was laid out for beside the frame.
 type keptLayout struct {
 	width             int
 	look              Look
 	under, panelShown bool
 	filter            string
 	locked            EntityRef
-	folded, opened    map[string]bool
-	nodes             []node
-	columns           []Column
-	widths            []int
+	// toggles is the display's count of folds and opens when this was laid out.
+	toggles uint64
+	nodes   []node
+	columns []Column
+	widths  []int
+	ix      *lineIndex
+	// panel is the side panel's document for the cursor's stop, read once and kept unpainted.
+	panel keptPanel
 }
 
 func (k *keptLayout) fits(d display, width int, look Look) bool {
 	return k.width == width && k.look == look && k.under == d.under && k.panelShown == d.panelShown &&
-		k.filter == d.filter && k.locked == refOf(d.lockedTo()) && maps.Equal(k.folded, d.folded) && maps.Equal(k.opened, d.opened)
+		k.filter == d.filter && k.locked == refOf(d.lockedTo()) && k.toggles == d.toggles
 }
+
+// stop is the node at the cursor's stop at.
+func (k *keptLayout) stop(at int) *node { return &k.nodes[k.ix.stops[at]] }
 
 // refOf is the entity ref points at, and the zero ref for nil.
 func refOf(ref *EntityRef) EntityRef {
@@ -1113,75 +1164,73 @@ func (m *Model) panelDrawsDocumentOf(r *Row) bool {
 	return m.panelWidth() > 0 && r.panelDrawsDocument()
 }
 
-func selectableOf(nodes []node) []node {
-	return slices.DeleteFunc(slices.Clone(nodes), func(n node) bool { return !n.selectable() })
-}
-
 // place puts the cursor on its key, or on where it starts the first time there is such a
 // line, or on the line it was on where its row is gone.
 func (m *Model) place() {
-	rows := selectableOf(m.nodes())
-	if len(rows) == 0 {
+	k := m.kept()
+	if len(k.ix.stops) == 0 {
 		m.cursor, m.cursorAt = "", 0
 		return
 	}
 	if !m.placed {
-		if i := slices.IndexFunc(rows, func(n node) bool { return n.key != "" && n.key == m.frame.StartAt }); i >= 0 {
-			m.cursor, m.cursorAt, m.placed = rows[i].key, i, true
+		if i, shows := k.ix.stopAt[m.frame.StartAt]; shows && m.frame.StartAt != "" {
+			m.cursor, m.cursorAt, m.placed = m.frame.StartAt, i, true
 			return
 		}
-		if i := m.startingLine(rows); i >= 0 {
-			m.cursor, m.cursorAt, m.placed = rows[i].key, i, true
+		if i := m.startingLine(k); i >= 0 {
+			m.cursor, m.cursorAt, m.placed = k.stop(i).key, i, true
 			return
 		}
 	}
-	if i := slices.IndexFunc(rows, func(n node) bool { return n.key == m.cursor }); i >= 0 {
+	if i, shows := k.ix.stopAt[m.cursor]; shows {
 		m.cursorAt = i
 		return
 	}
-	m.cursorAt = max(0, min(m.cursorAt, len(rows)-1))
-	m.cursor = rows[m.cursorAt].key
+	m.cursorAt = max(0, min(m.cursorAt, len(k.ix.stops)-1))
+	m.cursor = k.stop(m.cursorAt).key
 }
 
 // startingLine is the first line holding cells, or the last on a board read from its
 // newest, and otherwise the first with anything to read. The cursor starts past a group
 // with no Panel or Detail, because the panel would only repeat its label.
-func (m *Model) startingLine(rows []node) int {
-	holdsCells := func(n node) bool {
+func (m *Model) startingLine(k *keptLayout) int {
+	holdsCells := func(stop int) bool {
+		n := k.nodes[stop]
 		if n.kind == nodeGroup {
 			return len(n.group.Cells) > 0 && n.group.hasPanelText()
 		}
 		return len(n.row.Cells) > 0
 	}
-	i := slices.IndexFunc(rows, holdsCells)
 	if m.tails() {
-		for at := len(rows) - 1; at >= 0; at-- {
-			if holdsCells(rows[at]) {
+		for at := len(k.ix.stops) - 1; at >= 0; at-- {
+			if holdsCells(k.ix.stops[at]) {
 				return at
 			}
 		}
 	}
-	if i >= 0 {
+	if i := slices.IndexFunc(k.ix.stops, holdsCells); i >= 0 {
 		return i
 	}
-	return slices.IndexFunc(rows, func(n node) bool { return n.kind == nodeRow || n.group.hasPanelText() })
+	return slices.IndexFunc(k.ix.stops, func(stop int) bool {
+		return k.nodes[stop].kind == nodeRow || k.nodes[stop].group.hasPanelText()
+	})
 }
 
 func (m *Model) selected() (node, bool) {
-	rows := selectableOf(m.nodes())
-	if m.cursorAt < 0 || m.cursorAt >= len(rows) {
+	k := m.kept()
+	if m.cursorAt < 0 || m.cursorAt >= len(k.ix.stops) {
 		return node{}, false
 	}
-	return rows[m.cursorAt], true
+	return *k.stop(m.cursorAt), true
 }
 
 func (m *Model) move(by int) {
-	rows := selectableOf(m.nodes())
-	if len(rows) == 0 {
+	k := m.kept()
+	if len(k.ix.stops) == 0 {
 		return
 	}
-	m.cursorAt = max(0, min(m.cursorAt+by, len(rows)-1))
-	m.cursor = rows[m.cursorAt].key
+	m.cursorAt = max(0, min(m.cursorAt+by, len(k.ix.stops)-1))
+	m.cursor = k.stop(m.cursorAt).key
 	m.placed = true
 	m.scrolled = false
 	m.follow()
@@ -1190,25 +1239,23 @@ func (m *Model) move(by int) {
 // jump moves to the next or previous group at the cursor's depth or shallower. Going
 // back from inside a group lands on its own heading first, as Vim's [[ does.
 func (m *Model) jump(direction int) {
-	rows := selectableOf(m.nodes())
-	if m.cursorAt < 0 || m.cursorAt >= len(rows) {
+	k := m.kept()
+	if m.cursorAt < 0 || m.cursorAt >= len(k.ix.stops) {
 		return
 	}
-	level := rows[m.cursorAt].depth
-	if rows[m.cursorAt].kind == nodeRow {
+	level := k.stop(m.cursorAt).depth
+	if k.stop(m.cursorAt).kind == nodeRow {
 		level--
 	}
-	for at := m.cursorAt + direction; at >= 0 && at < len(rows); at += direction {
-		if rows[at].kind == nodeGroup && rows[at].depth <= level {
+	for at := m.cursorAt + direction; at >= 0 && at < len(k.ix.stops); at += direction {
+		if k.stop(at).kind == nodeGroup && k.stop(at).depth <= level {
 			m.move(at - m.cursorAt)
 			return
 		}
 	}
 }
 
-func (m *Model) hasGroups() bool {
-	return slices.ContainsFunc(m.nodes(), func(n node) bool { return n.kind == nodeGroup && n.selectable() })
-}
+func (m *Model) hasGroups() bool { return m.kept().ix.hasGroups }
 
 // onOpenText says the cursor's row or group shows text under it, which the half-screen
 // keys and J and K then read through.
@@ -1244,27 +1291,20 @@ func (m *Model) tableWidth() int {
 
 func (m *Model) bodyHeight() int { return m.heights().body }
 
-// table is the laid-out table: the lines that stay on screen, and those that scroll.
-func (m *Model) table() (pinned, scrolling []drawn) {
-	nodes, columns, widths := m.laidOut()
-	look := m.look()
-	cursor := m.painter.cursorLook()
-	cursor.bold = look.BoldCursor
-	return splitPinned(draw(m.painter, columns, nodes, widths, m.tableWidth(), m.cursor, cursor, look))
-}
+// scrollHeight is what pinned lines that stay on screen leave for those that scroll.
+func (m *Model) scrollHeight(pinned int) int { return max(1, m.bodyHeight()-pinned) }
 
-// scrollHeight is what the lines that stay on screen leave for those that scroll.
-func (m *Model) scrollHeight(pinned []drawn) int { return max(1, m.bodyHeight()-len(pinned)) }
-
+// follow keeps the cursor's line on screen, clear of the band. It reads the line from the index,
+// so it paints nothing.
 func (m *Model) follow() {
-	pinned, lines := m.table()
-	h := m.scrollHeight(pinned)
-	at := slices.IndexFunc(lines, func(l drawn) bool { return l.key != "" && l.key == m.cursor })
-	if at >= 0 && !m.scrolled {
-		end := at
-		for end+1 < len(lines) && lines[end+1].continues {
-			end++
-		}
+	want := -1
+	if followHook != nil {
+		want = followHook(m)
+	}
+	k := m.kept()
+	h := m.scrollHeight(k.ix.pinned)
+	at, end, ok := k.cursorSpan(m.cursor)
+	if ok && !m.scrolled {
 		if at < m.top {
 			m.top = at
 		}
@@ -1272,18 +1312,33 @@ func (m *Model) follow() {
 			m.top = min(at, end-h+1)
 		}
 	}
-	m.top = max(0, min(m.top, len(lines)-h))
-	if at >= 0 && !m.scrolled {
-		m.clearOfBand(lines, at, h)
+	m.top = max(0, min(m.top, k.ix.scrolling()-h))
+	if ok && !m.scrolled {
+		m.clearOfBand(k, at, h)
+	}
+	if followHook != nil && m.top != want {
+		panic(fmt.Sprintf("the cursor's follow scrolled to line %d, and the whole table's draw scrolls to %d", m.top, want))
 	}
 }
 
 // clearOfBand moves the screen up until the line at sits below the band, which is no cursor stop.
-func (m *Model) clearOfBand(lines []drawn, at, height int) {
-	for m.top > 0 && at < m.top+len(stickyBand(lines, m.top, height)) {
+func (m *Model) clearOfBand(k *keptLayout, at, height int) {
+	for m.top > 0 {
+		if _, band := k.ix.bandOver(m.top, height); at >= m.top+band {
+			return
+		}
 		m.top--
 	}
 }
+
+// The hooks a test sets to hold this draw to the whole table's draw. followHook and revealHook
+// answer where the whole table's draw would scroll to, asked before this one moves, and drawHook
+// hears every draw under the strip.
+var (
+	followHook func(m *Model) int
+	revealHook func(m *Model) int
+	drawHook   func(m *Model, body int, footer, drew []string)
+)
 
 // footer is the work under way, then an open question and the keys that answer it, or else the
 // filter being typed, what the last key did, or the filter kept, then the keys. What a key did
@@ -1329,10 +1384,12 @@ func (m *Model) inside() string {
 		return m.reading.screen()
 	}
 	if !m.stripOnly || m.underStrip == nil {
-		m.underStrip = m.drawUnderStrip()
+		footer := m.footer()
+		m.footerDrawn = len(footer)
+		m.underStrip = m.drawUnderStrip(m.heightsOver(len(footer)).body, footer)
 	}
 	m.stripOnly = false
-	charts := m.charts[:m.heights().charts]
+	charts := m.charts[:m.heightsOver(m.footerDrawn).charts]
 	out := make([]string, 0, len(m.frame.Strip)+len(charts)+len(m.underStrip))
 	for _, line := range slices.Concat(m.frame.Strip, charts) {
 		out = append(out, ansi.Truncate(m.painter.line(line), m.width, "…"))
@@ -1340,45 +1397,50 @@ func (m *Model) inside() string {
 	return strings.Join(append(out, m.underStrip...), "\n")
 }
 
-// drawUnderStrip is the table or the keys overlay, then the footer.
-func (m *Model) drawUnderStrip() []string {
-	var out []string
-	h := m.bodyHeight()
+// drawUnderStrip is the table or the keys overlay in body lines, then the footer. It paints three
+// ranges of the table: the lines that stay on screen, the band over the top of those that scroll,
+// and the lines the band leaves showing.
+func (m *Model) drawUnderStrip(body int, footer []string) []string {
+	out := make([]string, 0, body+len(footer))
 	if m.overlay {
-		out = append(out, m.keysOverlay(h)...)
-		return append(out, m.footer()...)
+		out = append(out, m.keysOverlay(body)...)
+		return append(out, footer...)
 	}
-	pinned, lines := m.table()
-	for _, line := range pinned {
-		out = append(out, line.text)
-	}
-	h = m.scrollHeight(pinned)
-	shown := lines[min(m.top, len(lines)):min(m.top+h, len(lines))]
-	band := stickyBand(lines, m.top, h)
+	k := m.kept()
+	t := m.tablePainter(k)
+	out = append(out, t.lines(0, k.ix.pinned)...)
+	h := max(1, body-k.ix.pinned)
+	band := t.band(m.top, h)
+	shown := t.lines(k.ix.pinned+m.top+len(band), k.ix.pinned+m.top+h)
+	panelWidth := m.panelWidth()
 	panel := m.panelLines(h)
-	tw := m.tableWidth()
 	for i := range h {
 		left := ""
 		switch {
 		case i < len(band):
 			left = band[i]
-		case i < len(shown):
-			left = shown[i].text
+		case i-len(band) < len(shown):
+			left = shown[i-len(band)]
 		}
-		if m.panelWidth() == 0 {
+		if panelWidth == 0 {
 			out = append(out, left)
 			continue
 		}
-		left += strings.Repeat(" ", max(tw-ansi.StringWidth(left), 0))
+		left += strings.Repeat(" ", max(k.width-textWidth(left), 0))
 		right := ""
 		if i < len(panel) {
 			right = panel[i]
 		}
 		out = append(out, strings.TrimRight(left+" │ "+right, " "))
 	}
-	return append(out, m.footer()...)
+	out = append(out, footer...)
+	if drawHook != nil {
+		drawHook(m, body, footer, out)
+	}
+	return out
 }
 
+// panelLines is the side panel's first height lines. It paints no line past them.
 func (m *Model) panelLines(height int) []string {
 	width := m.panelWidth()
 	if width == 0 {
@@ -1388,26 +1450,42 @@ func (m *Model) panelLines(height int) []string {
 	if !ok {
 		return nil
 	}
-	lines := m.panelText(n, width)
-	if len(lines) > height {
-		lines = lines[:height]
+	k := m.kept()
+	at := k.ix.stops[m.cursorAt]
+	if p := &k.panel; !p.held || p.node != at || p.width != width {
+		*p = keptPanel{node: at, width: width, held: true}
+		if authored, _ := n.panelSource(); authored != nil {
+			p.lines = authored(width)
+		}
 	}
-	return lines
+	return m.panelTextOf(n, k.panel.lines, width, height)
 }
 
-// panelText is a node's panelSource, under a row's ReaderTitle where it is the row's Document,
-// and a group's label and summary where it holds neither.
-func (m *Model) panelText(n node, width int) []string {
-	var authored Document
-	var cells []Cell
+// keptPanel is the side panel's document as the node at one cursor stop gave it at one width,
+// unpainted, so a theme reload recolors it. It is dropped with its layout.
+type keptPanel struct {
+	node, width int
+	lines       []Line
+	held        bool
+}
+
+// panelSource is the node's own text for the side panel: a Document, or cells where it has none.
+func (n node) panelSource() (Document, []Cell) {
 	switch n.kind {
 	case nodeGroup:
-		authored, cells = n.group.panelSource()
-		if len(cells) == 0 {
-			cells = []Cell{C(groupLabel(n.group).Text(), Bold), C(n.group.Summary.Text(), "")}
-		}
+		return n.group.panelSource()
 	case nodeRow:
-		authored, cells = n.row.panelSource()
+		return n.row.panelSource()
+	}
+	return nil, nil
+}
+
+// panelTextOf is the side panel's first most lines for a node whose Document gave document, or
+// whose cells stand in where it has no Document.
+func (m *Model) panelTextOf(n node, document []Line, width, most int) []string {
+	authored, cells := n.panelSource()
+	if n.kind == nodeGroup && len(cells) == 0 {
+		cells = []Cell{C(groupLabel(n.group).Text(), Bold), C(n.group.Summary.Text(), "")}
 	}
 	var lines []string
 	if n.kind == nodeRow && n.row.panelDrawsDocument() && n.row.ReaderTitle != "" {
@@ -1416,19 +1494,25 @@ func (m *Model) panelText(n node, width int) []string {
 		}
 	}
 	if authored != nil {
-		for _, line := range authored(width) {
+		for _, line := range document {
+			if len(lines) >= most {
+				break
+			}
 			for _, piece := range wrapWords(line, width) {
 				lines = append(lines, m.painter.line(piece))
 			}
 		}
-		return lines
+		return lines[:min(len(lines), most)]
 	}
 	for _, c := range cells {
+		if len(lines) >= most {
+			break
+		}
 		for _, piece := range wrap(c.Text, width) {
 			lines = append(lines, m.painter.cell(c.withText(piece)))
 		}
 	}
-	return lines
+	return lines[:min(len(lines), most)]
 }
 
 func (m *Model) keysOverlay(height int) []string {
