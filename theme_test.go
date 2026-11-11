@@ -21,12 +21,6 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	if !benchmarking() {
 		holdToTheWholeTable()
-		switch os.Getenv("HOLD_TO") {
-		case "heights":
-			followHook, revealHook, drawHook = nil, nil, nil
-		case "nothing":
-			paintHook, followHook, revealHook, drawHook = nil, nil, nil, nil
-		}
 	}
 	os.Exit(m.Run())
 }
