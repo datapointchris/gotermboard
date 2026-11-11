@@ -89,8 +89,8 @@ func newLogModel(rows int) (*Model, *logBoard) {
 
 var redrawSizes = []int{500, 5000, 50000}
 
-// BenchmarkRedraw times each thing a board does and the draw after it, at three sizes. A step that
-// reads no new frame should cost the same at every size.
+// BenchmarkRedraw times each thing a board does and the draw after it, at each of redrawSizes. A
+// step that reads no new frame should cost the same at every size.
 func BenchmarkRedraw(b *testing.B) {
 	keys := func(a, z tea.KeyPressMsg) func(*Model, *logBoard, int) {
 		return func(m *Model, _ *logBoard, i int) {
@@ -103,7 +103,7 @@ func BenchmarkRedraw(b *testing.B) {
 	}
 	steps := []struct {
 		name string
-		// long gives every row a document of 2,000 lines, and only runs the step at one size.
+		// long gives every row a long document. only, where set, runs the step at that one size.
 		long  bool
 		only  int
 		setup func(*Model, *logBoard)
@@ -205,7 +205,7 @@ func newLogTabs(tabs, rows int) *Tabs {
 	return t
 }
 
-// BenchmarkTabs times what twelve tabs of 5,200 rows pay for the eleven that are hidden.
+// BenchmarkTabs times what a set of large tabs pays for the ones that are hidden.
 func BenchmarkTabs(b *testing.B) {
 	steps := []struct {
 		name  string

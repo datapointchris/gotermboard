@@ -382,7 +382,7 @@ func TestABoardThatNumbersItsFramesDrawsWhatItsTwinDrawsEveryFrame(t *testing.T)
 
 // TestADrawPaintsTheNodesOnScreenHoweverManyTheBoardHolds counts the nodes painted. A draw paints
 // no more nodes than the screen has lines, and a cursor key or a tick whose Revision held paints
-// none ahead of its draw, at 500 rows and at 50,000.
+// none ahead of its draw, on a small board and on a large one.
 func TestADrawPaintsTheNodesOnScreenHoweverManyTheBoardHolds(t *testing.T) {
 	hook, follow, reveal, draw := paintHook, followHook, revealHook, drawHook
 	defer func() { paintHook, followHook, revealHook, drawHook = hook, follow, reveal, draw }()

@@ -9,8 +9,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// This file is v0.45.0's whole-table draw, kept as the reference the culled draw is held to. It
-// paints every node and reads the cursor's line, the band and the screen off the painted lines.
+// This file is the whole-table draw the culled draw is held to. It paints every node and reads the
+// cursor's line, the band and the screen off the painted lines. TestMain's hooks hold the culled
+// draw to it, so a change to how the table scrolls or bands changes both.
 
 // splitPinned is the leading lines that stay on screen, and those that scroll.
 func splitPinned(lines []drawn) (pinned, scrolling []drawn) {
@@ -89,7 +90,7 @@ func wholeTable(m *Model) (pinned, scrolling []drawn) {
 	return splitPinned(draw(m.painter, columns, nodes, widths, m.tableWidth(), m.cursor, cursor, look))
 }
 
-// wholeFollow is where v0.45.0's follow leaves the top, from the model as it stands.
+// wholeFollow is where following the cursor through the painted table leaves the top.
 func wholeFollow(m *Model) int {
 	top := m.top
 	pinned, lines := wholeTable(m)
@@ -121,7 +122,7 @@ func wholeClearOfBand(lines []drawn, top, at, height int) int {
 	return top
 }
 
-// wholeReveal is where v0.45.0's revealDetail leaves the top, past its displayChanged.
+// wholeReveal is where revealing through the painted table leaves the top, after displayChanged.
 func wholeReveal(m *Model) int {
 	top := m.top
 	pinned, lines := wholeTable(m)
@@ -140,7 +141,7 @@ func wholeReveal(m *Model) int {
 	return wholeClearOfBand(lines, top, at, h)
 }
 
-// wholeUnderStrip is v0.45.0's draw of the table in body lines, then the footer.
+// wholeUnderStrip is the whole table's draw in body lines, then the footer.
 func wholeUnderStrip(m *Model, body int, footer []string) []string {
 	var out []string
 	pinned, lines := wholeTable(m)
