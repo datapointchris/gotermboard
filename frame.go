@@ -73,7 +73,19 @@ func (l Line) Text() string {
 	return b.String()
 }
 
-func (l Line) width() int { return ansi.StringWidth(l.Text()) }
+// width is the cells the line takes. Cells that count add up, and a line holding any other text is
+// measured as one run, because a grapheme can span two cells' texts.
+func (l Line) width() int {
+	width := 0
+	for _, c := range l {
+		cells, ok := counted(c.Text)
+		if !ok {
+			return ansi.StringWidth(l.Text())
+		}
+		width += cells
+	}
+	return width
+}
 
 // Items is a line of a Group's Below that the draw cuts to the items that fit, ending in
 // +N for the rest, rather than letting the screen's edge cut one in half. The width it
@@ -176,7 +188,8 @@ func start(columns []Column, widths []int, at int) int {
 }
 
 // Document is text that lays itself out at a width, for what only the draw can place:
-// hanging bullets, tables and boxes of code. Its lines are drawn as they come.
+// hanging bullets, tables and boxes of code. Its lines are drawn as they come. It is read once
+// per layout, and again after each message a ReceivingBoard receives.
 type Document func(width int) []Line
 
 // Row is one line of the table: Cells on the columns, or Span across them.
@@ -234,7 +247,7 @@ func (r *Row) opens() bool { return len(r.Detail) > 0 || r.Document != nil }
 func (r *Row) lead(depth int) int {
 	lead := indentOf(depth)
 	if r.Symbol.Text != "" {
-		lead += ansi.StringWidth(r.Symbol.Text) + 1
+		lead += textWidth(r.Symbol.Text) + 1
 	}
 	return lead
 }
@@ -257,7 +270,7 @@ func (r *Row) showsUnder(depth int, widths []int) bool {
 	}
 	last := len(widths) - 1
 	return last >= 0 && len(r.WrapLast) == 0 && len(r.Cells) > last &&
-		ansi.StringWidth(r.Cells[last].Text) > r.cellRoom(depth, last, widths)
+		textWidth(r.Cells[last].Text) > r.cellRoom(depth, last, widths)
 }
 
 // panelSource is the row's own text for the side panel: its Panel or else its Document, and
@@ -395,6 +408,12 @@ type Frame struct {
 	// starts on the first line holding cells, or the last on a TailBoard, past any group with
 	// no panel text. With no such line it starts on the first line with text to read.
 	StartAt string
+	// Revision is a number the board changes whenever Columns or Groups would draw differently
+	// from the frame it returned before, a Document's text included. A tick or a read whose frame
+	// carries the last frame's Revision keeps the last frame's Columns and Groups, their layout and
+	// their change cues, and takes every other field from the new frame. Zero makes no claim, so the
+	// frame is laid out as new. A board whose cells show the clock's text leaves it zero.
+	Revision uint64
 }
 
 // nodeKind is what one laid-out line of the table is.
@@ -493,6 +512,20 @@ type display struct {
 	matched *rowMatches
 	// panelShown says the side panel is drawn beside the table.
 	panelShown bool
+	// toggles counts every write to folded and opened, so a kept layout knows it is stale without
+	// comparing the maps, which grow to a key a row once every row has been opened.
+	toggles uint64
+}
+
+// fold and open are the only writers of folded and opened.
+func (d *display) fold(key string, folded bool) {
+	d.folded[key] = folded
+	d.toggles++
+}
+
+func (d *display) open(key string, opened bool) {
+	d.opened[key] = opened
+	d.toggles++
 }
 
 // rowMatches is each row's answer to the filter and its text lowercased. Answers and the rows
@@ -696,8 +729,8 @@ func anyUnder(groups []Group, widths []int, depth int) bool {
 // nodes is what shows of groups on a table this wide, the columns with the gaps the layout
 // leaves ahead of them, and the width each column takes for it. Each node is marked with
 // whether it stays on screen and whether it names what sits inside it.
-func (d display) nodes(groups []Group, columns []Column, width int, look Look) ([]node, []Column, []int) {
-	nodes := d.walk(groups, 0, -1, false, nil)
+func (d display) nodes(groups []Group, columns []Column, width int, look Look, hint int) ([]node, []Column, []int) {
+	nodes := d.walk(groups, 0, -1, false, make([]node, 0, hint))
 	columns, widths := layout(columns, nodes, width, look)
 	nodes = withoutHiddenUnders(nodes, widths)
 	pinned := true
@@ -714,6 +747,10 @@ func (d display) nodes(groups []Group, columns []Column, width int, look Look) (
 // withoutHiddenUnders drops each row's Under line that has no summary to draw at these widths.
 // No node sits inside an Under line, so a parent never drops, and the nodes after one move up.
 func withoutHiddenUnders(nodes []node, widths []int) []node {
+	hidden := func(n node) bool { return n.kind == nodeUnder && n.row != nil && !n.row.showsUnder(n.depth, widths) }
+	if !slices.ContainsFunc(nodes, hidden) {
+		return nodes
+	}
 	kept := make([]node, 0, len(nodes))
 	at := make([]int, len(nodes))
 	for i, n := range nodes {
@@ -825,7 +862,7 @@ func spanColumn(depth int, g *Group) int {
 func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []int) {
 	widths := make([]int, len(columns))
 	for i, c := range columns {
-		widths[i] = ansi.StringWidth(c.Title)
+		widths[i] = textWidth(c.Title)
 	}
 	for _, n := range nodes {
 		switch {
@@ -833,7 +870,7 @@ func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []i
 			widths[0] = max(widths[0], indentOf(n.depth)+2+groupLabel(n.group).width())
 			for i, c := range n.group.Cells {
 				if i+1 < len(widths) {
-					widths[i+1] = max(widths[i+1], ansi.StringWidth(c.Text))
+					widths[i+1] = max(widths[i+1], textWidth(c.Text))
 				}
 			}
 		// A top group's label fills the first column, so the titles or a folded group's
@@ -842,14 +879,14 @@ func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []i
 			widths[0] = max(widths[0], indentOf(0)+2+groupLabel(n.group).width())
 		case n.kind == nodeRow && len(n.row.Cells) > 0:
 			for i, c := range n.row.Cells {
-				w := ansi.StringWidth(c.Text)
+				w := textWidth(c.Text)
 				if i == 0 {
 					w += n.row.lead(n.depth)
 				}
 				widths[i] = max(widths[i], w)
 			}
 			if len(n.row.Second) > 0 {
-				widths[0] = max(widths[0], n.row.lead(n.depth)+ansi.StringWidth(n.row.Second[0].Text))
+				widths[0] = max(widths[0], n.row.lead(n.depth)+textWidth(n.row.Second[0].Text))
 			}
 		}
 	}
@@ -977,8 +1014,12 @@ func groupWords(g *Group) Line {
 
 // fit is text cut to width with an ellipsis, then padded to it.
 func fit(text string, width int, right bool) string {
-	text = ansi.Truncate(text, width, "…")
-	pad := strings.Repeat(" ", max(width-ansi.StringWidth(text), 0))
+	at := textWidth(text)
+	if at > width {
+		text = ansi.Truncate(text, width, "…")
+		at = textWidth(text)
+	}
+	pad := strings.Repeat(" ", max(width-at, 0))
 	if right {
 		return pad + text
 	}
@@ -1000,79 +1041,11 @@ type drawn struct {
 	continues bool
 }
 
-// splitPinned is the leading lines that stay on screen, and those that scroll.
-func splitPinned(lines []drawn) (pinned, scrolling []drawn) {
-	at := slices.IndexFunc(lines, func(l drawn) bool { return !l.pinned })
-	if at < 0 {
-		return lines, nil
-	}
-	return lines[:at], lines[at:]
-}
-
 // The band holds at most this many lines, and at most this share of what scrolls.
 const (
 	bandMost     = 5
 	bandPerLines = 3
 )
-
-// stickyBand is the lines covering the top of those that scroll: the owners of the first line
-// the band leaves showing, the innermost where they do not all fit. Each owner the band adds
-// covers one more line, so this looks again until the lines it covers need no more. It can
-// end short of what it covers, where a sibling arrives under the band, because a line named
-// by the wrong owner reads worse than a line named by none.
-func stickyBand(lines []drawn, top, height int) []string {
-	room := min(bandMost, height/bandPerLines)
-	covered := 0
-	for {
-		var band []string
-		if at := top + covered; at < len(lines) {
-			band = lines[at].owners
-			band = band[max(len(band)-room, 0):]
-		}
-		if len(band) <= covered {
-			return band
-		}
-		covered = len(band)
-	}
-}
-
-// draw lays the nodes out to width. The first group holding rows and left open
-// carries the one header row, so every group shares its columns. A group with cells
-// of its own has no room for the titles, so they take a line of their own at the top. A
-// board's Look.Rules puts them there too, and adds a rule under them.
-func draw(p painter, columns []Column, nodes []node, widths []int, width int, cursor string, look cursorLook, board Look) []drawn {
-	titled := false
-	lines := make([]drawn, 0, len(nodes))
-	ownLine := board.Rules || slices.ContainsFunc(nodes, func(n node) bool { return n.kind == nodeGroup && len(n.group.Cells) > 0 })
-	if ownLine && len(columns) > 0 {
-		titled = true
-		first := p.bold(fit(columns[0].Title, max(widths[0]-1, 0), false))
-		lines = append(lines, drawn{text: ansi.Truncate(" "+first+columnTitles(p, columns, widths), width, "…"), pinned: true})
-		if board.Rules {
-			lines = append(lines, drawn{text: RuleThin.across(p, width, ""), pinned: true})
-		}
-	}
-	inside := make([][]string, len(nodes))
-	for i, n := range nodes {
-		from := len(lines)
-		wantsTitles := n.kind == nodeGroup && n.depth == 0 && n.open && n.drawsRows && !titled
-		titled = titled || wantsTitles
-		lines = append(lines, drawNode(p, n, columns, widths, width, cursor, look, wantsTitles)...)
-		var owners []string
-		if n.parent >= 0 {
-			owners = inside[n.parent]
-		}
-		for j := from; j < len(lines); j++ {
-			lines[j].pinned = n.pinned
-			lines[j].owners = owners
-		}
-		inside[i] = owners
-		if n.names {
-			inside[i] = append(slices.Clip(owners), firstLine(lines[from:], n))
-		}
-	}
-	return lines
-}
 
 // firstLine is the line a node shows in the band, past a group's overline.
 func firstLine(lines []drawn, n node) string {
@@ -1086,10 +1059,11 @@ func firstLine(lines []drawn, n node) string {
 	return line.text
 }
 
-// drawNode is the lines one node takes.
+// drawNode is the lines one node takes, painted from its parts.
 func drawNode(p painter, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
-	lines := drawNodeBody(p, n, columns, widths, width, cursor, look, wantsTitles)
-	if n.kind == nodeGroup && n.group.Overline != RuleNone {
+	parts := partsOf(n, widths, width)
+	lines := drawNodeBody(p, n, parts, columns, widths, width, cursor, look, wantsTitles)
+	if parts.overline {
 		lines = append([]drawn{{text: n.group.Overline.line(p, width, n.group.Tone)}}, lines...)
 	}
 	return lines
@@ -1125,7 +1099,7 @@ func (w RuleWeight) across(p painter, n int, tone string) string {
 	return p.cell(C(strings.Repeat(glyph, max(n, 0)), tone))
 }
 
-func drawNodeBody(p painter, n node, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
+func drawNodeBody(p painter, n node, parts nodeParts, columns []Column, widths []int, width int, cursor string, look cursorLook, wantsTitles bool) []drawn {
 	pointer := " "
 	selected := n.selectable() && n.key == cursor
 	wear := func(lines []drawn) []drawn {
@@ -1141,7 +1115,6 @@ func drawNodeBody(p painter, n node, columns []Column, widths []int, width int, 
 		pointer = p.cell(C(CueGlyph, CueCode))
 	}
 	var text string
-	var wrapped Line
 	switch n.kind {
 	case nodeBlank:
 		text = ""
@@ -1149,32 +1122,29 @@ func drawNodeBody(p painter, n node, columns []Column, widths []int, width int, 
 		return []drawn{{text: n.weight.line(p, width, "")}}
 	case nodeGroup:
 		if len(n.group.Span) > 0 {
-			return append(wear(spanLines(p, n, pointer, columns, widths, width)), belowLines(p, n, width)...)
+			return append(wear(spanLines(p, n, parts, pointer, columns, widths, width)), belowLines(p, n, parts, width)...)
 		}
 		text = pointer + drawGroup(p, n, columns, widths, wantsTitles)
-		wrapped = n.group.WrapLast
 	case nodeRow:
 		text = pointer + drawRow(p, n, columns, widths)
-		wrapped = n.row.WrapLast
 	case nodeUnder:
-		return underLines(p, n, width)
+		return underLines(p, n, parts, width)
 	case nodeDetail:
 		var lines []drawn
-		for _, piece := range wrap(n.cell.Text, max(width-indentOf(n.depth), 20)) {
+		for _, piece := range parts.pieces {
 			lines = append(lines, drawn{text: strings.Repeat(" ", indentOf(n.depth)) + p.cell(n.cell.withText(piece))})
 		}
 		return lines
 	case nodeDocument:
 		var lines []drawn
-		indent := strings.Repeat(" ", n.column)
-		for _, line := range n.document(max(width-n.column, 20)) {
-			lines = append(lines, drawn{text: ansi.Truncate(indent+p.line(line), width, "…")})
+		for _, line := range parts.document {
+			lines = append(lines, drawn{text: documentLine(p, n, line, width)})
 		}
 		return lines
 	}
-	lines := []drawn{{text: ansi.Truncate(text, width, "…"), key: selectableKey(n)}}
-	lines = append(lines, continuedLines(p, wrapped, columns, widths)...)
-	if n.kind == nodeRow && len(n.row.Second) > 0 {
+	lines := []drawn{{text: cut(text, width), key: selectableKey(n)}}
+	lines = append(lines, continuedLines(p, parts.continued, columns, widths)...)
+	if parts.second {
 		for i := 1; i < len(lines); i++ {
 			lines[i].continues = true
 		}
@@ -1182,11 +1152,11 @@ func drawNodeBody(p painter, n node, columns []Column, widths []int, width int, 
 		if selected {
 			second = look.pointer()
 		}
-		lines = append(lines, drawn{text: ansi.Truncate(second+secondLine(p, n, columns, widths), width, "…"), continues: true})
+		lines = append(lines, drawn{text: cut(second+secondLine(p, n, columns, widths), width), continues: true})
 	}
 	lines = wear(lines)
 	if n.kind == nodeGroup {
-		lines = append(lines, belowLines(p, n, width)...)
+		lines = append(lines, belowLines(p, n, parts, width)...)
 	}
 	return lines
 }
@@ -1208,17 +1178,16 @@ func secondLine(p painter, n node, columns []Column, widths []int) string {
 }
 
 // underLines is a summary on its └─ row, running on under it where it wraps.
-func underLines(p painter, n node, width int) []drawn {
+func underLines(p painter, n node, parts nodeParts, width int) []drawn {
 	lead := strings.Repeat(" ", indentOf(n.depth)) + "└─ "
 	if n.column >= ansi.StringWidth(lead)-indentOf(n.depth) {
 		lead = strings.Repeat(" ", n.column-ansi.StringWidth("└─ ")) + "└─ "
 	}
-	if !n.wraps {
-		return []drawn{{text: ansi.Truncate(lead+p.cell(n.cell), width, "…")}}
+	if parts.head {
+		return []drawn{{text: cut(lead+p.cell(n.cell), width)}}
 	}
-	room := max(width-ansi.StringWidth(lead), 20)
 	var lines []drawn
-	for i, piece := range wrap(n.cell.Text, room) {
+	for i, piece := range parts.pieces {
 		if i == 1 {
 			lead = strings.Repeat(" ", ansi.StringWidth(lead))
 		}
@@ -1259,7 +1228,7 @@ func columnCells(p painter, cells []Cell, from int, wrapped Line, columns []Colu
 			break
 		}
 		if at == last {
-			b.WriteString(columns[at].spacer() + p.cell(c.withText(ansi.Truncate(c.Text, widths[at], "…"))))
+			b.WriteString(columns[at].spacer() + p.cell(c.withText(cut(c.Text, widths[at]))))
 		} else {
 			b.WriteString(columns[at].spacer() + p.cell(c.withText(fit(c.Text, widths[at], columns[at].Right))))
 		}
@@ -1277,17 +1246,15 @@ func columnCells(p painter, cells []Cell, from int, wrapped Line, columns []Colu
 	return b.String()
 }
 
-// continuedLines is what a wrapping last column holds past its first line, each
-// starting at that column.
-func continuedLines(p painter, wrapped Line, columns []Column, widths []int) []drawn {
-	if len(wrapped) == 0 {
+// continuedLines paints a wrapping last column's lines past its first, each starting at that
+// column.
+func continuedLines(p painter, pieces []Line, columns []Column, widths []int) []drawn {
+	if len(pieces) == 0 {
 		return nil
 	}
-	last := len(widths) - 1
-	indent := strings.Repeat(" ", start(columns, widths, last))
-	pieces := wrapLine(wrapped, widths[last])
+	indent := strings.Repeat(" ", start(columns, widths, len(widths)-1))
 	lines := make([]drawn, 0, len(pieces))
-	for _, piece := range pieces[min(1, len(pieces)):] {
+	for _, piece := range pieces {
 		lines = append(lines, drawn{text: indent + p.line(piece)})
 	}
 	return lines
@@ -1322,13 +1289,13 @@ func wrapLine(line Line, width int) []Line {
 }
 
 // belowLines are the lines a group keeps under its header, at its title's column.
-func belowLines(p painter, n node, width int) []drawn {
-	lines := make([]drawn, 0, len(n.group.Below)+1)
-	if n.group.Underline != RuleNone {
+func belowLines(p painter, n node, parts nodeParts, width int) []drawn {
+	lines := make([]drawn, 0, len(parts.below)+1)
+	if parts.underline {
 		lines = append(lines, drawn{text: n.group.Underline.line(p, width, n.group.Tone)})
 	}
 	indent := strings.Repeat(" ", indentOf(n.depth)+2)
-	for _, line := range n.group.Below {
+	for _, line := range parts.below {
 		lines = append(lines, drawn{text: ansi.Truncate(indent+p.line(line.elided(width-len(indent))), width, "…")})
 	}
 	return lines
@@ -1345,13 +1312,13 @@ func groupHead(n node) (string, Line) {
 
 // spanLines is a Span group: its label and Span, wrapping under the Span's start, then
 // Beside and the cells on their own line.
-func spanLines(p painter, n node, pointer string, columns []Column, widths []int, width int) []drawn {
+func spanLines(p painter, n node, parts nodeParts, pointer string, columns []Column, widths []int, width int) []drawn {
 	head, label := groupHead(n)
 	column := spanColumn(n.depth, n.group)
 	indent := strings.Repeat(" ", column)
 	var lines []drawn
 	opening := pointer + head + p.line(label) + columnGap
-	for i, piece := range wrapWords(n.group.Span, max(width-column, 20)) {
+	for i, piece := range parts.span {
 		if i == 0 {
 			lines = append(lines, drawn{
 				text: ansi.Truncate(opening+p.line(piece), width, "…"), key: selectableKey(n),
@@ -1361,7 +1328,7 @@ func spanLines(p painter, n node, pointer string, columns []Column, widths []int
 		}
 		lines = append(lines, drawn{text: ansi.Truncate(indent+p.line(piece), width, "…")})
 	}
-	if len(n.group.Cells) == 0 && len(n.group.WrapLast) == 0 && len(n.group.Beside) == 0 {
+	if !parts.head {
 		return lines
 	}
 	room := max(widths[0]-column, 0)
@@ -1370,7 +1337,7 @@ func spanLines(p painter, n node, pointer string, columns []Column, widths []int
 	first += strings.Repeat(" ", max(widths[0]-ansi.StringWidth(first), 0))
 	text := first + columnCells(p, n.group.Cells, 1, n.group.WrapLast, columns, widths)
 	lines = append(lines, drawn{text: ansi.Truncate(text, width, "…")})
-	return append(lines, continuedLines(p, n.group.WrapLast, columns, widths)...)
+	return append(lines, continuedLines(p, parts.continued, columns, widths)...)
 }
 
 func drawGroup(p painter, n node, columns []Column, widths []int, titles bool) string {

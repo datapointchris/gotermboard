@@ -46,8 +46,9 @@ func TestTheTabLineLeavesOutATabHoldingNothingLockedAndTabSkipsIt(t *testing.T) 
 	late := NewSource("late", time.Hour, func(context.Context) (int, string, error) { return 0, "", nil })
 	threes := NewSource("threes", time.Minute, func(context.Context) (int, string, error) { return 0, "", nil })
 	threes.Refresh(t.Context())
+	three := &thingsBoard{ids: []string{"3"}, sources: []Refresher{threes}}
 	tabs := newThingTabs(t, &thingsBoard{ids: []string{"1", "2"}}, &thingsBoard{ids: []string{"2"}},
-		&thingsBoard{ids: []string{"3"}, sources: []Refresher{threes}}, &thingsBoard{sources: []Refresher{late}})
+		three, &thingsBoard{sources: []Refresher{late}})
 	for range 4 {
 		press(tabs, tea.KeyPressMsg{Code: tea.KeyTab})
 	}
@@ -67,6 +68,16 @@ func TestTheTabLineLeavesOutATabHoldingNothingLockedAndTabSkipsIt(t *testing.T) 
 	if listed := tabs.listed(time.Now().Add(2 * time.Minute)); !slices.Contains(listed, 2) {
 		t.Errorf("three's reads come due a minute on, and a hidden tab never reads, so it should be listed again then: %v", listed)
 	}
+
+	three.ids = []string{"3", "2"}
+	tabs.show(2)
+	tabs.show(0)
+	if line := tabs.tabLine(); !strings.Contains(line, "three") {
+		t.Errorf("three was shown holding thing 2, so the tab line should name it from that frame: %q", line)
+	}
+	three.ids = []string{"3"}
+	tabs.show(2)
+	tabs.show(0)
 
 	press(tabs, typedKey(LockKey))
 	if line := tabs.tabLine(); !strings.Contains(line, "three") {

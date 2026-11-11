@@ -358,6 +358,24 @@ A beat builds no frame and draws no table, so a moving strip costs a fraction of
 frame at the same pace. What a beat does cost is mostly Bubble Tea's renderer, which compares the
 whole screen on every frame that changed.
 
+## A board that numbers its frames keeps the table across a tick
+
+Every tick and every read that lands asks the board for a frame and lays its table out again, one
+pass over its rows. A board that sets `Frame.Revision` skips that pass. Where a frame carries the last
+frame's `Revision`, the table keeps the last frame's columns, groups, layout and change cues, and
+takes the rest from the new frame.
+
+```go
+func (b *board) Frame(now time.Time, grouping string) gotermboard.Frame {
+ return gotermboard.Frame{Columns: b.columns, Groups: b.groups(grouping), Revision: b.version}
+}
+```
+
+The board moves the number whenever a row, a column or a document's text would draw differently. A
+board that misses one shows the old rows until the number moves, `Rebuild` is called, the grouping
+changes or the tab returns. Zero makes no claim, so a board that leaves it unset lays out every
+frame. A board whose cells show the clock's text leaves it zero.
+
 ## Charts take the cells the draw gives them
 
 The `chart` package draws plain series as lines of cells:
