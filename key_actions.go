@@ -198,9 +198,17 @@ func BySection[H any](actions []KeyAction[H]) []KeySection[H] {
 	return sections
 }
 
-// keyLine is an overlay's line for one row: its keys in a column, then its label.
-func keyLine[H any](action KeyAction[H]) string {
-	return "  " + fit(strings.Join(action.Keys, " "), 16, false) + "  " + action.Label
+// keyLines is an overlay's lines for one row: its keys in a column, then its label, wrapped to
+// width under its own column so a long label reads whole rather than running off the screen.
+func keyLines[H any](action KeyAction[H], width int) []string {
+	keys := "  " + fit(strings.Join(action.Keys, " "), 16, false) + "  "
+	under := strings.Repeat(" ", len(keys))
+	label := wrap(action.Label, max(20, width-len(keys)))
+	lines := []string{keys + label[0]}
+	for _, more := range label[1:] {
+		lines = append(lines, under+more)
+	}
+	return lines
 }
 
 // applyingTo is the rows of actions that apply to host now.

@@ -480,7 +480,7 @@ func (r *Reader) screen() string {
 	if r.overlay {
 		lines = append(lines, r.painter.bold("Keys, any key closes this"))
 		for _, action := range r.actions() {
-			lines = append(lines, keyLine(action))
+			lines = append(lines, keyLines(action, r.width)...)
 		}
 		lines = lines[:min(len(lines), body+1)]
 	} else {

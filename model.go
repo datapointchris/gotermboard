@@ -1551,7 +1551,7 @@ func (m *Model) panelTextOf(n node, document []Line, width, most int) []string {
 func (m *Model) keysOverlay(height int) []string {
 	lines := []string{m.painter.bold("Keys, any key closes this")}
 	for _, action := range m.actions() {
-		lines = append(lines, keyLine(action))
+		lines = append(lines, keyLines(action, m.width)...)
 	}
 	lines = append(lines, m.readLines()...)
 	for len(lines) < height {
