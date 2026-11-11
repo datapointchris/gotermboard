@@ -199,8 +199,12 @@ func BySection[H any](actions []KeyAction[H]) []KeySection[H] {
 }
 
 // keyLines is an overlay's lines for one row: its keys in a column, then its label, wrapped to
-// width under its own column so a long label reads whole rather than running off the screen.
+// width under its own column so a long label reads whole rather than running off the screen. A
+// row with no label has none, so a run of keys one row explains, such as 1 to 9, takes one line.
 func keyLines[H any](action KeyAction[H], width int) []string {
+	if action.Label == "" {
+		return nil
+	}
 	keys := "  " + fit(strings.Join(action.Keys, " "), 16, false) + "  "
 	under := strings.Repeat(" ", len(keys))
 	label := wrap(action.Label, max(20, width-len(keys)))
