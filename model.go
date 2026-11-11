@@ -536,9 +536,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 }
 
 // receive hands msg to a ReceivingBoard, then runs a HandedBack's then, so what the board
-// reads again is due before then says what came of the program. An open reader lays its
-// document out again after the board's Receive, because what the board received may be more
-// of that document.
+// reads again is due before then says what came of the program. An open reader, an open
+// document and the side panel read their documents again after the board's Receive, because
+// what the board received may be more of one.
 func (m *Model) receive(msg tea.Msg) tea.Cmd {
 	footer := 0
 	if !m.hidden {
@@ -548,6 +548,7 @@ func (m *Model) receive(msg tea.Msg) tea.Cmd {
 	if board, ok := m.board.(ReceivingBoard); ok {
 		cmds = append(cmds, board.Receive(m, msg))
 		m.relayReading()
+		m.rereadDocuments()
 	}
 	if back, ok := msg.(HandedBack); ok && back.then != nil {
 		cmds = append(cmds, back.then(m, back.Err, back.Stderr))
@@ -1160,6 +1161,18 @@ type keptLayout struct {
 	ix      *lineIndex
 	// panel is the side panel's document for the cursor's stop, read once and kept unpainted.
 	panel keptPanel
+}
+
+// rereadDocuments has the next draw call each document the layout holds again. An open
+// document's lines sit in the line index, so a layout holding one is dropped whole.
+func (m *Model) rereadDocuments() {
+	switch {
+	case m.layout == nil:
+	case len(m.layout.ix.documents) > 0:
+		m.layout = nil
+	default:
+		m.layout.panel = keptPanel{}
+	}
 }
 
 func (k *keptLayout) fits(d display, width int, look Look) bool {

@@ -188,7 +188,8 @@ func start(columns []Column, widths []int, at int) int {
 }
 
 // Document is text that lays itself out at a width, for what only the draw can place:
-// hanging bullets, tables and boxes of code. Its lines are drawn as they come.
+// hanging bullets, tables and boxes of code. Its lines are drawn as they come. It is read once
+// per layout, and again after each message a ReceivingBoard receives.
 type Document func(width int) []Line
 
 // Row is one line of the table: Cells on the columns, or Span across them.
