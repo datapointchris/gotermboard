@@ -58,7 +58,7 @@ tab line, and Tab does nothing in it.
 
 `RemembersDisplayIn(path)` keeps the display in a JSON file the program names, under its own
 `$XDG_STATE_HOME` directory. Each tab, by its name, keeps its side panel (`p`), its summaries
-(`f`), its grouping (`v`), whether it shows every row (`Z`), and each group folded and row
+(`f`), its grouping (`v`), whether it shows the raw rows (`Z`), and each group folded and row
 opened. A fold opened is not kept, since it lasts only while its rows sit together. The program
 opens on the tab last moved to, unless `NewTabs` names one, and never on the entity page. A setting never
 changed keeps the board's default, so a board decides how a new reader first sees it. Each
@@ -283,7 +283,7 @@ whose every row opens can blank the row chevrons with `Look.NoRowChevrons`, beca
 chevron tells no row apart. The cell stays, so no column moves for that either. A fold's row keeps
 its chevron, because it is what tells the fold from the rows beside it.
 
-## Rows sharing a fold key draw as one row until `Z` shows every row
+## Rows sharing a fold key draw as one row until `Z` shows the raw rows
 
 A stream can arrive in bursts: one writer emitting dozens of rows of one kind within a minute.
 Each burst moves a following board by its whole length. This is event aggregation. Kubernetes
@@ -311,14 +311,17 @@ frame.FoldRow = func(rows []gotermboard.Row) gotermboard.Row {
 
 The fold's row opens in place on `enter` or `space`, as a group does, with its rows one level in.
 Each of them keeps its own `enter` and `space`. The fold's own `Detail`, `Document` and `Panel`
-show in the side panel. `FoldRow` may key the row. Left empty, its key is made from the group's
-and the `Fold`, which holds as rows join either end.
+show in the side panel. `FoldRow` may key the row with a key none of its rows holds. Otherwise
+the fold keeps the key of the last frame's fold sharing one of its rows. So it stays open, and
+keeps the cursor, as rows join and leave either end. A cursor on a row a new frame folds moves
+to the fold.
 
-`Z` (`FoldKey`) shows every row, and folds them again. The strip's first line ends in
-`· rows folded` or `· every row`, and its own words give way at the screen's edge so those stay
-whole. The footer names `Z unfold` or `Z fold`, and only on a frame holding a fold. A filter or a
-lock holds every fold open on the rows it keeps, as it holds a group. A jump to a row a fold
-holds opens the fold. A frame with no `FoldRow` draws as before, whatever its rows' keys.
+`Z` (`RawRowsKey`) shows the raw rows, and folds them again. The strip's first line ends in
+`· rows folded` or `· raw rows`, and its own words give way at the screen's edge so those stay
+whole. The footer names `Z raw rows` or `Z fold rows`, and only on a frame holding a fold. A
+filter or a lock holds every fold open on the rows it keeps, as it holds a group. A lock or a
+jump finds a fold through its rows, and a jump opens the fold. A frame with no `FoldRow` folds no
+row, whatever its rows' `Fold` keys.
 
 ## A filter can reach past what shows
 

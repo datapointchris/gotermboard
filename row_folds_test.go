@@ -29,10 +29,10 @@ func foldingFrame() Frame {
 	}
 }
 
-func TestRowsSharingAFoldKeyDrawAsOneRowThatOpensInPlaceAndZShowsEveryRow(t *testing.T) {
+func TestRowsSharingAFoldKeyDrawAsOneRowThatOpensInPlaceAndZShowsTheRawRows(t *testing.T) {
 	frame := foldingFrame()
 	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
-	m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	has := func(step string, want ...string) {
 		t.Helper()
 		screen := m.screen()
@@ -52,7 +52,7 @@ func TestRowsSharingAFoldKeyDrawAsOneRowThatOpensInPlaceAndZShowsEveryRow(t *tes
 		}
 	}
 
-	has("folded", "BOARD  ·  rows folded", " ▸3 rows", "b1 to b3", "   c ", "by itself", "Z unfold")
+	has("folded", "BOARD  ·  rows folded", " ▸3 rows", "b1 to b3", "   c ", "by itself", "Z raw rows")
 	lacks("folded", "first", "third")
 	lines := strings.Split(m.screen(), "\n")
 	whatAt := func(text string) int {
@@ -73,22 +73,22 @@ func TestRowsSharingAFoldKeyDrawAsOneRowThatOpensInPlaceAndZShowsEveryRow(t *tes
 	m.Update(spaceKey)
 	has("space on a row the fold holds", "▾b2", "more text")
 
-	m.Update(typedKey(FoldKey))
-	has("Z", "BOARD  ·  every row", "   b1", "Z fold")
+	m.Update(typedKey(RawRowsKey))
+	has("Z", "BOARD  ·  raw rows", "   b1", "Z fold rows")
 	lacks("Z", "3 rows")
 	if m.Cursor() != "b2" {
 		t.Errorf("Z moved the cursor off b2 to %q", m.Cursor())
 	}
-	m.Update(typedKey(FoldKey))
+	m.Update(typedKey(RawRowsKey))
 	m.MoveCursorTo("alone")
 	m.Update(downKey)
 	m.Update(enterKey)
 	has("enter on the fold closes it", " ▸3 rows")
-	m.Update(typedKey(FoldKey))
+	m.Update(typedKey(RawRowsKey))
 	if m.Cursor() != "b1" {
 		t.Errorf("Z on the fold's row put the cursor on %q rather than its first row", m.Cursor())
 	}
-	m.Update(typedKey(FoldKey))
+	m.Update(typedKey(RawRowsKey))
 
 	m.setFilter("third")
 	has("a filter", "  3 rows", "b3", "third")
@@ -105,5 +105,43 @@ func TestRowsSharingAFoldKeyDrawAsOneRowThatOpensInPlaceAndZShowsEveryRow(t *tes
 	pal := gotermstyle.NewPalette(true)
 	if got, want := Once(fixedBoard{noFoldRow}, pal, 80, 20), Once(fixedBoard{unkeyed}, pal, 80, 20); got != want {
 		t.Errorf("fold keys with no FoldRow drew\n%s\nand rows with none drew\n%s", got, want)
+	}
+}
+
+// A stream read newest first, whose FoldRow starts from a copy of a row: a read lands a row beside
+// the one the cursor is on, and a later read forms a second fold of one key ahead of the one open.
+func TestAReadThatFoldsTheCursorsRowOrFormsAFoldAheadKeepsTheCursorAndTheOpenFold(t *testing.T) {
+	rows := func(keys ...string) []Row {
+		out := make([]Row, 0, len(keys))
+		for _, key := range keys {
+			out = append(out, Row{Key: key, Fold: key[:1], Cells: []Cell{C(key, "")}})
+		}
+		return out
+	}
+	board := &fixedBoard{Frame{Columns: []Column{{Title: "NAME"}}, FoldRow: func(rows []Row) Row {
+		row := rows[0]
+		row.Cells = []Cell{C(strconv.Itoa(len(rows))+" of "+rows[0].Fold, "")}
+		return row
+	}}}
+	read := func(m *Model, keys ...string) {
+		board.frame.Groups = []Group{{Key: "g", Rows: rows(keys...)}}
+		if m != nil {
+			m.Rebuild()
+		}
+	}
+	read(nil, "p1", "a1", "q1")
+	m := NewModel(board, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	m.MoveCursorTo("a1")
+	read(m, "n1", "n2", "a2", "a1", "p1", "q1")
+	fold := m.Cursor()
+	if !strings.Contains(m.screen(), "▌ ▸2 of a") || fold == "a2" {
+		t.Fatalf("the cursor should sit on the fold that took a1 in, keyed apart from a2, and sits on %q:\n%s", fold, m.screen())
+	}
+	m.Update(spaceKey)
+	read(m, "a3", "n1", "n2", "a2", "a1", "p1", "q1")
+	read(m, "a4", "a3", "n1", "n2", "a2", "a1", "p1", "q1")
+	if m.Cursor() != fold || !strings.Contains(m.screen(), "▌ ▾2 of a") || !strings.Contains(m.screen(), "  ▸2 of a") {
+		t.Errorf("a fold of a forming ahead took the open fold's key or cursor, now on %q:\n%s", m.Cursor(), m.screen())
 	}
 }

@@ -228,11 +228,10 @@ func (b *randomBoard) group(key string, depth, columns int, keys *[]string) Grou
 	return g
 }
 
-// randomFoldRow is a fold's last row under its count, so a fold's row reaches every field a row
-// draws.
+// randomFoldRow is a fold's last row under its count, its key included, so a fold's row reaches
+// every field a row draws.
 func randomFoldRow(rows []Row) Row {
 	row := rows[len(rows)-1]
-	row.Key = ""
 	if len(row.Cells) > 0 {
 		row.Cells = slices.Clone(row.Cells)
 		row.Cells[0] = C(strconv.Itoa(len(rows))+"× "+row.Cells[0].Text, Bold)
@@ -283,7 +282,7 @@ var randomKeys = []tea.KeyPressMsg{
 	downKey, downKey, downKey, upKey, upKey, typedKey("g"), typedKey("G"), typedKey("J"), typedKey("K"), typedKey("]"), typedKey("["),
 	{Code: 'd', Mod: tea.ModCtrl},
 	{Code: 'u', Mod: tea.ModCtrl},
-	spaceKey, spaceKey, enterKey, typedKey("f"), typedKey("p"), typedKey("v"), typedKey(FoldKey),
+	spaceKey, spaceKey, enterKey, typedKey("f"), typedKey("p"), typedKey("v"), typedKey(RawRowsKey),
 	typedKey("?"),
 	{Code: tea.KeyEscape},
 	typedKey("/"), typedKey("r"), typedKey("e"),

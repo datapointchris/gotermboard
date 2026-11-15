@@ -1,9 +1,13 @@
 package gotermboard
 
-import "strconv"
+import (
+	"slices"
+	"strconv"
+)
 
-// FoldKey switches the whole board between drawing each fold as one row and drawing every row.
-const FoldKey = "Z"
+// RawRowsKey switches the whole board between drawing each fold as one row and drawing the raw
+// rows.
+const RawRowsKey = "Z"
 
 // rowFold is consecutive rows of one group sharing a Fold, and the row the frame's FoldRow made of
 // them.
@@ -14,54 +18,122 @@ type rowFold struct {
 	row      Row
 }
 
-// frameFolds is each group's folds in one frame. A walk works a group's out the first time it
-// asks, so FoldRow runs once per fold per frame, and never while the board draws every row. It is
-// dropped with its frame.
+// foldSource is what a group's folds are worked out from: its rows and its key. A copy of a group
+// shares both, and two groups slicing one array differ in one.
+type foldSource struct {
+	first *Row
+	rows  int
+	group string
+}
+
+func sourceOf(g *Group) foldSource {
+	return foldSource{first: &g.Rows[0], rows: len(g.Rows), group: g.Key}
+}
+
+// frameFolds is every group's folds in one frame, worked out for every group the first time
+// anything asks, so FoldRow runs once per fold per frame. It is dropped with its frame, and the
+// keys its folds held pass to the next frame's.
 type frameFolds struct {
 	foldRow func(rows []Row) Row
 	groups  []Group
-	// of is keyed by a group's first row, which every copy of the group shares.
-	of map[*Row][]rowFold
-	// any says some group holds a fold, where known says it was worked out.
-	any, known bool
+	of      map[foldSource][]rowFold
+	worked  bool
+	// any says some group holds a fold, and panelText that some fold's row has text of its own for
+	// the side panel.
+	any, panelText bool
+	// holding is the key of the fold holding each row, by the row's key. before is the last worked
+	// frame's, whose keys a fold holding one of the same rows takes up.
+	holding, before map[string]string
 }
 
-func newFrameFolds() *frameFolds { return &frameFolds{of: map[*Row][]rowFold{}} }
+func newFrameFolds() *frameFolds { return &frameFolds{of: map[foldSource][]rowFold{}} }
 
 func (f *frameFolds) newFrame(groups []Group, foldRow func(rows []Row) Row) {
 	if f == nil {
 		return
 	}
-	f.groups, f.foldRow, f.known = groups, foldRow, false
+	if f.worked {
+		f.before = f.holding
+	}
+	f.groups, f.foldRow, f.worked, f.any, f.panelText, f.holding = groups, foldRow, false, false, false, nil
 	clear(f.of)
 }
 
 // in is g's folds, in the order of its rows.
 func (f *frameFolds) in(g *Group) []rowFold {
-	if f == nil || f.foldRow == nil || len(g.Rows) < 2 {
+	if !f.work() || len(g.Rows) < 2 {
 		return nil
 	}
-	if folds, known := f.of[&g.Rows[0]]; known {
-		return folds
+	return f.of[sourceOf(g)]
+}
+
+// work works out every group's folds once, and says whether the frame folds rows at all.
+func (f *frameFolds) work() bool {
+	if f == nil || f.foldRow == nil {
+		return false
 	}
-	var folds []rowFold
-	repeats := map[string]int{}
-	for from := 0; from < len(g.Rows); {
-		to := foldEnd(g.Rows, from)
-		if to-from > 1 {
-			rows := g.Rows[from:to:to]
-			row := f.foldRow(rows)
-			// A row made from a copy of one of its rows would otherwise wear that row's cue as it was.
-			row.changed = false
-			if row.Key == "" {
-				row.Key = foldedKey(g.Key, rows[0].Fold, repeats)
+	if !f.worked {
+		f.worked, f.holding = true, map[string]string{}
+		f.workGroups(f.groups, map[string]bool{})
+	}
+	return true
+}
+
+func (f *frameFolds) workGroups(groups []Group, taken map[string]bool) {
+	for i := range groups {
+		g := &groups[i]
+		var folds []rowFold
+		for from := 0; from < len(g.Rows); {
+			to := foldEnd(g.Rows, from)
+			if to-from > 1 {
+				folds = append(folds, f.made(g.Key, g.Rows[from:to:to], from, taken))
 			}
-			folds = append(folds, rowFold{from: from, to: to, rows: rows, row: row})
+			from = to
 		}
-		from = to
+		if len(folds) > 0 {
+			f.of[sourceOf(g)], f.any = folds, true
+		}
+		f.workGroups(g.Groups, taken)
 	}
-	f.of[&g.Rows[0]] = folds
-	return folds
+}
+
+// made is the fold of rows, which start at from in group's rows.
+func (f *frameFolds) made(group string, rows []Row, from int, taken map[string]bool) rowFold {
+	row := f.foldRow(rows)
+	// A row made from a copy of one of its rows would otherwise wear that row's cue as it was.
+	row.changed = false
+	row.Key = f.key(group, row.Key, rows, taken)
+	for _, r := range rows {
+		if r.Key != "" {
+			f.holding[r.Key] = row.Key
+		}
+	}
+	f.panelText = f.panelText || row.hasPanelText()
+	return rowFold{from: from, to: from + len(rows), rows: rows, row: row}
+}
+
+// key is a fold's key: the one FoldRow set where none of its rows holds it, or else the key a fold
+// in the last frame held where it held one of the same rows, so the key holds as rows join and
+// leave either end. A fold with neither is keyed by its group, its Fold and its first row. The NUL
+// bytes keep a made key from any key a board writes.
+func (f *frameFolds) key(group, set string, rows []Row, taken map[string]bool) string {
+	if set != "" && !slices.ContainsFunc(rows, func(r Row) bool { return r.Key == set }) {
+		taken[set] = true
+		return set
+	}
+	for _, r := range rows {
+		if before, held := f.before[r.Key]; held && r.Key != "" && !taken[before] {
+			taken[before] = true
+			return before
+		}
+	}
+	made := "\x00fold\x00" + group + "\x00" + rows[0].Fold + "\x00" + rows[0].Key
+	key := made
+	for n := 1; taken[key]; n++ {
+		key = made + "\x00" + strconv.Itoa(n)
+	}
+	taken[key] = true
+	return key
 }
 
 // foldEnd is where the rows sharing the Fold of the row at from end.
@@ -73,58 +145,17 @@ func foldEnd(rows []Row, from int) int {
 	return to
 }
 
-// foldedKey keys a fold FoldRow left unkeyed by its group and its Fold, and by how many folds of
-// that Fold came before it in the group, so it holds as rows join either end. The NUL bytes keep it
-// from any key a board writes.
-func foldedKey(group, fold string, repeats map[string]int) string {
-	key := "\x00fold\x00" + group + "\x00" + fold
-	if n := repeats[fold]; n > 0 {
-		key += "\x00" + strconv.Itoa(n)
-	}
-	repeats[fold]++
-	return key
-}
-
 // anyFold says some group in the frame holds a fold.
-func (f *frameFolds) anyFold() bool {
-	if f == nil || f.foldRow == nil {
-		return false
-	}
-	if !f.known {
-		f.any, f.known = groupsFold(f.groups), true
-	}
-	return f.any
-}
+func (f *frameFolds) anyFold() bool { return f.work() && f.any }
 
-func groupsFold(groups []Group) bool {
-	for i := range groups {
-		g := &groups[i]
-		for j := 1; j < len(g.Rows); j++ {
-			if g.Rows[j].Fold != "" && g.Rows[j].Fold == g.Rows[j-1].Fold {
-				return true
-			}
-		}
-		if groupsFold(g.Groups) {
-			return true
-		}
-	}
-	return false
-}
+// anyPanelText says some fold's row has text of its own for the side panel.
+func (f *frameFolds) anyPanelText() bool { return f.work() && f.panelText }
 
-// holding is the key of the fold holding the row keyed key, and false where no fold does.
-func (f *frameFolds) holding(groups []Group, key string) (string, bool) {
-	for i := range groups {
-		g := &groups[i]
-		for _, fold := range f.in(g) {
-			for _, r := range fold.rows {
-				if r.Key == key {
-					return fold.row.Key, true
-				}
-			}
-		}
-		if folded, ok := f.holding(g.Groups, key); ok {
-			return folded, true
-		}
+// foldHolding is the key of the fold holding the row keyed key, and false where no fold does.
+func (f *frameFolds) foldHolding(key string) (string, bool) {
+	if !f.work() || key == "" {
+		return "", false
 	}
-	return "", false
+	folded, held := f.holding[key]
+	return folded, held
 }

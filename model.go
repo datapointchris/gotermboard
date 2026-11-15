@@ -577,7 +577,11 @@ func (m *Model) receive(msg tea.Msg) tea.Cmd {
 func TableKeys() []string {
 	var keys []string
 	for _, action := range actionTable() {
-		keys = append(keys, action.Keys...)
+		for _, key := range action.Keys {
+			if !slices.Contains(keys, key) {
+				keys = append(keys, key)
+			}
+		}
 	}
 	return keys
 }
@@ -609,12 +613,12 @@ func actionTable() []Action {
 			Applies: (*Model).panelFits,
 		},
 		{
-			Keys: []string{FoldKey}, Label: "show every row, where rows sharing a fold key draw as one", Footer: FoldKey + " unfold",
-			Run: (*Model).switchFolds, Applies: func(m *Model) bool { return m.display.rowFolds.anyFold() && !m.display.unfolded },
+			Keys: []string{RawRowsKey}, Label: "show the raw rows, where rows sharing a fold key draw as one", Footer: RawRowsKey + " raw rows",
+			Run: (*Model).switchRaw, Applies: func(m *Model) bool { return m.display.rowFolds.anyFold() && !m.display.raw },
 		},
 		{
-			Keys: []string{FoldKey}, Label: "fold consecutive rows sharing a fold key into one row", Footer: FoldKey + " fold",
-			Run: (*Model).switchFolds, Applies: func(m *Model) bool { return m.display.rowFolds.anyFold() && m.display.unfolded },
+			Keys: []string{RawRowsKey}, Label: "fold consecutive rows sharing a fold key into one row", Footer: RawRowsKey + " fold rows",
+			Run: (*Model).switchRaw, Applies: func(m *Model) bool { return m.display.rowFolds.anyFold() && m.display.raw },
 		},
 		{Keys: []string{"/"}, Label: "filter the rows, matching their detail too", Footer: "/ filter", Run: func(m *Model) tea.Cmd {
 			m.filtering = true
@@ -631,30 +635,23 @@ func actionTable() []Action {
 	}...)
 }
 
-// switchFolds is FoldKey: every row shows, or each fold draws as one row again. The cursor stays
-// on its row where that still shows. From a fold's row it goes to the fold's first row, or its
-// last where the cursor sat on a TailBoard's last row, and from a row a fold takes in, to the fold.
-func (m *Model) switchFolds() tea.Cmd {
+// switchRaw is RawRowsKey: the raw rows show, or each fold draws as one row again. The cursor
+// stays on its row where that still shows. From a fold's row it goes to the fold's first row, or
+// its last where the cursor sat on a TailBoard's last row, and place takes a row a fold takes in
+// to the fold.
+func (m *Model) switchRaw() tea.Cmd {
 	n, on := m.selected()
 	wasLast := m.tails() && on && m.onLastRow()
-	m.display.unfold(!m.display.unfolded)
-	switch {
-	case !on:
-	case n.fold != nil:
+	m.display.showRaw(!m.display.raw)
+	if on && n.fold != nil {
 		m.cursor = n.fold.rows[0].Key
-	default:
-		if _, shows := m.kept().ix.stopAt[m.cursor]; !shows {
-			if folded, held := m.display.rowFolds.holding(m.frame.Groups, m.cursor); held {
-				m.cursor = folded
-			}
-		}
 	}
 	m.place()
 	if wasLast {
 		m.moveToLastRow()
 	}
 	m.displayChanged()
-	m.remember(func(view *rememberedView) { view.Unfolded = new(m.display.unfolded) })
+	m.remember(func(view *rememberedView) { view.RawRows = new(m.display.raw) })
 	return nil
 }
 
@@ -694,7 +691,9 @@ func filterClearing() []Action {
 	}}
 }
 
-// Cursor is the key of the group or row the cursor is on, for a board's own keys.
+// Cursor is the key of the group or row the cursor is on, for a board's own keys. On a fold's row
+// it is the fold's key: the one FoldRow set, or one this package made, which no row of the board
+// holds, so a board looking its rows up by it finds none there.
 func (m *Model) Cursor() string { return m.cursor }
 
 // MoveCursorTo puts the cursor on the group or row keyed key, for a board's key that acts on
@@ -1209,7 +1208,7 @@ func (m *Model) kept() *keptLayout {
 		width: width, look: look, under: d.under, panelShown: d.panelShown, filter: d.filter, locked: refOf(d.lockedTo()),
 		toggles: d.toggles, nodes: nodes, columns: columns, widths: widths,
 	}
-	k.ix = k.index(m.frame.Groups)
+	k.ix = k.index(m.frame.Groups, d.foldsOf)
 	m.layout = k
 	return k
 }
@@ -1265,7 +1264,7 @@ func (m *Model) panelDrawsDocumentOf(r *Row) bool {
 }
 
 // place puts the cursor on its key, or on where it starts the first time there is such a
-// line, or on the line it was on where its row is gone.
+// line, or on the fold that took its row in, or on the line it was on where its row is gone.
 func (m *Model) place() {
 	k := m.kept()
 	if len(k.ix.stops) == 0 {
@@ -1285,6 +1284,12 @@ func (m *Model) place() {
 	if i, shows := k.ix.stopAt[m.cursor]; shows {
 		m.cursorAt = i
 		return
+	}
+	if folded, held := m.display.foldHolding(m.cursor); held {
+		if i, shows := k.ix.stopAt[folded]; shows {
+			m.cursor, m.cursorAt = folded, i
+			return
+		}
 	}
 	m.cursorAt = max(0, min(m.cursorAt, len(k.ix.stops)-1))
 	m.cursor = k.stop(m.cursorAt).key
@@ -1371,7 +1376,9 @@ func (m *Model) onOpenText() bool {
 }
 
 // panelFits says the screen has room for the side panel and this frame has text for it.
-func (m *Model) panelFits() bool { return m.width >= PanelFrom && m.panelHasText }
+func (m *Model) panelFits() bool {
+	return m.width >= PanelFrom && (m.panelHasText || !m.display.raw && m.display.rowFolds.anyPanelText())
+}
 
 // panelWidth grows with the screen up to ReadingWidth. A frame with nothing for the panel to
 // say gives the table its width.
@@ -1497,22 +1504,23 @@ func (m *Model) inside() string {
 	return strings.Join(append(out, m.underStrip...), "\n")
 }
 
-// The words that end the strip's first line on a frame holding a fold, saying which FoldKey shows.
+// The words that end the strip's first line on a frame holding a fold, saying which RawRowsKey
+// shows.
 const (
-	foldsDrawnWords = "  ·  rows folded"
-	everyRowWords   = "  ·  every row"
+	foldedRowsWords = "  ·  rows folded"
+	rawRowsWords    = "  ·  raw rows"
 )
 
-// stripSayingFolds is the strip, its first line ending in which FoldKey shows where the frame
+// stripSayingFolds is the strip, its first line ending in which RawRowsKey shows where the frame
 // holds a fold. The line's own words give way at the screen's edge, so those stay whole.
 func (m *Model) stripSayingFolds() []Line {
 	strip := m.frame.Strip
 	if len(strip) == 0 || !m.display.rowFolds.anyFold() {
 		return strip
 	}
-	said := Line{C(foldsDrawnWords, "")}
-	if m.display.unfolded {
-		said = Line{C(everyRowWords, "")}
+	said := Line{C(foldedRowsWords, "")}
+	if m.display.raw {
+		said = Line{C(rawRowsWords, "")}
 	}
 	strip = slices.Clone(strip)
 	strip[0] = append(slices.Clone(strip[0]).cut(m.width-said.width()), said...)

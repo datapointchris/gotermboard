@@ -43,11 +43,12 @@ func (ix *lineIndex) nodeAt(line int) int {
 	return sort.Search(len(ix.starts)-1, func(i int) bool { return ix.starts[i+1] > line })
 }
 
-// index measures the layout's nodes. groups are the frame's, which the f key's answer reads whole.
-func (k *keptLayout) index(groups []Group) *lineIndex {
+// index measures the layout's nodes. groups are the frame's, and folds each group's folds as the
+// board draws them, which the f key's answer reads whole.
+func (k *keptLayout) index(groups []Group, folds func(*Group) []rowFold) *lineIndex {
 	ix := &lineIndex{
 		starts: make([]int, len(k.nodes)+1), owners: make([]int32, len(k.nodes)), titlesAt: -1,
-		stopAt: make(map[string]int, len(k.nodes)), anyUnder: anyUnder(groups, k.widths, 0),
+		stopAt: make(map[string]int, len(k.nodes)), anyUnder: anyUnder(groups, k.widths, 0, folds),
 	}
 	titled := false
 	if len(k.columns) > 0 && (k.look.Rules || titlesTakeOwnLine(k.nodes)) {

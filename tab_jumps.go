@@ -374,7 +374,7 @@ func (m *Model) seekEntity() {
 	for _, group := range holding {
 		m.display.fold(group, false)
 	}
-	if folded, held := m.display.rowFolds.holding(m.frame.Groups, key); held && !m.display.unfolded {
+	if folded, held := m.display.foldHolding(key); held {
 		m.display.open(folded, true)
 	}
 	if m.MoveCursorTo(key) {
