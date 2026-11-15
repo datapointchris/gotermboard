@@ -39,6 +39,10 @@ type Tabs struct {
 	pageShows *EntityRef
 	// lock is what LockKey locked every tab to, which each tab's display shares.
 	lock *tabLock
+	// openNamed says NewTabs was told which tab to open on, which a remembered tab gives way to.
+	openNamed bool
+	// memory is what RemembersDisplayIn keeps, and nil without it.
+	memory *rememberedDisplays
 }
 
 // backStep is the tab a jump left, the line its cursor was on, and what the entity page showed
@@ -62,6 +66,7 @@ func NewTabs(tabs []Tab, pal gotermstyle.Palette, open string) (*Tabs, error) {
 		t.names = append(t.names, tab.Name)
 	}
 	if open != "" {
+		t.openNamed = true
 		t.at = slices.Index(t.names, open)
 		if t.at < 0 {
 			return nil, fmt.Errorf("no tab %q: the tabs are %s", open, strings.Join(t.names, ", "))
@@ -144,6 +149,10 @@ func (t *Tabs) show(at int) tea.Cmd {
 	t.at = at
 	t.active().seeking = seeking
 	t.seekLocked(at)
+	// The entity page shows what a row named, so a run opening on it would show nothing.
+	if !t.hasPage || at != t.page {
+		t.memory.showing(t.names[at])
+	}
 	return t.active().reveal(time.Now())
 }
 
@@ -162,26 +171,32 @@ func (t *Tabs) Init() tea.Cmd {
 
 // Update is Bubble Tea's. A size goes to every tab, and so does any message this package does
 // not own, which is a ReceivingBoard's. A key, a paste and the clocks go to the tab showing.
+// A message that changed what RemembersDisplayIn keeps writes it.
 func (t *Tabs) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cmd := t.update(msg)
+	return t, tea.Batch(cmd, t.memory.written(t.active()))
+}
+
+func (t *Tabs) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		msg.Height -= t.tabLineHeight()
 		for _, model := range t.models {
 			model.Update(msg)
 		}
-		return t, nil
+		return nil
 	case tickMsg, refreshedMsg, moveMsg, spinMsg, tea.KeyPressMsg, tea.PasteMsg:
 		_, cmd := t.active().Update(msg)
-		return t, cmd
+		return cmd
 	case themeLoadedMsg:
-		return t, t.painter.theme.reloaded(msg, t.active().sayThemeFault)
+		return t.painter.theme.reloaded(msg, t.active().sayThemeFault)
 	}
 	cmds := make([]tea.Cmd, 0, len(t.models))
 	for _, model := range t.models {
 		_, cmd := model.Update(msg)
 		cmds = append(cmds, cmd)
 	}
-	return t, tea.Batch(cmds...)
+	return tea.Batch(cmds...)
 }
 
 // View is Bubble Tea's. The tab line sits inside the showing tab's margin.

@@ -141,6 +141,10 @@ type Model struct {
 	top      int
 	placed   bool
 	panelOff bool
+	// memory keeps this tab's display settings under tabName for the next run. It is nil
+	// outside a Tabs that RemembersDisplayIn a file.
+	memory  *rememberedDisplays
+	tabName string
 	// panelHasText says this frame holds text for the side panel. It is the frame's answer
 	// rather than the cursor's line's, so the table never jumps as the cursor moves.
 	panelHasText bool
@@ -500,6 +504,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		m.relayReading()
 	case themeLoadedMsg:
 		return m.painter.theme.reloaded(msg, m.sayThemeFault)
+	case rememberFault:
+		if msg.model == m {
+			m.said = "the display settings were not kept: " + msg.err.Error()
+		}
 	case tea.PasteMsg:
 		switch m.mode() {
 		case readingMode:
@@ -582,6 +590,7 @@ func actionTable() []Action {
 			Run: func(m *Model) tea.Cmd {
 				m.display.under = !m.display.under
 				m.displayChanged()
+				m.remember(func(view *rememberedView) { view.Summaries = new(m.display.under) })
 				return nil
 			},
 			Applies: func(m *Model) bool { return m.kept().ix.anyUnder },
@@ -590,6 +599,7 @@ func actionTable() []Action {
 			Keys: []string{"p"}, Label: "show or hide the side panel", Footer: "p panel",
 			Run: func(m *Model) tea.Cmd {
 				m.panelOff = !m.panelOff
+				m.remember(func(view *rememberedView) { view.PanelOff = new(m.panelOff) })
 				return nil
 			},
 			Applies: (*Model).panelFits,
@@ -670,6 +680,7 @@ func (m *Model) CloseInPlace() bool {
 		return false
 	}
 	m.display.open(n.key, false)
+	m.rememberOpened(n.key, false)
 	m.placed = true
 	m.revealDetail()
 	return true
@@ -724,6 +735,7 @@ func (m *Model) ToggleEveryRow() tea.Cmd {
 	}
 	for _, key := range rows {
 		m.display.open(key, !allOpen)
+		m.rememberOpened(key, !allOpen)
 	}
 	m.displayChanged()
 	return nil
@@ -882,8 +894,10 @@ func (m *Model) toggleInPlace() tea.Cmd {
 	switch n.kind {
 	case nodeGroup:
 		m.display.fold(n.key, n.open)
+		m.rememberFolded(n.key, n.open)
 	case nodeRow:
 		m.display.open(n.key, !n.open)
+		m.rememberOpened(n.key, !n.open)
 	}
 	// A cursor still looking for its starting line stays on the line this key acted on.
 	m.placed = true
@@ -957,6 +971,7 @@ func (m *Model) nextGrouping() tea.Cmd {
 		m.said = "grouped by " + groupings[m.grouping]
 		m.Rebuild()
 		m.displayChanged()
+		m.remember(func(view *rememberedView) { view.Grouping = groupings[m.grouping] })
 	}
 	return nil
 }

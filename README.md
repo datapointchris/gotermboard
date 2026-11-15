@@ -54,6 +54,17 @@ every source past its interval reads at once. A source inside its interval keeps
 pace, so cycling the tabs quickly starts nothing extra. A program with one tab draws no
 tab line, and Tab does nothing in it.
 
+## A program can reopen on the tabs and display its reader left
+
+`RemembersDisplayIn(path)` keeps the display in a JSON file the program names, under its own
+`$XDG_STATE_HOME` directory. Each tab, by its name, keeps its side panel (`p`), its summaries
+(`f`), its grouping (`v`), and each group folded and row opened. The program opens on the tab
+last moved to, unless `NewTabs` names one, and never on the entity page. A setting never
+changed keeps the board's default, so a board decides how a new reader first sees it. Each
+change rewrites the file, laying only this program's changes over what it holds, so two
+programs on one file keep each other's tabs. Nothing is written without the call, so tests and
+`Once` leave no file. A cursor, a filter, and a group a jump unfolded are not kept.
+
 ## A row jumps to the tab that shows what it names, and esc comes back
 
 A jump is a back stack, as a browser's history or Vim's jumplist is. A row or a group lists
