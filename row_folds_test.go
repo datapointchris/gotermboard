@@ -52,7 +52,7 @@ func TestRowsSharingAFoldKeyDrawAsOneRowThatOpensInPlaceAndZShowsTheRawRows(t *t
 		}
 	}
 
-	has("folded", "BOARD  ·  rows folded", " ▸3 rows", "b1 to b3", "   c ", "by itself", "Z raw rows")
+	has("folded", "BOARD  ·  rows folded", " ▸ 3 rows", "b1 to b3", "    c ", "by itself", "Z raw rows")
 	lacks("folded", "first", "third")
 	lines := strings.Split(m.screen(), "\n")
 	whatAt := func(text string) int {
@@ -67,11 +67,11 @@ func TestRowsSharingAFoldKeyDrawAsOneRowThatOpensInPlaceAndZShowsTheRawRows(t *t
 	m.MoveCursorTo(frame.Groups[0].Rows[0].Key)
 	m.Update(downKey)
 	m.Update(spaceKey)
-	has("space on the fold", " ▾3 rows", "     b1", "first", "third")
+	has("space on the fold", " ▾ 3 rows", "      b1", "first", "third")
 	m.Update(downKey)
 	m.Update(downKey)
 	m.Update(spaceKey)
-	has("space on a row the fold holds", "▾b2", "more text")
+	has("space on a row the fold holds", "▾ b2", "more text")
 
 	m.Update(typedKey(RawRowsKey))
 	has("Z", "BOARD  ·  raw rows", "   b1", "Z fold rows")
@@ -83,7 +83,7 @@ func TestRowsSharingAFoldKeyDrawAsOneRowThatOpensInPlaceAndZShowsTheRawRows(t *t
 	m.MoveCursorTo("alone")
 	m.Update(downKey)
 	m.Update(enterKey)
-	has("enter on the fold closes it", " ▸3 rows")
+	has("enter on the fold closes it", " ▸ 3 rows")
 	m.Update(typedKey(RawRowsKey))
 	if m.Cursor() != "b1" {
 		t.Errorf("Z on the fold's row put the cursor on %q rather than its first row", m.Cursor())
@@ -92,7 +92,7 @@ func TestRowsSharingAFoldKeyDrawAsOneRowThatOpensInPlaceAndZShowsTheRawRows(t *t
 
 	m.setFilter("third")
 	has("a filter", "  3 rows", "b3", "third")
-	lacks("a filter", "first", "▸3 rows")
+	lacks("a filter", "first", "▸ 3 rows")
 
 	noFoldRow := frame
 	noFoldRow.FoldRow = nil
@@ -135,13 +135,13 @@ func TestAReadThatFoldsTheCursorsRowOrFormsAFoldAheadKeepsTheCursorAndTheOpenFol
 	m.MoveCursorTo("a1")
 	read(m, "n1", "n2", "a2", "a1", "p1", "q1")
 	fold := m.Cursor()
-	if !strings.Contains(m.screen(), "▌ ▸2 of a") || fold == "a2" {
+	if !strings.Contains(m.screen(), "▌ ▸ 2 of a") || fold == "a2" {
 		t.Fatalf("the cursor should sit on the fold that took a1 in, keyed apart from a2, and sits on %q:\n%s", fold, m.screen())
 	}
 	m.Update(spaceKey)
 	read(m, "a3", "n1", "n2", "a2", "a1", "p1", "q1")
 	read(m, "a4", "a3", "n1", "n2", "a2", "a1", "p1", "q1")
-	if m.Cursor() != fold || !strings.Contains(m.screen(), "▌ ▾2 of a") || !strings.Contains(m.screen(), "  ▸2 of a") {
+	if m.Cursor() != fold || !strings.Contains(m.screen(), "▌ ▾ 2 of a") || !strings.Contains(m.screen(), "  ▸ 2 of a") {
 		t.Errorf("a fold of a forming ahead took the open fold's key or cursor, now on %q:\n%s", m.Cursor(), m.screen())
 	}
 }

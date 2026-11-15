@@ -247,7 +247,7 @@ func TestARowThatStartsOpenFoldsToItsLineOnSpaceAndReadsFullScreenOnEnter(t *tes
 	}}}}
 	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
-	if got := m.screen(); !strings.Contains(got, "▾the first line") || !strings.Contains(got, "section 0") {
+	if got := m.screen(); !strings.Contains(got, "▾ the first line") || !strings.Contains(got, "section 0") {
 		t.Fatalf("the row should start open:\n%s", got)
 	}
 	m.Update(enterKey)
@@ -256,14 +256,14 @@ func TestARowThatStartsOpenFoldsToItsLineOnSpaceAndReadsFullScreenOnEnter(t *tes
 	}
 	m.Update(spaceKey)
 	m.Update(spaceKey)
-	if got := m.screen(); !strings.Contains(got, "▸the first line") || strings.Contains(got, "section 0") {
+	if got := m.screen(); !strings.Contains(got, "▸ the first line") || strings.Contains(got, "section 0") {
 		t.Fatalf("space should fold the row to its first line:\n%s", got)
 	}
 
 	frame.Groups[0].Rows[0].ReaderTitle = "the newest entry"
 	m = NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
 	m.Update(tea.WindowSizeMsg{Width: PanelFrom, Height: 12})
-	if got := m.screen(); !strings.Contains(got, "▸the first line") || !strings.Contains(got, "│ the newest entry") || strings.Count(got, "section 0") != 1 {
+	if got := m.screen(); !strings.Contains(got, "▸ the first line") || !strings.Contains(got, "│ the newest entry") || strings.Count(got, "section 0") != 1 {
 		t.Errorf("beside the panel, the row should start folded and the panel draw it once under its title:\n%s", got)
 	}
 }

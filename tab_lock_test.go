@@ -32,7 +32,7 @@ func TestALockKeepsOnlyTheRowsNamingTheLockedThingUntilItLifts(t *testing.T) {
 
 	press(tabs, typedKey(LockKey))
 	got := tabs.View().Content
-	if strings.Contains(got, "row 1") || strings.Contains(got, "row 3") || !strings.Contains(got, LockGlyph+" row 2") {
+	if strings.Contains(got, "row 1") || strings.Contains(got, "row 3") || !strings.Contains(got, LockGlyph+"  row 2") {
 		t.Fatalf("a lock on thing 2 should leave only its row, marked:\n%s", got)
 	}
 
@@ -136,7 +136,7 @@ func TestThePageOpenedOnAThingComesBackToItOnTheRowLeftAndShowsWholeUnderALock(t
 
 	press(tabs, upKey)
 	press(tabs, typedKey(LockKey))
-	if got := tabs.View().Content; !strings.Contains(got, LockGlyph+" row b") || !strings.Contains(got, "row d") {
+	if got := tabs.View().Content; !strings.Contains(got, LockGlyph+"  row b") || !strings.Contains(got, "row d") {
 		t.Fatalf("locked to thing b, the page should mark its row and still show every row:\n%s", got)
 	}
 	press(tabs, downKey)

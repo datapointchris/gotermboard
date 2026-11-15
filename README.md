@@ -277,8 +277,10 @@ or a `Document`, and a group where it holds a row or a group the table draws. An
 and `space` change nothing, so no mark promises otherwise and the footer and `?` leave both keys out
 on that line. A filter holds every group open, so a group draws no mark while one is typed.
 
-A row's chevron sits in the last cell of its indent, one cell in from its parent's, with `Symbol`
-beside it. `MarkGlyph` sits in the cell before the chevron. No column moves for either. A board
+A row's chevron sits one cell in from its parent's, and a blank cell follows it before `Symbol` or
+the first cell, as one follows a group's. Some fonts draw `▸` and `▾` two cells wide, Iosevka's
+non-Term builds among them, and the blank takes the overflow rather than the text. `MarkGlyph`
+sits in the cell before the chevron. No column moves for either. A board
 whose every row opens can blank the row chevrons with `Look.NoRowChevrons`, because there a
 chevron tells no row apart. The cell stays, so no column moves for that either. A fold's row keeps
 its chevron, because it is what tells the fold from the rows beside it.

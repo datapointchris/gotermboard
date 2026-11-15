@@ -271,9 +271,9 @@ type Row struct {
 func (r *Row) opens() bool { return len(r.Detail) > 0 || r.Document != nil }
 
 // lead is what the row takes of the first column ahead of its first cell: the indent at its
-// depth, and its Symbol and a space.
+// depth, the blank after its chevron, and its Symbol and a space.
 func (r *Row) lead(depth int) int {
-	lead := indentOf(depth)
+	lead := indentOf(depth) + 1
 	if r.Symbol.Text != "" {
 		lead += textWidth(r.Symbol.Text) + 1
 	}
@@ -953,7 +953,7 @@ func (w *groupRows) row(r *Row, depth, parent int, out []node) []node {
 	self := len(out)
 	out = append(out, node{kind: nodeRow, key: r.Key, depth: depth, row: r, open: open, toggles: r.opens(), parent: parent, locked: w.d.namesLock(r)})
 	if w.d.under && r.Under.Text != "" {
-		out = append(out, node{kind: nodeUnder, depth: depth, row: r, cell: r.Under, parent: parent})
+		out = append(out, node{kind: nodeUnder, depth: depth, row: r, cell: r.Under, column: rowUnderColumn(depth), parent: parent})
 	}
 	if !open {
 		return out
@@ -980,7 +980,7 @@ func (w *groupRows) fold(f *rowFold, depth, parent int, out []node) []node {
 		parent: parent, locked: w.d.namesLock(&f.row),
 	})
 	if w.d.under && f.row.Under.Text != "" {
-		out = append(out, node{kind: nodeUnder, depth: depth, row: &f.row, cell: f.row.Under, parent: parent})
+		out = append(out, node{kind: nodeUnder, depth: depth, row: &f.row, cell: f.row.Under, column: rowUnderColumn(depth), parent: parent})
 	}
 	if !open {
 		return out
@@ -995,6 +995,10 @@ func (w *groupRows) fold(f *rowFold, depth, parent int, out []node) []node {
 
 // indentOf is where a depth's text starts, past the pointer's one column.
 func indentOf(depth int) int { return 1 + 2*depth }
+
+// rowUnderColumn is where the summary under a row at depth starts, so its └─ sits under the
+// row's first cell, past the blank after the chevron.
+func rowUnderColumn(depth int) int { return indentOf(depth) + 1 + underMarkWidth }
 
 // spanColumn is where a Span group's Span starts, and zero for a group with none.
 func spanColumn(depth int, g *Group) int {
@@ -1531,9 +1535,10 @@ func drawGroup(p painter, n node, columns []Column, widths []int, titles bool) s
 	return out
 }
 
-// rowIndent is the cells ahead of a row's symbol. The last two hold MarkGlyph and the
-// chevron, each in a cell of its own, so neither moves a column or takes the symbol's. The
-// chevron in the last sits one cell in from its parent's, so the nesting shows.
+// rowIndent is the cells ahead of a row's symbol. MarkGlyph and the chevron each take a cell
+// of their own, so neither moves a column or takes the symbol's. The chevron sits one cell in
+// from its parent's, so the nesting shows, and a blank follows it, as one follows a group's. A
+// font that draws the chevron wider than its cell then draws it over the blank, not the text.
 func rowIndent(p painter, n node) string {
 	mark := " "
 	switch {
@@ -1542,7 +1547,7 @@ func rowIndent(p painter, n node) string {
 	case n.row.Marked:
 		mark = p.cell(C(MarkGlyph, MarkCode))
 	}
-	return strings.Repeat(" ", indentOf(n.depth)-3) + mark + n.foldMark()
+	return strings.Repeat(" ", indentOf(n.depth)-3) + mark + n.foldMark() + " "
 }
 
 func drawRow(p painter, n node, columns []Column, widths []int) string {

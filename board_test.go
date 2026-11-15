@@ -411,7 +411,7 @@ func TestEachTabKeepsItsCursorAndFolds(t *testing.T) {
 	if !strings.Contains(got, "[one]") || !strings.Contains(got, "▾ GROUP") {
 		t.Errorf("the first tab should keep its group open:\n%s", got)
 	}
-	if !strings.Contains(got, "▌  second") {
+	if !strings.Contains(got, "▌   second") {
 		t.Errorf("the first tab should keep its cursor on the second row:\n%s", got)
 	}
 }
@@ -907,7 +907,7 @@ func TestAChevronDrawsOnlyOnWhatOpensAndLeavesABulletItsCell(t *testing.T) {
 	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
 	m.Update(tea.WindowSizeMsg{Width: 60, Height: 14})
 	screen := m.screen()
-	for _, want := range []string{"  EMPTY", " ▾ FULL", "  ▸● opens", "   ● plain", " ◆▸● marked", "  ▸span"} {
+	for _, want := range []string{"  EMPTY", " ▾ FULL", "  ▸ ● opens", "    ● plain", " ◆▸ ● marked", "  ▸ span"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("no %q in:\n%s", want, screen)
 		}
@@ -930,7 +930,7 @@ func TestAChevronDrawsOnlyOnWhatOpensAndLeavesABulletItsCell(t *testing.T) {
 	m.Update(downKey)
 	m.Update(downKey)
 	m.Update(spaceKey)
-	if got := m.screen(); !strings.Contains(got, "▾● opens") || !strings.Contains(got, "more text") {
+	if got := m.screen(); !strings.Contains(got, "▾ ● opens") || !strings.Contains(got, "more text") {
 		t.Errorf("space should open the row in place:\n%s", got)
 	}
 	m.setFilter("opens")
