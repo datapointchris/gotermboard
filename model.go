@@ -139,6 +139,8 @@ type Model struct {
 	display  display
 	cursor   string
 	cursorAt int
+	// holding is the key HoldLine was asked on, while the cursor waits on it for its row to move.
+	holding  string
 	top      int
 	placed   bool
 	panelOff bool
@@ -735,6 +737,11 @@ func (m *Model) Toggle() tea.Cmd { return m.toggle() }
 // that opens text under a row.
 func (m *Model) Reveal() { m.revealDetail() }
 
+// HoldLine keeps the cursor on the line it is on when its row next moves, rather than following
+// the row, for a key whose write sorts the row elsewhere, as a mail client's cursor stays put
+// when the message it marked read sorts away. Moving the cursor first ends the hold.
+func (m *Model) HoldLine() { m.holding = m.cursor }
+
 // Say puts text where the footer says what the last key did.
 func (m *Model) Say(text string) { m.said = text }
 
@@ -1281,10 +1288,20 @@ func (m *Model) place() {
 			return
 		}
 	}
+	if m.holding != m.cursor {
+		m.holding = ""
+	}
 	if i, shows := k.ix.stopAt[m.cursor]; shows {
+		if m.holding != "" && i != m.cursorAt {
+			m.holding = ""
+			m.cursorAt = min(m.cursorAt, len(k.ix.stops)-1)
+			m.cursor = k.stop(m.cursorAt).key
+			return
+		}
 		m.cursorAt = i
 		return
 	}
+	m.holding = ""
 	if folded, held := m.display.foldHolding(m.cursor); held {
 		if i, shows := k.ix.stopAt[folded]; shows {
 			m.cursor, m.cursorAt = folded, i
@@ -1335,7 +1352,7 @@ func (m *Model) move(by int) {
 		return
 	}
 	m.cursorAt = max(0, min(m.cursorAt+by, len(k.ix.stops)-1))
-	m.cursor = k.stop(m.cursorAt).key
+	m.cursor, m.holding = k.stop(m.cursorAt).key, ""
 	m.placed = true
 	m.scrolled = false
 	m.follow()

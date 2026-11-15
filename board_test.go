@@ -393,6 +393,37 @@ func TestAHiddenTabStartsNoReadAndAReturningTabDrawsItsLastReadThenReads(t *test
 	}
 }
 
+// orderedBoard draws one row per key, in the order keys holds them.
+type orderedBoard struct{ keys []string }
+
+func (b *orderedBoard) Sources() []Refresher { return nil }
+func (b *orderedBoard) Groupings() []string  { return nil }
+func (b *orderedBoard) Frame(time.Time, string) Frame {
+	rows := make([]Row, 0, len(b.keys))
+	for _, key := range b.keys {
+		rows = append(rows, Row{Key: key, Cells: []Cell{C(key, "")}})
+	}
+	return Frame{Columns: []Column{{Title: "ROW"}}, Groups: []Group{{Rows: rows}}}
+}
+
+func TestAHeldCursorStaysOnItsLineAsItsRowSortsAwayThenFollowsRowsAgain(t *testing.T) {
+	board := &orderedBoard{keys: []string{"a", "b", "c", "d"}}
+	m := NewModel(board, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
+	m.MoveCursorTo("b")
+	m.HoldLine()
+	board.keys = []string{"a", "c", "d", "b"}
+	m.Update(refreshedMsg{})
+	if got := m.Cursor(); got != "c" {
+		t.Fatalf("the held cursor should stay on its line, which c now takes, not on %q", got)
+	}
+	board.keys = []string{"a", "d", "b", "c"}
+	m.Update(refreshedMsg{})
+	if got := m.Cursor(); got != "c" {
+		t.Fatalf("once the hold is spent the cursor should follow its row, c, not sit on %q", got)
+	}
+}
+
 func TestEachTabKeepsItsCursorAndFolds(t *testing.T) {
 	answer := &atomic.Value{}
 	answer.Store("value")

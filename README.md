@@ -502,6 +502,12 @@ as a merge moves to the next row in its group. It says whether the key shows, so
 the next candidate where the filter or a fold hides one. A key that changed what the board holds
 calls `Rebuild` first, so the key is looked for in the new frame.
 
+`Model.HoldLine` keeps the cursor on its line when its row next moves, for a key whose write sorts
+the row elsewhere once a later read lands, as marking a mail read moves it out of the unread. The
+row that takes the line is under the cursor then, as in a mail client. Otherwise the cursor follows
+its row's key wherever a frame puts it. The hold is spent on the first frame that moves the row,
+and moving the cursor first ends it.
+
 A program that draws its own screen rather than a board builds its key table from the same rows.
 `KeyAction[H]` is a row for a screen of type `H`, and `Action` is a `Model`'s. `UniversalActions`
 is the rows for moving, opening a row, the `?` overlay and quitting, each bound where its
