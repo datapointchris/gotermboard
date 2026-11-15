@@ -180,13 +180,16 @@ func wholeUnderStrip(m *Model, body int, footer []string) []string {
 }
 
 // held counts what the reference checked, so a test can say its boards reached each kind of screen.
-var held struct{ draws, follows, reveals, nodes, scrolled, banded, pinned, panels int }
+var held struct{ draws, follows, reveals, nodes, scrolled, banded, pinned, panels, openFolds int }
 
 // holdToTheWholeTable sets the hooks: every node a test paints, every follow, every reveal and every
 // draw is compared with the whole table's, and any difference panics.
 func holdToTheWholeTable() {
 	paintHook = func(n node, measured, painted int) {
 		held.nodes++
+		if n.fold != nil && n.open {
+			held.openFolds++
+		}
 		if measured != painted {
 			panic(fmt.Sprintf("a node of kind %d measures %d lines and paints %d", n.kind, measured, painted))
 		}

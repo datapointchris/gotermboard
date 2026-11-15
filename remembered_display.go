@@ -26,6 +26,7 @@ type rememberedView struct {
 	PanelOff  *bool           `json:"panel_off,omitempty"`
 	Summaries *bool           `json:"summaries,omitempty"`
 	Grouping  string          `json:"grouping,omitempty"`
+	Unfolded  *bool           `json:"rows_unfolded,omitempty"`
 	Folded    map[string]bool `json:"folded,omitempty"`
 	Opened    map[string]bool `json:"opened,omitempty"`
 }
@@ -46,7 +47,9 @@ type rememberedDisplays struct {
 
 // RemembersDisplayIn keeps the program's display in the file at path, and opens on what the
 // file holds. Each tab, by its name, keeps its side panel (p), its summaries under rows (f), its
-// grouping (v), and each group folded and row opened by enter, space or the board's own keys.
+// grouping (v), whether it shows every row (FoldKey), and each group folded and row opened by
+// enter, space or the board's own keys. A fold opened is not kept, since it lasts only while its
+// rows sit together.
 // The program opens on the tab the reader last moved to, unless NewTabs was told one to open
 // on. A setting never changed keeps the board's default, and a remembered grouping the board
 // does not offer opens on its first. Each change writes the whole file again. A file that will
@@ -91,6 +94,9 @@ func (m *Model) recall(view rememberedView) {
 	}
 	if at := slices.Index(m.board.Groupings(), view.Grouping); at >= 0 && view.Grouping != "" {
 		m.grouping = at
+	}
+	if view.Unfolded != nil {
+		m.display.unfold(*view.Unfolded)
 	}
 	for key, folded := range view.Folded {
 		m.display.fold(key, folded)

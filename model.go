@@ -219,7 +219,10 @@ func newModel(board Board, p painter, ctx context.Context, cancel context.Cancel
 	twoLines, ok := board.(TwoLineBoard)
 	m := &Model{
 		board: board, painter: p, ctx: ctx, cancel: cancel, cue: newChangeCue(),
-		display: display{folded: map[string]bool{}, opened: map[string]bool{}, matched: newRowMatches(), under: ok && twoLines.TwoLines()},
+		display: display{
+			folded: map[string]bool{}, opened: map[string]bool{}, matched: newRowMatches(), rowFolds: newFrameFolds(),
+			under: ok && twoLines.TwoLines(),
+		},
 	}
 	m.resize(80, 24)
 	return m
@@ -605,6 +608,14 @@ func actionTable() []Action {
 			},
 			Applies: (*Model).panelFits,
 		},
+		{
+			Keys: []string{FoldKey}, Label: "show every row, where rows sharing a fold key draw as one", Footer: FoldKey + " unfold",
+			Run: (*Model).switchFolds, Applies: func(m *Model) bool { return m.display.rowFolds.anyFold() && !m.display.unfolded },
+		},
+		{
+			Keys: []string{FoldKey}, Label: "fold consecutive rows sharing a fold key into one row", Footer: FoldKey + " fold",
+			Run: (*Model).switchFolds, Applies: func(m *Model) bool { return m.display.rowFolds.anyFold() && m.display.unfolded },
+		},
 		{Keys: []string{"/"}, Label: "filter the rows, matching their detail too", Footer: "/ filter", Run: func(m *Model) tea.Cmd {
 			m.filtering = true
 			m.filterLine.set(m.display.filter)
@@ -618,6 +629,33 @@ func actionTable() []Action {
 			return m.dueReads(time.Now())
 		}},
 	}...)
+}
+
+// switchFolds is FoldKey: every row shows, or each fold draws as one row again. The cursor stays
+// on its row where that still shows. From a fold's row it goes to the fold's first row, or its
+// last where the cursor sat on a TailBoard's last row, and from a row a fold takes in, to the fold.
+func (m *Model) switchFolds() tea.Cmd {
+	n, on := m.selected()
+	wasLast := m.tails() && on && m.onLastRow()
+	m.display.unfold(!m.display.unfolded)
+	switch {
+	case !on:
+	case n.fold != nil:
+		m.cursor = n.fold.rows[0].Key
+	default:
+		if _, shows := m.kept().ix.stopAt[m.cursor]; !shows {
+			if folded, held := m.display.rowFolds.holding(m.frame.Groups, m.cursor); held {
+				m.cursor = folded
+			}
+		}
+	}
+	m.place()
+	if wasLast {
+		m.moveToLastRow()
+	}
+	m.displayChanged()
+	m.remember(func(view *rememberedView) { view.Unfolded = new(m.display.unfolded) })
+	return nil
 }
 
 // tableActions is what holds this model's keys, then the table's own.
@@ -660,8 +698,9 @@ func filterClearing() []Action {
 func (m *Model) Cursor() string { return m.cursor }
 
 // MoveCursorTo puts the cursor on the group or row keyed key, for a board's key that acts on
-// the cursor's row and moves on, and says whether key shows. A row in a folded group, or one
-// the filter hides, does not. A key that changed what the board holds calls Rebuild first.
+// the cursor's row and moves on, and says whether key shows. A row in a folded group or a closed
+// fold, or one the filter hides, does not. A key that changed what the board holds calls Rebuild
+// first.
 func (m *Model) MoveCursorTo(key string) bool {
 	at, shows := m.kept().ix.stopAt[key]
 	if key == "" || !shows {
@@ -672,16 +711,15 @@ func (m *Model) MoveCursorTo(key string) bool {
 	return true
 }
 
-// CloseInPlace closes the text open under the cursor's row, as the table's space does, and
-// says whether any was open. A board that binds space to a row verb, such as a mark, calls it
-// first, so space still closes a row open in place.
+// CloseInPlace closes the text open under the cursor's row, or the rows open under a fold, as the
+// table's space does, and says whether any was open. A board that binds space to a row verb, such
+// as a mark, calls it first, so space still closes a row open in place.
 func (m *Model) CloseInPlace() bool {
 	n, ok := m.selected()
-	if !ok || n.kind != nodeRow || !n.open {
+	if !ok || n.kind != nodeRow || !n.open || !n.toggles {
 		return false
 	}
-	m.display.open(n.key, false)
-	m.rememberOpened(n.key, false)
+	m.openInPlace(n, false)
 	m.placed = true
 	m.revealDetail()
 	return true
@@ -729,7 +767,7 @@ func (m *Model) ToggleEveryRow() tea.Cmd {
 	var rows []string
 	allOpen := true
 	for _, n := range m.nodes() {
-		if n.kind == nodeRow && n.toggles {
+		if n.kind == nodeRow && n.toggles && n.fold == nil {
 			rows = append(rows, n.key)
 			allOpen = allOpen && n.open
 		}
@@ -877,7 +915,7 @@ func (m *Model) setFilter(filter string) {
 // place or not, and so does one the side panel draws, since opening it in place would only
 // draw it twice. Anything else folds or opens in place.
 func (m *Model) toggle() tea.Cmd {
-	if n, ok := m.selected(); ok && n.kind == nodeRow && n.row.Document != nil && (m.panelDrawsDocumentOf(n.row) || m.Tall(n.row.Document)) {
+	if n, ok := m.selected(); ok && n.kind == nodeRow && n.fold == nil && n.row.Document != nil && (m.panelDrawsDocumentOf(n.row) || m.Tall(n.row.Document)) {
 		m.Read(n.row.title(), n.row.Document)
 		m.reading.row = n.row.Key
 		return nil
@@ -897,13 +935,21 @@ func (m *Model) toggleInPlace() tea.Cmd {
 		m.display.fold(n.key, n.open)
 		m.rememberFolded(n.key, n.open)
 	case nodeRow:
-		m.display.open(n.key, !n.open)
-		m.rememberOpened(n.key, !n.open)
+		m.openInPlace(n, !n.open)
 	}
 	// A cursor still looking for its starting line stays on the line this key acted on.
 	m.placed = true
 	m.revealDetail()
 	return nil
+}
+
+// openInPlace opens or closes a row's text or a fold's rows under it. A row's is remembered. A
+// fold lasts only while its rows sit together, so its is not.
+func (m *Model) openInPlace(n node, open bool) {
+	m.display.open(n.key, open)
+	if n.fold == nil {
+		m.rememberOpened(n.key, open)
+	}
 }
 
 // cursorToggles says enter and space would change something on the cursor's line.
@@ -948,8 +994,8 @@ func (m *Model) revealDetail() {
 	}
 }
 
-// cursorPath is the words of each group the sticky band would name over the cursor's line,
-// outermost first.
+// cursorPath is the words of each group and fold the sticky band would name over the cursor's
+// line, outermost first.
 func (m *Model) cursorPath() []Line {
 	n, ok := m.selected()
 	if !ok {
@@ -958,8 +1004,12 @@ func (m *Model) cursorPath() []Line {
 	nodes := m.nodes()
 	var path []Line
 	for at := n.parent; at >= 0; at = nodes[at].parent {
-		if nodes[at].names {
-			path = append(path, groupWords(nodes[at].group))
+		switch owner := nodes[at]; {
+		case !owner.names:
+		case owner.kind == nodeRow:
+			path = append(path, Line{C(owner.row.title(), "")})
+		default:
+			path = append(path, groupWords(owner.group))
 		}
 	}
 	slices.Reverse(path)
@@ -1087,6 +1137,7 @@ func (m *Model) rebuildKeeping(now time.Time, mayKeep bool) {
 		m.frameCount++
 		m.layout = nil
 		m.display.matched.newFrame()
+		m.display.rowFolds.newFrame(m.frame.Groups, m.frame.FoldRow)
 		m.panelHasText = anyPanelText(m.frame.Groups)
 	}
 	m.drawStrip(now)
@@ -1316,7 +1367,7 @@ func (m *Model) onOpenText() bool {
 	if n.kind == nodeGroup {
 		return n.group.Document != nil
 	}
-	return n.open
+	return n.open && n.fold == nil
 }
 
 // panelFits says the screen has room for the side panel and this frame has text for it.
@@ -1440,10 +1491,32 @@ func (m *Model) inside() string {
 	m.stripOnly = false
 	charts := m.charts[:m.heightsOver(m.footerDrawn).charts]
 	out := make([]string, 0, len(m.frame.Strip)+len(charts)+len(m.underStrip))
-	for _, line := range slices.Concat(m.frame.Strip, charts) {
+	for _, line := range slices.Concat(m.stripSayingFolds(), charts) {
 		out = append(out, ansi.Truncate(m.painter.line(line), m.width, "…"))
 	}
 	return strings.Join(append(out, m.underStrip...), "\n")
+}
+
+// The words that end the strip's first line on a frame holding a fold, saying which FoldKey shows.
+const (
+	foldsDrawnWords = "  ·  rows folded"
+	everyRowWords   = "  ·  every row"
+)
+
+// stripSayingFolds is the strip, its first line ending in which FoldKey shows where the frame
+// holds a fold. The line's own words give way at the screen's edge, so those stay whole.
+func (m *Model) stripSayingFolds() []Line {
+	strip := m.frame.Strip
+	if len(strip) == 0 || !m.display.rowFolds.anyFold() {
+		return strip
+	}
+	said := Line{C(foldsDrawnWords, "")}
+	if m.display.unfolded {
+		said = Line{C(everyRowWords, "")}
+	}
+	strip = slices.Clone(strip)
+	strip[0] = append(slices.Clone(strip[0]).cut(m.width-said.width()), said...)
+	return strip
 }
 
 // drawUnderStrip is the table or the keys overlay in body lines, then the footer. It paints three
