@@ -63,7 +63,8 @@ type Look struct {
 	// Spread fills the table's width with its columns at their own widths, dealing what they
 	// leave out between them from the left, rather than the last column taking it. A column
 	// with no title continues the one before it and takes none of the spread. A table whose
-	// rows or groups set WrapLast keeps the slack in its last column, where the text wraps.
+	// rows or groups set WrapLast or CutLast keeps the slack in its last column, where the text
+	// wraps or is cut.
 	Spread bool
 	// Rules puts the column titles on a line of their own with a rule under it, and a rule
 	// above the footer.

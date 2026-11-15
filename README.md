@@ -184,6 +184,9 @@ continuing on further lines at that column, so a bar wider than the row keeps ev
 in sixty away. Done is filled and every other kind is hollow, so a frame printed without
 color still shows which units are done. Under way, blocked and the rest differ by color. `Line.Paint` turns a line into
 text in its colors, so a command that prints rather than runs a board draws the same bar.
+`CutLast` on a `Row` is the last column in several colors that never wraps. The screen's
+edge cuts it with an ellipsis, as it cuts a cell. The cut takes the end, so a title goes
+after the short flags beside it.
 
 `Items` makes a line of `Below` or `Beside` that the draw cuts to the items that fit,
 ending in `+N`, because only the draw knows the width and it moves with the side panel.
@@ -215,7 +218,7 @@ look.
   columns out at their own widths and deals what they leave out between them from the left,
   so the table ends on its edge. A column with no title continues the one before it and
   takes none of the spread, so a group of untitled counts stays together. A table whose rows
-  wrap their last column with `WrapLast` keeps the slack in it instead. `Rules` puts the
+  set their last column with `WrapLast` or `CutLast` keeps the slack in it instead. `Rules` puts the
   column titles on a line of their own with a rule under it, and a rule over the footer.
   Both rules span the table's width. `BoldCursor` draws the cursor's row bold over the
   theme's selection, across every line the row draws. `NoRowChevrons` leaves each row's

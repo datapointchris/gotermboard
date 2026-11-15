@@ -280,6 +280,26 @@ func TestNoLineOfAFrameIsWiderThanItsScreen(t *testing.T) {
 	}
 }
 
+func TestCutLastDrawsOneLineEndingInAnEllipsis(t *testing.T) {
+	long := strings.Repeat("a title too long for the screen ", 10)
+	frame := Frame{
+		Columns: []Column{{Title: ""}, {Title: "TITLE"}},
+		Groups: []Group{{Key: "g", Title: Line{C("G", Bold)}, Rows: []Row{
+			{Key: "r", Cells: []Cell{C("open", "")}, CutLast: Line{C("recurred  ", Red), C(long, "")}},
+		}}},
+	}
+	screen := ansi.Strip(Once(fixedBoard{frame}, gotermstyle.NewPalette(false), 80, 10))
+	var drawn []string
+	for line := range strings.SplitSeq(screen, "\n") {
+		if strings.Contains(line, "a title") {
+			drawn = append(drawn, strings.TrimRight(line, " "))
+		}
+	}
+	if len(drawn) != 1 || !strings.Contains(drawn[0], "recurred  a title") || !strings.HasSuffix(drawn[0], "…") {
+		t.Fatalf("want one line keeping its lead and ending in …:\n%s", screen)
+	}
+}
+
 // countedBoard draws what its one source last read, and counts every read it makes.
 type countedBoard struct {
 	source *Source[string]
