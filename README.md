@@ -58,8 +58,9 @@ tab line, and Tab does nothing in it.
 
 `RemembersDisplayIn(path)` keeps the display in a JSON file the program names, under its own
 `$XDG_STATE_HOME` directory. Each tab, by its name, keeps its side panel (`p`), its summaries
-(`f`), its grouping (`v`), and each group folded and row opened. The program opens on the tab
-last moved to, unless `NewTabs` names one, and never on the entity page. A setting never
+(`f`), its grouping (`v`), whether it shows the raw rows (`Z`), and each group folded and row
+opened. A fold opened is not kept, since it lasts only while its rows sit together. The program
+opens on the tab last moved to, unless `NewTabs` names one, and never on the entity page. A setting never
 changed keeps the board's default, so a board decides how a new reader first sees it. Each
 change rewrites the file, laying only this program's changes over what it holds, so two
 programs on one file keep each other's tabs. Nothing is written without the call, so tests and
@@ -279,7 +280,48 @@ on that line. A filter holds every group open, so a group draws no mark while on
 A row's chevron sits in the last cell of its indent, one cell in from its parent's, with `Symbol`
 beside it. `MarkGlyph` sits in the cell before the chevron. No column moves for either. A board
 whose every row opens can blank the row chevrons with `Look.NoRowChevrons`, because there a
-chevron tells no row apart. The cell stays, so no column moves for that either.
+chevron tells no row apart. The cell stays, so no column moves for that either. A fold's row keeps
+its chevron, because it is what tells the fold from the rows beside it.
+
+## Rows sharing a fold key draw as one row until `Z` shows the raw rows
+
+A stream can arrive in bursts: one writer emitting dozens of rows of one kind within a minute.
+Each burst moves a following board by its whole length. This is event aggregation. Kubernetes
+keeps one Event for a reason repeated on one object and raises its count, so `kubectl get events`
+prints `x14 over 3m`, and Sentry folds the events sharing a fingerprint into one issue.
+
+`Fold` on a `Row` and `FoldRow` on the `Frame` turn it on. Two or more consecutive rows of one
+group sharing a `Fold` draw as the one row `FoldRow` makes of them, at any depth. A row beside
+none sharing its key draws as itself. `FoldRow` is handed the rows in order and writes the cells:
+what the rows share, what varies among them, their count, and the time from the first to the
+last. The board knows when its rows happened and this package does not, so the board writes the
+span. The cells sit on the table's columns, so no column is added for the count.
+
+```go
+rows = append(rows, gotermboard.Row{Key: e.ID, Fold: e.Writer + "/" + e.Kind, Cells: cells(e)})
+// ...
+frame.FoldRow = func(rows []gotermboard.Row) gotermboard.Row {
+ first, last := byKey[rows[0].Key], byKey[rows[len(rows)-1].Key]
+ return gotermboard.Row{Cells: []gotermboard.Cell{
+  gotermboard.C(fmt.Sprintf("x%d over %s", len(rows), last.At.Sub(first.At).Round(time.Second)), ""),
+  gotermboard.C(first.Kind, gotermboard.Cyan),
+ }}
+}
+```
+
+The fold's row opens in place on `enter` or `space`, as a group does, with its rows one level in.
+Each of them keeps its own `enter` and `space`. The fold's own `Detail`, `Document` and `Panel`
+show in the side panel. `FoldRow` may key the row with a key none of its rows holds. Otherwise
+the fold keeps the key of the last frame's fold sharing one of its rows. So it stays open, and
+keeps the cursor, as rows join and leave either end. A cursor on a row a new frame folds moves
+to the fold.
+
+`Z` (`RawRowsKey`) shows the raw rows, and folds them again. The strip's first line ends in
+`· rows folded` or `· raw rows`, and its own words give way at the screen's edge so those stay
+whole. The footer names `Z raw rows` or `Z fold rows`, and only on a frame holding a fold. A
+filter or a lock holds every fold open on the rows it keeps, as it holds a group. A lock or a
+jump finds a fold through its rows, and a jump opens the fold. A frame with no `FoldRow` folds no
+row, whatever its rows' `Fold` keys.
 
 ## A filter can reach past what shows
 

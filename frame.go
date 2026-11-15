@@ -259,6 +259,10 @@ type Row struct {
 	Marked bool
 	// Entities is what the row is about, which JumpKey lists and a jump's cursor looks for.
 	Entities []EntityRef
+	// Fold folds the row with the rows beside it in its group sharing it: two or more in a row draw
+	// as the one row the frame's FoldRow makes of them, until RawRowsKey shows the raw rows. Empty
+	// folds nothing, and so does a frame with no FoldRow.
+	Fold string
 	// changed is set while the row wears the change cue.
 	changed bool
 }
@@ -438,6 +442,17 @@ type Frame struct {
 	// their change cues, and takes every other field from the new frame. Zero makes no claim, so the
 	// frame is laid out as new. A board whose cells show the clock's text leaves it zero.
 	Revision uint64
+	// FoldRow is the row a fold draws as, made from its rows in order: consecutive rows of one
+	// group sharing a Fold. It says what they share and what varies among them, and its cells hold
+	// their count and the time from the first to the last where its columns have room, since only
+	// the board knows when a row happened. The fold opens in place on enter or space, as a group
+	// does, so its own Detail, Document and Panel show only in the side panel, and StartsOpen is
+	// not read. Its Entities are what a key on its row acts on, and a lock or a jump finds the fold
+	// through its rows. A Key it sets that none of its rows holds keys the fold. Otherwise the fold
+	// keeps the key of the fold in the last frame holding one of the same rows, so the key holds as
+	// rows join and leave either end. The rows it makes count toward Revision. Without it, no row
+	// folds.
+	FoldRow func(rows []Row) Row
 }
 
 // nodeKind is what one laid-out line of the table is.
@@ -487,6 +502,8 @@ type node struct {
 	names bool
 	// locked says the row names what the tabs are locked to, so it wears LockGlyph.
 	locked bool
+	// fold is the fold a row node draws, and nil for a row of the frame's own.
+	fold *rowFold
 }
 
 func (n node) selectable() bool {
@@ -536,12 +553,16 @@ type display struct {
 	matched *rowMatches
 	// panelShown says the side panel is drawn beside the table.
 	panelShown bool
-	// toggles counts every write to folded and opened, so a kept layout knows it is stale without
-	// comparing the maps, which grow to a key a row once every row has been opened.
+	// raw says RawRowsKey shows the raw rows rather than each fold as one row.
+	raw bool
+	// rowFolds is every group's folds in the frame.
+	rowFolds *frameFolds
+	// toggles counts every write to folded, opened and raw, so a kept layout knows it is stale
+	// without comparing the maps, which grow to a key a row once every row has been opened.
 	toggles uint64
 }
 
-// fold and open are the only writers of folded and opened.
+// fold, open and showRaw are the only writers of folded, opened and raw.
 func (d *display) fold(key string, folded bool) {
 	d.folded[key] = folded
 	d.toggles++
@@ -550,6 +571,49 @@ func (d *display) fold(key string, folded bool) {
 func (d *display) open(key string, opened bool) {
 	d.opened[key] = opened
 	d.toggles++
+}
+
+func (d *display) showRaw(raw bool) {
+	d.raw = raw
+	d.toggles++
+}
+
+// foldsOf is g's folds while the board folds rows.
+func (d display) foldsOf(g *Group) []rowFold {
+	if d.raw {
+		return nil
+	}
+	return d.rowFolds.in(g)
+}
+
+// foldHolding is the key of the fold holding the row keyed key while the board folds rows.
+func (d display) foldHolding(key string) (string, bool) {
+	if d.raw {
+		return "", false
+	}
+	return d.rowFolds.foldHolding(key)
+}
+
+// holdsEveryOpen says a filter or a lock holds every group and fold open.
+func (d display) holdsEveryOpen() bool { return d.filter != "" || d.narrowsTo() != nil }
+
+func (d display) isFoldOpen(f *rowFold) bool { return d.holdsEveryOpen() || d.opened[f.row.Key] }
+
+// showsFold says the table draws the fold: its row or one of its rows matches the filter, and one
+// of its rows names what the lock keeps. Only its rows answer to a lock, as entityLine reads them.
+func (d display) showsFold(f *rowFold, held bool) bool {
+	matches, kept := d.matches(&f.row), false
+	for i := range f.rows {
+		matches = matches || d.matches(&f.rows[i])
+		kept = kept || d.keepsRow(&f.rows[i], held)
+	}
+	return matches && kept
+}
+
+// namesLock says the row names what the tabs are locked to.
+func (d display) namesLock(r *Row) bool {
+	locked := d.lockedTo()
+	return locked != nil && slices.Contains(r.Entities, *locked)
 }
 
 // rowMatches is each row's answer to the filter and its text lowercased. Answers and the rows
@@ -646,6 +710,11 @@ func (d display) groupMatches(g *Group) bool {
 			return true
 		}
 	}
+	for _, f := range d.foldsOf(g) {
+		if d.matches(&f.row) {
+			return true
+		}
+	}
 	for i := range g.Groups {
 		if d.groupMatches(&g.Groups[i]) {
 			return true
@@ -656,7 +725,7 @@ func (d display) groupMatches(g *Group) bool {
 
 // heldOpen says nothing can fold the group: it is Still, or a filter or a lock holds every
 // group open.
-func (d display) heldOpen(g *Group) bool { return d.filter != "" || d.narrowsTo() != nil || g.Still }
+func (d display) heldOpen(g *Group) bool { return d.holdsEveryOpen() || g.Still }
 
 // namesLocked says the group itself names what the tabs are locked to, which keeps every line
 // under it.
@@ -741,12 +810,16 @@ func (d display) isRowOpen(r *Row) bool {
 	return r.StartsOpen && (!d.panelShown || !r.panelDrawsDocument())
 }
 
-// anyUnder says whether any group or row, folded or not, has a summary to draw at these column
-// widths. A folded row has no node, so this reads the groups rather than the nodes.
-func anyUnder(groups []Group, widths []int, depth int) bool {
+// anyUnder says whether any group, row or fold's row, folded or not, has a summary to draw at these
+// column widths. A folded row has no node, so this reads the groups rather than the nodes. folds is
+// each group's folds as the board draws them.
+func anyUnder(groups []Group, widths []int, depth int, folds func(*Group) []rowFold) bool {
 	for i := range groups {
+		g := &groups[i]
 		hasUnder := func(r Row) bool { return r.showsUnder(depth+1, widths) }
-		if groups[i].Under.Text != "" || slices.ContainsFunc(groups[i].Rows, hasUnder) || anyUnder(groups[i].Groups, widths, depth+1) {
+		foldHasUnder := func(f rowFold) bool { return hasUnder(f.row) }
+		if g.Under.Text != "" || slices.ContainsFunc(g.Rows, hasUnder) || slices.ContainsFunc(folds(g), foldHasUnder) ||
+			anyUnder(g.Groups, widths, depth+1, folds) {
 			return true
 		}
 	}
@@ -766,7 +839,7 @@ func (d display) nodes(groups []Group, columns []Column, width int, look Look, h
 		pinned = pinned && n.staysOnScreen()
 		n.pinned = pinned
 		n.names = !pinned && n.holdsNamedLines()
-		n.unmarked = n.kind == nodeRow && look.NoRowChevrons
+		n.unmarked = n.kind == nodeRow && n.fold == nil && look.NoRowChevrons
 	}
 	return nodes, columns, widths
 }
@@ -828,33 +901,16 @@ func (d display) walk(groups []Group, depth, parent int, held bool, out []node) 
 			out = append(out, node{kind: nodeDocument, depth: depth + 2, document: g.Document, column: column, parent: self})
 		}
 		if open {
-			drawnRows := 0
-			for j := range g.Rows {
-				r := &g.Rows[j]
-				if !d.matches(r) || !d.keepsRow(r, heldHere) {
+			rows := groupRows{d: d, g: g, held: heldHere}
+			folds := d.foldsOf(g)
+			for j := 0; j < len(g.Rows); j++ {
+				if len(folds) > 0 && folds[0].from == j {
+					out = rows.fold(&folds[0], depth+1, self, out)
+					j, folds = folds[0].to-1, folds[1:]
 					continue
 				}
-				if g.BetweenRows != RuleNone && drawnRows > 0 {
-					out = append(out, node{kind: nodeBlank, parent: self}, node{kind: nodeRule, weight: g.BetweenRows, parent: self})
-				}
-				drawnRows++
-				rowOpen := d.isRowOpen(r)
-				row := len(out)
-				out = append(out, node{
-					kind: nodeRow, key: r.Key, depth: depth + 1, row: r, open: rowOpen, toggles: r.opens(), parent: self,
-					locked: d.lockedTo() != nil && slices.Contains(r.Entities, *d.lockedTo()),
-				})
-				if d.under && r.Under.Text != "" {
-					out = append(out, node{kind: nodeUnder, depth: depth + 1, row: r, cell: r.Under, parent: self})
-				}
-				if rowOpen {
-					if r.Document != nil {
-						out = append(out, node{kind: nodeDocument, depth: depth + 2, document: r.Document, column: indentOf(depth + 2), parent: row})
-						continue
-					}
-					for _, c := range r.Detail {
-						out = append(out, node{kind: nodeDetail, depth: depth + 2, cell: c, parent: row})
-					}
+				if r := &g.Rows[j]; d.matches(r) && d.keepsRow(r, heldHere) {
+					out = rows.row(r, depth+1, self, out)
 				}
 			}
 			out = d.walk(g.Groups, depth+1, self, heldHere, out)
@@ -867,6 +923,71 @@ func (d display) walk(groups []Group, depth, parent int, held bool, out []node) 
 			out = append(out, node{kind: nodeRule, depth: depth, weight: RuleThin, parent: parent})
 		case g.Gap:
 			out = append(out, node{kind: nodeBlank, parent: parent})
+		}
+	}
+	return out
+}
+
+// groupRows walks one open group's rows and folds. drawn counts the rows it drew, which a
+// BetweenRows group rules apart.
+type groupRows struct {
+	d     display
+	g     *Group
+	held  bool
+	drawn int
+}
+
+// ruled is the blank and the rule a BetweenRows group draws ahead of every row past its first.
+func (w *groupRows) ruled(parent int, out []node) []node {
+	if w.g.BetweenRows != RuleNone && w.drawn > 0 {
+		out = append(out, node{kind: nodeBlank, parent: parent}, node{kind: nodeRule, weight: w.g.BetweenRows, parent: parent})
+	}
+	w.drawn++
+	return out
+}
+
+// row is a row's node, its summary, and what opens under it.
+func (w *groupRows) row(r *Row, depth, parent int, out []node) []node {
+	out = w.ruled(parent, out)
+	open := w.d.isRowOpen(r)
+	self := len(out)
+	out = append(out, node{kind: nodeRow, key: r.Key, depth: depth, row: r, open: open, toggles: r.opens(), parent: parent, locked: w.d.namesLock(r)})
+	if w.d.under && r.Under.Text != "" {
+		out = append(out, node{kind: nodeUnder, depth: depth, row: r, cell: r.Under, parent: parent})
+	}
+	if !open {
+		return out
+	}
+	if r.Document != nil {
+		return append(out, node{kind: nodeDocument, depth: depth + 1, document: r.Document, column: indentOf(depth + 1), parent: self})
+	}
+	for _, c := range r.Detail {
+		out = append(out, node{kind: nodeDetail, depth: depth + 1, cell: c, parent: self})
+	}
+	return out
+}
+
+// fold is a fold's row, its summary, and the rows it folds where it is open, one level in.
+func (w *groupRows) fold(f *rowFold, depth, parent int, out []node) []node {
+	if !w.d.showsFold(f, w.held) {
+		return out
+	}
+	out = w.ruled(parent, out)
+	open := w.d.isFoldOpen(f)
+	self := len(out)
+	out = append(out, node{
+		kind: nodeRow, key: f.row.Key, depth: depth, row: &f.row, fold: f, open: open, toggles: !w.d.holdsEveryOpen(),
+		parent: parent, locked: w.d.namesLock(&f.row),
+	})
+	if w.d.under && f.row.Under.Text != "" {
+		out = append(out, node{kind: nodeUnder, depth: depth, row: &f.row, cell: f.row.Under, parent: parent})
+	}
+	if !open {
+		return out
+	}
+	for i := range f.rows {
+		if r := &f.rows[i]; w.d.matches(r) && w.d.keepsRow(r, w.held) {
+			out = w.row(r, depth+1, self, out)
 		}
 	}
 	return out

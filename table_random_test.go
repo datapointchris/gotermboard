@@ -152,6 +152,9 @@ func (b *randomBoard) row(key string, columns int) Row {
 	if b.often(6) {
 		r.ReaderTitle = b.words()
 	}
+	if b.often(2) {
+		r.Fold = []string{"a", "b"}[b.rng.IntN(2)]
+	}
 	return r
 }
 
@@ -225,6 +228,17 @@ func (b *randomBoard) group(key string, depth, columns int, keys *[]string) Grou
 	return g
 }
 
+// randomFoldRow is a fold's last row under its count, its key included, so a fold's row reaches
+// every field a row draws.
+func randomFoldRow(rows []Row) Row {
+	row := rows[len(rows)-1]
+	if len(row.Cells) > 0 {
+		row.Cells = slices.Clone(row.Cells)
+		row.Cells[0] = C(strconv.Itoa(len(rows))+"× "+row.Cells[0].Text, Bold)
+	}
+	return row
+}
+
 // build makes a frame, and says the keys of its rows.
 func (b *randomBoard) build() []string {
 	columns := 1 + b.rng.IntN(4)
@@ -244,6 +258,9 @@ func (b *randomBoard) build() []string {
 	}
 	if b.often(5) && len(keys) > 0 {
 		frame.StartAt = keys[b.rng.IntN(len(keys))]
+	}
+	if b.often(2) {
+		frame.FoldRow = randomFoldRow
 	}
 	b.frame = frame
 	b.revision++
@@ -265,7 +282,7 @@ var randomKeys = []tea.KeyPressMsg{
 	downKey, downKey, downKey, upKey, upKey, typedKey("g"), typedKey("G"), typedKey("J"), typedKey("K"), typedKey("]"), typedKey("["),
 	{Code: 'd', Mod: tea.ModCtrl},
 	{Code: 'u', Mod: tea.ModCtrl},
-	spaceKey, spaceKey, enterKey, typedKey("f"), typedKey("p"), typedKey("v"),
+	spaceKey, spaceKey, enterKey, typedKey("f"), typedKey("p"), typedKey("v"), typedKey(RawRowsKey),
 	typedKey("?"),
 	{Code: tea.KeyEscape},
 	typedKey("/"), typedKey("r"), typedKey("e"),
@@ -336,11 +353,11 @@ func TestTheCulledDrawMatchesTheWholeTableOnRandomBoards(t *testing.T) {
 			m.View()
 		}
 	}
-	t.Logf("held to the whole table: %d draws (%d scrolled, %d under a band, %d with pinned lines, %d beside a panel), %d follows, %d reveals, %d nodes",
+	t.Logf("held to the whole table: %d draws (%d scrolled, %d under a band, %d with pinned lines, %d beside a panel), %d follows, %d reveals, %d nodes, %d of them open folds",
 		held.draws-before.draws, held.scrolled-before.scrolled, held.banded-before.banded, held.pinned-before.pinned, held.panels-before.panels,
-		held.follows-before.follows, held.reveals-before.reveals, held.nodes-before.nodes)
-	if drawHook != nil && (held.draws == before.draws || held.banded == before.banded || held.reveals == before.reveals) {
-		t.Fatal("the random boards reached no draw, no band or no reveal, so the hooks held nothing")
+		held.follows-before.follows, held.reveals-before.reveals, held.nodes-before.nodes, held.openFolds-before.openFolds)
+	if drawHook != nil && (held.draws == before.draws || held.banded == before.banded || held.reveals == before.reveals || held.openFolds == before.openFolds) {
+		t.Fatal("the random boards reached no draw, no band, no reveal or no open fold, so the hooks held nothing")
 	}
 }
 

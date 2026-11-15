@@ -342,10 +342,10 @@ func (m *Model) CursorEntities() []EntityRef {
 }
 
 // seekEntity puts the cursor where seeking says once the reads land. For an entity that is the
-// first line naming it, opening the groups that hold it, and clearing a filter or lifting a lock
-// on another thing that hides it, as the footer then says. Where no line names it, the footer
-// says so, and the cursor stays where the tab starts. A read that failed is no answer, so the
-// footer then says the tab may hold it.
+// first line naming it, opening the groups and the fold that hold it, and clearing a filter or
+// lifting a lock on another thing that hides it, as the footer then says. Where no line names it,
+// the footer says so, and the cursor stays where the tab starts. A read that failed is no answer,
+// so the footer then says the tab may hold it.
 func (m *Model) seekEntity() {
 	s := m.seeking
 	if s == nil {
@@ -373,6 +373,9 @@ func (m *Model) seekEntity() {
 	}
 	for _, group := range holding {
 		m.display.fold(group, false)
+	}
+	if folded, held := m.display.foldHolding(key); held {
+		m.display.open(folded, true)
 	}
 	if m.MoveCursorTo(key) {
 		return

@@ -1,6 +1,7 @@
 // Package gotermboard draws a self-refreshing terminal board on Bubble Tea v2:
-// a tab per view, folding groups on shared columns, a side panel that follows the
-// cursor, and one action table the keys, the footer and the ? overlay all read.
+// a tab per view, folding groups on shared columns, consecutive rows sharing a fold key
+// drawn as one, a side panel that follows the cursor, and one action table the keys, the
+// footer and the ? overlay all read.
 //
 // A view is a read model, as in CQRS. Its reader joins sources into a snapshot,
 // and its renderer turns the snapshot into a Frame this package draws. A failed
