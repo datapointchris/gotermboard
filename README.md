@@ -353,7 +353,7 @@ it starts on the first line with text to read.
 
 ## A tall document reads on a full screen
 
-`Reader` is a full screen over one `Document`. It lays the text out at up to 100 columns,
+`Reader` is a full screen over one `Document`. It lays the text out at up to `ReadingWidth` columns,
 centers it on a wider screen, and keeps the same words at the top through a resize. `j` and
 `k`, `ctrl+d` and `ctrl+u`, `g` and `G` move through it, `[` and `]` jump between sections,
 and `/` searches with `n` and `N`. A query with no capital in it ignores case. `y` copies
@@ -599,11 +599,10 @@ func (b *board) Receive(m *gotermboard.Model, msg tea.Msg) tea.Cmd {
 and the end of what it wrote to stderr. `LastLine(stderr, err)` is the sentence a failure says: the
 last line it wrote, or its error where it wrote nothing.
 
-To keep stderr, the program's fd 2 is a pipe, drained to the terminal as bytes arrive. So a program
-that asks whether stderr is a terminal hears no, as `git` does before drawing progress. A caller
-handing over such a program sets `cmd.Stderr`, such as to `os.Stderr`, and keeps nothing. The pipe
-drains for as long as anything holds it open, so a child the program leaves running keeps writing
-to the terminal, and the board does not wait for it to exit.
+A handed-over program's stderr is not a terminal, because the board keeps the end of it. A caller
+handing over a program that asks, as `git` does before drawing progress, sets `cmd.Stderr`, such as
+to `os.Stderr`, and keeps nothing. `HandOver`'s doc comment says how that stderr reaches the
+terminal.
 
 Before `then` runs, the board receives a `HandedBack` through `ReceivingBoard`, to read again what
 the program may have changed. Only the tab whose key handed the terminal over receives it, hidden or
@@ -628,11 +627,9 @@ func (b *board) Receive(m *gotermboard.Model, msg tea.Msg) tea.Cmd {
 ```
 
 `OpenWindow(name, dir, argv, needs...)` opens `argv` in a new tmux window, which tmux makes current,
-while the board keeps running in its own. Several arguments run with no shell, so none needs
-quoting. tmux opens a window whether or not its program starts, and in another directory where
-`dir` is gone. So `OpenWindow` first looks for `dir`, and for tmux, `argv[0]` and each of `needs`
-on `PATH`. A lone argument holding a space is a shell command, which tmux runs through its default
-shell, so `needs` names the programs it runs. Outside tmux it opens nothing and says why.
+while the board keeps running in its own. It checks `dir` and the programs it runs before tmux opens
+anything, so a lone argument holding a shell command names the programs it runs in `needs`. Its doc
+comment says what it checks and why. Outside tmux it opens nothing and says why.
 `OpenWindowBehind` takes the same arguments and leaves the board's window current, for a command
 that runs on its own while the board stays in front.
 

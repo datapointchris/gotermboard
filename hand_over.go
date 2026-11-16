@@ -50,7 +50,9 @@ type HandedBack struct {
 //
 // To keep stderr, the program's fd 2 is a pipe whose bytes reach the terminal as they come, so
 // a program that asks whether stderr is a terminal hears no. A caller handing over such a
-// program sets cmd.Stderr, such as to os.Stderr, and keeps nothing.
+// program sets cmd.Stderr, such as to os.Stderr, and keeps nothing. The pipe drains for as long
+// as anything holds it open, so a child the program leaves running keeps writing to the
+// terminal, and the board does not wait for it to exit.
 func (m *Model) HandOver(cmd *exec.Cmd, then func(m *Model, err error, stderr []byte) tea.Cmd) tea.Cmd {
 	return m.handOverProgram(&handedOver{cmd: cmd}, then)
 }
