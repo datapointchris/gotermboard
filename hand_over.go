@@ -16,10 +16,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// EditorCommand is the user's editor on path: $VISUAL, then $EDITOR, then vi, split on
-// spaces, so EDITOR="code --wait" works. A board's key hands it the terminal with
-// Model.HandOver, as the Reader's e does with tea.ExecProcess.
-func EditorCommand(path string) *exec.Cmd {
+// EditorArgs is the user's editor on path: $VISUAL, then $EDITOR, then vi, split on
+// spaces, so EDITOR="code --wait" works.
+func EditorArgs(path string) []string {
 	command := []string{"vi"}
 	for _, variable := range []string{"VISUAL", "EDITOR"} {
 		if configured := strings.Fields(os.Getenv(variable)); len(configured) > 0 {
@@ -27,7 +26,14 @@ func EditorCommand(path string) *exec.Cmd {
 			break
 		}
 	}
-	return exec.Command(command[0], append(command[1:], path)...)
+	return append(command, path)
+}
+
+// EditorCommand runs EditorArgs. A board's key hands it the terminal with Model.HandOver, as
+// the Reader's e does. An editor waits on a person, so ctx is usually context.Background().
+func EditorCommand(ctx context.Context, path string) *exec.Cmd {
+	args := EditorArgs(path)
+	return exec.CommandContext(ctx, args[0], args[1:]...)
 }
 
 // HandedBack is what a program Model.HandOver gave the terminal to sends once it exits. Only

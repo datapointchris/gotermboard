@@ -1,6 +1,7 @@
 package gotermboard
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -132,7 +133,7 @@ type editedMsg struct {
 // edit hands the terminal to the editor. A Reader runs as a program of its own too, with no
 // Model to hand over through.
 func (r *Reader) edit() tea.Cmd {
-	return handOver(&handedOver{cmd: EditorCommand(r.EditFile)}, func(err error, stderr []byte) tea.Msg { return editedMsg{err, stderr} })
+	return handOver(&handedOver{cmd: EditorCommand(context.Background(), r.EditFile)}, func(err error, stderr []byte) tea.Msg { return editedMsg{err, stderr} })
 }
 
 func (r *Reader) copyToClipboard() tea.Cmd {

@@ -41,7 +41,7 @@ func (b handingOver) Receive(m *Model, msg tea.Msg) tea.Cmd {
 	if !ok {
 		return b.handedBackTo.Receive(m, msg)
 	}
-	return m.HandOver(exec.Command("sh", "-c", start.script), func(_ *Model, err error, stderr []byte) tea.Cmd {
+	return m.HandOver(exec.CommandContext(context.Background(), "sh", "-c", start.script), func(_ *Model, err error, stderr []byte) tea.Cmd {
 		*b.said, *b.err = LastLine(stderr, err), err
 		return tea.Quit
 	})

@@ -1,6 +1,7 @@
 package gotermboard
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -93,7 +94,8 @@ func OpenClaudeSession(session ClaudeSession) tea.Cmd {
 			return outcome
 		}
 	}
-	held := exec.Command(argv[0], argv[1:]...)
+	// The session holds the terminal until the person leaves it, so it carries no deadline.
+	held := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
 	held.Dir = session.Dir
 	if len(session.Env) > 0 {
 		held.Env = append(os.Environ(), session.Env...)

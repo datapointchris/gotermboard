@@ -363,7 +363,7 @@ centers it on a wider screen, and keeps the same words at the top through a resi
 and `/` searches with `n` and `N`. A query with no capital in it ignores case. `y` copies
 `CopyText`, or the text as drawn, over OSC 52. `e` opens `EditFile` in `$VISUAL` or `$EDITOR`
 and lays the text out again after, or shows the last line the editor wrote to stderr where it
-failed. `EditorCommand(path)` is that editor on any file, for a board's own key to hand over.
+failed. `EditorCommand(ctx, path)` is that editor on any file, for a board's own key to hand over, and `EditorArgs(path)` is its words.
 
 Its top line names where the text sits: the groups the table's band would name over the row that
 opened it, its title, then each heading still open above the top row. A heading joins once its own
@@ -610,11 +610,11 @@ terminal.
 
 Before `then` runs, the board receives a `HandedBack` through `ReceivingBoard`, to read again what
 the program may have changed. Only the tab whose key handed the terminal over receives it, hidden or
-not. `EditorCommand(path)` is the user's editor on a file, ready to hand over.
+not. `EditorCommand(ctx, path)` is the user's editor on a file, ready to hand over.
 
 ```go
 func (b *board) edit(m *gotermboard.Model) tea.Cmd {
- return m.HandOver(gotermboard.EditorCommand(b.path), func(m *gotermboard.Model, err error, stderr []byte) tea.Cmd {
+ return m.HandOver(gotermboard.EditorCommand(context.Background(), b.path), func(m *gotermboard.Model, err error, stderr []byte) tea.Cmd {
   if err != nil {
    m.Say("the editor failed: " + gotermboard.LastLine(stderr, err))
   }
