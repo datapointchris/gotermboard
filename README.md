@@ -84,6 +84,10 @@ names goes to more than one place, `t` lists them by number and goes to the one 
   own `esc`, so that tab is the top of where the jump went. Clearing a filter, closing a question
   and closing a reader come first. With nothing to go back along, `esc` is the board's.
 - **Tab and shift+tab empty the stack,** because the reader left the trail the jumps made.
+- **A board's own key jumps by returning `GoTo(tab, ref)`,** for a key with one place to go,
+  such as enter on a row opening it where another tab shows it whole. It pushes and lands as
+  picking that tab from `t`'s list does. A tab that is not there, or shows no such kind, goes
+  nowhere, and the footer says why.
 - **`OpensOutside` adds a program that shows a kind whole,** such as a pull request tool opened
   on one. A jump there hands it the terminal and pushes nothing, because quitting it comes back.
   It ends as `HandOver` does: the board receives the `HandedBack`, and a failure says the last

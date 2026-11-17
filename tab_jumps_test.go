@@ -34,6 +34,44 @@ func (b *thingsBoard) Actions() []Action {
 	}}}
 }
 
+// openingBoard is a thingsBoard whose o shows the cursor's thing in the tab named to.
+type openingBoard struct {
+	thingsBoard
+	to string
+}
+
+func (b *openingBoard) Actions() []Action {
+	return []Action{{Keys: []string{"o"}, Label: "open the thing", Run: func(m *Model) tea.Cmd {
+		return GoTo(b.to, m.CursorEntities()[0])
+	}}}
+}
+
+func TestABoardsKeyGoesToTheNamedTabOnItsThingAndEscComesBack(t *testing.T) {
+	one, two := &openingBoard{thingsBoard: thingsBoard{ids: []string{"1", "2"}}, to: "two"}, &thingsBoard{ids: []string{"3", "2"}}
+	tabs, err := NewTabs([]Tab{{Name: "one", Board: one}, {Name: "two", Board: two}}, gotermstyle.NewPalette(false), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabs.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	tabs.active().reveal(time.Now())
+	press(tabs, downKey)
+
+	tabs.Update(press(tabs, typedKey("o"))())
+	if got := tabs.names[tabs.at] + " " + tabs.active().Cursor(); got != "two row-2" {
+		t.Fatalf("o should land on two's row naming thing 2, not %q", got)
+	}
+	press(tabs, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if got := tabs.names[tabs.at] + " " + tabs.active().Cursor(); got != "one row-2" {
+		t.Fatalf("esc should go back to the row o left, not %q", got)
+	}
+
+	one.to = "three"
+	tabs.Update(press(tabs, typedKey("o"))())
+	if got := tabs.View().Content; tabs.at != 0 || !strings.Contains(got, `no tab "three"`) {
+		t.Errorf("a tab that is not there should leave the cursor where it is and say so:\n%s", got)
+	}
+}
+
 func TestAJumpLandsOnTheRowNamingItsEntityAndEscReturnsToTheRowItLeft(t *testing.T) {
 	one, two := &thingsBoard{ids: []string{"1", "2", "3"}}, &thingsBoard{ids: []string{"3", "2"}}
 	tabs, err := NewTabs([]Tab{{Name: "one", Board: one}, {Name: "two", Board: two}}, gotermstyle.NewPalette(false), "")

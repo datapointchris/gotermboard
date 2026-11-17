@@ -190,6 +190,8 @@ func (t *Tabs) update(msg tea.Msg) tea.Cmd {
 		return cmd
 	case themeLoadedMsg:
 		return t.painter.theme.reloaded(msg, t.active().sayThemeFault)
+	case goToMsg:
+		return t.goTo(msg)
 	}
 	cmds := make([]tea.Cmd, 0, len(t.models))
 	for _, model := range t.models {

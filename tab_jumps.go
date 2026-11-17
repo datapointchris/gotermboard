@@ -50,6 +50,36 @@ type Outside struct {
 // JumpKey goes to what the cursor's row names, where another tab or a program outside shows it.
 const JumpKey = "t"
 
+// GoTo is the command a board's own key returns to show ref in the tab named tab, as picking that
+// tab from JumpKey's list does: the tab it leaves is pushed for esc, and that tab's board is told
+// ref. It is for a key with one place to go, such as enter on a row opening it where another tab
+// shows it whole. A tab that is not there, or whose board shows no ref's kind, goes nowhere, and
+// the footer says why. A board in a program of one Model hears it as any message it does not own.
+func GoTo(tab string, ref EntityRef) tea.Cmd {
+	return func() tea.Msg { return goToMsg{tab: tab, ref: ref} }
+}
+
+type goToMsg struct {
+	tab string
+	ref EntityRef
+}
+
+func (t *Tabs) goTo(msg goToMsg) tea.Cmd {
+	at := slices.Index(t.names, msg.tab)
+	if at < 0 {
+		t.active().Say(fmt.Sprintf("no tab %q to show %s %s in", msg.tab, msg.ref.Kind, msg.ref.ID))
+		return nil
+	}
+	if board, ok := t.models[at].board.(EntityBoard); !ok || !slices.Contains(board.EntityKinds(), msg.ref.Kind) {
+		t.active().Say(fmt.Sprintf("%s shows no %s", msg.tab, msg.ref.Kind))
+		return nil
+	}
+	if at == t.at {
+		return t.showEntity(at, msg.ref, "")
+	}
+	return t.jump(jumpTarget{ref: msg.ref, tab: at})
+}
+
 // OpensOutside adds programs that a row's entity can jump to, after the tabs that show its kind.
 func (t *Tabs) OpensOutside(programs ...Outside) {
 	t.outside = append(t.outside, programs...)
