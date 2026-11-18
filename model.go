@@ -726,6 +726,26 @@ func (m *Model) CloseInPlace() bool {
 	return true
 }
 
+// OpenInPlace opens the text under the cursor's row, or the rows under a fold, as the table's
+// space does, and says whether it opened any. It never opens a Reader, however tall the text, so a
+// board's key that moves the cursor on can leave the next row open as the last one was.
+func (m *Model) OpenInPlace() bool {
+	n, ok := m.selected()
+	if !ok || n.kind != nodeRow || n.open || !n.toggles {
+		return false
+	}
+	m.openInPlace(n, true)
+	m.placed = true
+	m.revealDetail()
+	return true
+}
+
+// CursorOpenInPlace says whether the cursor's row, or the fold it is on, is open in place.
+func (m *Model) CursorOpenInPlace() bool {
+	n, ok := m.selected()
+	return ok && n.kind == nodeRow && n.open && n.toggles
+}
+
 // Toggle is what enter does, for a board's key that takes enter and acts only on some
 // rows: a row's Document that runs past the screen opens on a Reader, open in place or
 // not, and anything else folds or opens in place. Bind it to enter alone and leave space

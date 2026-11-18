@@ -124,6 +124,28 @@ func TestEnterReadsTallTextAndTextThePanelDrawsFullScreenAndSpaceFoldsItInPlace(
 	}
 }
 
+// A board's key opens a tall row in place rather than on a Reader, and reads back whether the
+// cursor's row is open, before and after the table's own close.
+func TestOpenInPlaceOpensATallRowUnderItsLineAndCursorOpenInPlaceSaysSo(t *testing.T) {
+	frame := Frame{Columns: []Column{{Title: "ROW"}}, Groups: []Group{{Rows: []Row{
+		{Key: "tall", Cells: []Cell{C("the tall row", "")}, Document: wrappedDocument},
+	}}}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	if m.CursorOpenInPlace() {
+		t.Fatal("a row nothing opened reads as open in place")
+	}
+	if !m.OpenInPlace() || m.reading != nil || !m.CursorOpenInPlace() || !strings.Contains(m.screen(), "section 0") {
+		t.Fatalf("OpenInPlace on a tall row should open it under its line, with no reader:\n%s", m.screen())
+	}
+	if m.OpenInPlace() {
+		t.Error("OpenInPlace on a row already open says it opened one")
+	}
+	if !m.CloseInPlace() || m.CursorOpenInPlace() {
+		t.Error("after CloseInPlace the cursor's row still reads as open in place")
+	}
+}
+
 // lateBoard's one tall row ends on tail as it stood when the frame was built.
 type lateBoard struct{ tail string }
 
