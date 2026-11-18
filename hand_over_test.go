@@ -199,11 +199,24 @@ func TestOpenWindowOpensANamedWindowInItsDirectoryOnARealTmux(t *testing.T) {
 		}
 		return listed
 	}
+	// tmux reads a pane's directory from its process, which a forked child changes into on its
+	// own schedule after new-window returns, so the window is read again until it shows dir.
+	// One that never does still fails at the deadline with the directory tmux reports.
+	settled := func(name string) map[string][2]string {
+		deadline := time.Now().Add(windowTimeout)
+		for {
+			listed := windows()
+			if listed[name][0] == dir || time.Now().After(deadline) {
+				return listed
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 
 	if err := OpenWindow("claude 12", dir, []string{"sleep", "60"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := windows()["claude 12"]; got != [2]string{dir, "1"} {
+	if got := settled("claude 12")["claude 12"]; got != [2]string{dir, "1"} {
 		t.Errorf("the window opened in %q, current %q; want %s and current", got[0], got[1], dir)
 	}
 
@@ -211,7 +224,7 @@ func TestOpenWindowOpensANamedWindowInItsDirectoryOnARealTmux(t *testing.T) {
 	if err := OpenWindowBehind("fix 12", dir, []string{"sleep", "60"}); err != nil {
 		t.Fatal(err)
 	}
-	listed := windows()
+	listed := settled("fix 12")
 	if got := listed["fix 12"]; got != [2]string{dir, "0"} {
 		t.Errorf("the window behind opened in %q, current %q; want %s and not current", got[0], got[1], dir)
 	}
