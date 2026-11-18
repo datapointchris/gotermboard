@@ -670,14 +670,36 @@ func (m *Model) actions() []Action {
 	})
 }
 
-// boardThenTableActions is clearing a kept filter, then the holder's keys, while each applies,
-// then the board's keys, then the table's, each less the keys one before it took.
+// boardThenTableActions is clearing a kept filter and reading a cut message, then the holder's
+// keys, while each applies, then the board's keys, then the table's, each less the keys one
+// before it took.
 func (m *Model) boardThenTableActions() []Action {
 	var own []Action
 	if keyed, ok := m.board.(Keyed); ok {
 		own = keyed.Actions()
 	}
-	return keysTakenInOrder(applyingTo(m, filterClearing()), applyingTo(m, m.ahead), own, m.tableActions())
+	first := append(applyingTo(m, filterClearing()), applyingTo(m, saidReading(m.said))...)
+	return keysTakenInOrder(first, applyingTo(m, m.ahead), own, m.tableActions())
+}
+
+// saidReading is saidReadKey while the footer cuts said, ahead of the board's keys, so the key
+// the cut line names always opens the whole of it on a Reader. The cut line names the key, so it
+// has no footer. It holds said itself, because a key clears what was said before it runs.
+func saidReading(said string) []Action {
+	return []Action{{
+		Keys: []string{saidReadKey}, Label: "read the whole of what the last key said",
+		Run: func(m *Model) tea.Cmd {
+			m.Read("what the last key said", func(width int) []Line {
+				var lines []Line
+				for _, line := range wrappedLines(said, width) {
+					lines = append(lines, Line{C(line, "")})
+				}
+				return lines
+			})
+			return nil
+		},
+		Applies: func(m *Model) bool { return m.saidCut(said) },
+	}}
 }
 
 // filterClearing is esc while a filter is kept, ahead of every other esc, because a filter is the
@@ -891,8 +913,10 @@ func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
 		m.typed(key)
 		return nil
 	}
+	// The keys are read before what was said clears, so the key that reads it whole still has it.
+	actions := m.actions()
 	m.said = ""
-	cmd, _ := RunKey(m, m.actions(), key.String())
+	cmd, _ := RunKey(m, actions, key.String())
 	return cmd
 }
 
@@ -1483,7 +1507,7 @@ func (m *Model) footer() []string {
 	case m.mode() == filteringMode:
 		lines = append(lines, m.filterLine.draw("/", m.width))
 	case m.said != "":
-		lines = append(lines, m.wrapped(m.said)...)
+		lines = append(lines, m.wrapped(m.said, footerTextLines, " "+saidReadKey+" reads it whole")...)
 	case m.display.filter != "":
 		lines = append(lines, ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…"))
 	}

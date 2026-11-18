@@ -101,9 +101,14 @@ func (m *Model) choosing(key tea.KeyPressMsg) tea.Cmd {
 }
 
 // questionLines is the open question in bold, then its choices or the line being typed, and the
-// keys that answer. The choices are never cut short, so the listing gives way to them.
+// keys that answer. The question's text takes the room its choices and a line of the listing
+// leave, so the whole of what is confirmed shows, and the listing gives way to both.
 func (m *Model) questionLines(room int) (lines []string, keys string) {
-	for _, line := range m.wrapped(m.asking.Text) {
+	below := len(m.asking.Choices) + min(len(m.asking.Listing), 1)
+	if m.asking.typed() {
+		below++
+	}
+	for _, line := range m.wrapped(m.asking.Text, max(room-below, footerTextLines), "") {
 		lines = append(lines, m.painter.bold(line))
 	}
 	keys = "enter confirms  esc cancels"
@@ -141,17 +146,34 @@ func (m *Model) listingLines(room int) []string {
 	return lines
 }
 
-// footerTextLines bounds the lines a question or what a key did may take, so a long one never
-// pushes every row off the screen.
+// footerTextLines bounds the lines what a key did may take, so a long one never pushes every row
+// off the screen, and the least a question's own text gets. The whole of what a key did opens on
+// a Reader with saidReadKey, which the cut line names.
 const footerTextLines = 4
 
-// wrapped is text wrapped to the screen, stopping at footerTextLines lines with the last one
-// ending in … where more was left.
-func (m *Model) wrapped(text string) []string {
-	lines := strings.Split(ansi.Wrap(text, m.width, "/"), "\n")
-	if len(lines) > footerTextLines {
-		lines = lines[:footerTextLines]
-		lines[footerTextLines-1] = ansi.Truncate(lines[footerTextLines-1]+"…", m.width, "…")
+// saidReadKey opens the whole of what the last key said on a Reader, while the footer cuts it.
+const saidReadKey = "ctrl+o"
+
+// wrappedLines is text wrapped to width.
+func wrappedLines(text string, width int) []string {
+	return strings.Split(ansi.Wrap(text, width, "/"), "\n")
+}
+
+// wrapped is text wrapped to the screen in most lines, at least one, the last ending in … and
+// then tail where more was left.
+func (m *Model) wrapped(text string, most int, tail string) []string {
+	lines := wrappedLines(text, m.width)
+	most = max(most, 1)
+	if len(lines) > most {
+		lines = lines[:most]
+		tail = "…" + tail
+		last := ansi.Truncate(lines[most-1], max(m.width-ansi.StringWidth(tail), 0), "")
+		lines[most-1] = ansi.Truncate(last+tail, m.width, "…")
 	}
 	return lines
+}
+
+// saidCut says the footer cuts said short.
+func (m *Model) saidCut(said string) bool {
+	return len(wrappedLines(said, m.width)) > footerTextLines
 }

@@ -280,6 +280,24 @@ func TestNoLineOfAFrameIsWiderThanItsScreen(t *testing.T) {
 	}
 }
 
+func TestACutMessageOpensWholeOnAReader(t *testing.T) {
+	said := strings.Repeat("a message longer than the footer shows ", 20) + "and its end"
+	m := NewModel(fixedBoard{Frame{Columns: []Column{{Title: ""}}}}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	m.Say(said)
+	m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	if m.reading == nil {
+		t.Fatal("ctrl+o opened no reader over a message the footer cuts")
+	}
+	var read []string
+	for _, line := range m.reading.document(60) {
+		read = append(read, line[0].Text)
+	}
+	if got := strings.Join(read, "\n"); got != strings.Join(wrappedLines(said, 60), "\n") {
+		t.Errorf("the reader holds %q, want the whole message", got)
+	}
+}
+
 func TestCutLastDrawsOneLineEndingInAnEllipsis(t *testing.T) {
 	long := strings.Repeat("a title too long for the screen ", 10)
 	frame := Frame{
