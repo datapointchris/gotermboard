@@ -499,7 +499,10 @@ folding in place. `Model.Toggle` is what the table's `enter` does, for a board's
 only on some rows. Bind it to `enter` alone. A row open in place that turns tall, as on a pane
 shrink, reads on `Toggle` and closes only on the table's `space`. A board that binds `space` to a
 row verb, such as a mark, calls `Model.CloseInPlace` first, which closes the cursor's row where it
-is open and says whether it was, so `space` still closes it.
+is open and says whether it was, so `space` still closes it. `Model.OpenInPlace` is its twin: it
+opens the cursor's row in place however tall its text, never on a Reader, whose own keys would
+shadow the board's. `Model.CursorOpenInPlace` says whether the cursor's row is open in place. A key
+that moves the cursor on reads it first, then opens the next row the same way.
 
 `Model.MoveCursorTo` puts the cursor on a key, for a key that acts on the cursor's row and moves on,
 as a merge moves to the next row in its group. It says whether the key shows, so a board can try
