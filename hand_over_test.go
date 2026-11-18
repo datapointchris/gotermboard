@@ -155,3 +155,67 @@ func TestOpenWindowLooksForItsProgramsAndDirectoryThenRunsArgvInTmux(t *testing.
 		t.Errorf("tmux ran\n%s\nwant the window opened behind the board's\n%s", got, want)
 	}
 }
+
+// A stand-in proves the arguments and cannot prove what tmux does with them, so this drives
+// OpenWindow and OpenWindowBehind against a tmux server of the test's own. It is addressed by
+// socket path, which a temporary directory keeps unique, and starts with no configuration, so
+// the machine's own tmux setup cannot reach it. The server outlives the command that started
+// it, so the cleanup kills it.
+func TestOpenWindowOpensANamedWindowInItsDirectoryOnARealTmux(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux is not installed")
+	}
+	// A socket path has a length limit that a test's own temporary directory can pass.
+	sockets, err := os.MkdirTemp("", "tmux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockets) })
+	socket := filepath.Join(sockets, "sock")
+	server := func(args ...string) string {
+		t.Helper()
+		out, err := exec.CommandContext(t.Context(), "tmux", append([]string{"-f", "/dev/null", "-S", socket}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("tmux %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	server("new-session", "-d", "-s", "board", "-n", "board", "sleep 60")
+	// The test's own context is canceled before its cleanups run.
+	t.Cleanup(func() { _ = exec.CommandContext(context.Background(), "tmux", "-S", socket, "kill-server").Run() })
+	pid, session, _ := strings.Cut(server("display-message", "-p", "-t", "board", "#{pid} #{session_id}"), " ")
+	t.Setenv("TMUX", socket+","+pid+","+strings.TrimPrefix(session, "$"))
+
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each window's name, the directory its program runs in, and whether it is current.
+	windows := func() map[string][2]string {
+		listed := map[string][2]string{}
+		for _, line := range strings.Split(server("list-windows", "-t", "board", "-F", "#{window_name}\t#{pane_current_path}\t#{window_active}"), "\n") {
+			fields := strings.Split(line, "\t")
+			listed[fields[0]] = [2]string{fields[1], fields[2]}
+		}
+		return listed
+	}
+
+	if err := OpenWindow("claude 12", dir, []string{"sleep", "60"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := windows()["claude 12"]; got != [2]string{dir, "1"} {
+		t.Errorf("the window opened in %q, current %q; want %s and current", got[0], got[1], dir)
+	}
+
+	server("select-window", "-t", "board:board")
+	if err := OpenWindowBehind("fix 12", dir, []string{"sleep", "60"}); err != nil {
+		t.Fatal(err)
+	}
+	listed := windows()
+	if got := listed["fix 12"]; got != [2]string{dir, "0"} {
+		t.Errorf("the window behind opened in %q, current %q; want %s and not current", got[0], got[1], dir)
+	}
+	if listed["board"][1] != "1" {
+		t.Errorf("the board's window did not stay current: %v", listed)
+	}
+}
