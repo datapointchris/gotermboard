@@ -66,6 +66,10 @@ change rewrites the file, laying only this program's changes over what it holds,
 programs on one file keep each other's tabs. Nothing is written without the call, so tests and
 `Once` leave no file. A cursor, a filter, and a group a jump unfolded are not kept.
 
+`ReopensOn()` names the tab this program would reopen on, with or without the file. Where several
+programs share one file, the file holds whichever moved last, so a program starting itself again
+names its own tab from this.
+
 ## A row jumps to the tab that shows what it names, and esc comes back
 
 A jump is a back stack, as a browser's history or Vim's jumplist is. A row or a group lists

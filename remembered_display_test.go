@@ -57,3 +57,21 @@ func TestARunOpensOnTheTabAndDisplaySettingsTheLastRunLeft(t *testing.T) {
 		t.Errorf("a tab named at open gave way to the remembered one")
 	}
 }
+
+// Several programs share one remembered file, so each answers for itself which tab it reopens on.
+func TestAProgramReopensOnItsOwnTabAndNeverTheEntityPage(t *testing.T) {
+	tabs, err := NewTabs([]Tab{{Name: "one", Board: &thingsBoard{}}, {Name: "two", Board: &thingsBoard{}}, {Name: "page", Board: &pageBoard{}}}, gotermstyle.NewPalette(false), "two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tabs.EntityPage("page"); err != nil {
+		t.Fatal(err)
+	}
+	tabs.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	for _, step := range []struct{ moved, want string }{{"opened on two", "two"}, {"moved to the page", "two"}, {"moved to one", "one"}} {
+		if got := tabs.ReopensOn(); got != step.want {
+			t.Errorf("%s, it reopens on %q, want %q", step.moved, got, step.want)
+		}
+		press(tabs, tabKey)
+	}
+}

@@ -29,6 +29,8 @@ type Tabs struct {
 	models  []*Model
 	painter painter
 	at      int
+	// reopens is the tab a run started again opens on, which ReopensOn names.
+	reopens int
 	// back is each step a jump left, newest last, which esc returns to. A cycle empties it,
 	// because the reader then left the trail the jumps made.
 	back    []backStep
@@ -72,6 +74,7 @@ func NewTabs(tabs []Tab, pal gotermstyle.Palette, open string) (*Tabs, error) {
 			return nil, fmt.Errorf("no tab %q: the tabs are %s", open, strings.Join(t.names, ", "))
 		}
 	}
+	t.reopens = t.at
 	ctx, cancel := context.WithCancel(context.Background())
 	t.models = hiddenModels(tabs, t.painter, ctx, cancel)
 	t.lock = &tabLock{}
@@ -121,6 +124,12 @@ func hiddenModels(tabs []Tab, p painter, ctx context.Context, cancel context.Can
 
 func (t *Tabs) active() *Model { return t.models[t.at] }
 
+// ReopensOn names the tab a run of this program started again should open on: the one showing,
+// or the one the reader left for the entity page, which opened with nothing on it would show
+// nothing. It is the tab RemembersDisplayIn keeps, for this program alone, where several share
+// the file.
+func (t *Tabs) ReopensOn() string { return t.names[t.reopens] }
+
 // cycleActions are tab's keys, which join each view's one action table. A single tab has
 // nothing to cycle, so it has none.
 func (t *Tabs) cycleActions() []Action {
@@ -151,6 +160,7 @@ func (t *Tabs) show(at int) tea.Cmd {
 	t.seekLocked(at)
 	// The entity page shows what a row named, so a run opening on it would show nothing.
 	if !t.hasPage || at != t.page {
+		t.reopens = at
 		t.memory.showing(t.names[at])
 	}
 	return t.active().reveal(time.Now())

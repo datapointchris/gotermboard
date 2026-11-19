@@ -62,7 +62,7 @@ func (t *Tabs) RemembersDisplayIn(path string) {
 		model.recall(file.Tabs[t.names[i]])
 	}
 	if at := slices.Index(t.names, file.Showing); at >= 0 && !t.openNamed {
-		t.at = at
+		t.at, t.reopens = at, at
 	}
 	if err != nil {
 		t.active().said = err.Error()
