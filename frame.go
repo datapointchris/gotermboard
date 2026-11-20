@@ -610,10 +610,9 @@ func (d display) showsFold(f *rowFold, held bool) bool {
 	return matches && kept
 }
 
-// namesLock says the row names what the tabs are locked to.
+// namesLock says the row names what the tabs are locked to, or a thing its cover answered.
 func (d display) namesLock(r *Row) bool {
-	locked := d.lockedTo()
-	return locked != nil && slices.Contains(r.Entities, *locked)
+	return d.lockedTo() != nil && d.lock.keeps(r.Entities)
 }
 
 // rowMatches is each row's answer to the filter and its text lowercased. Answers and the rows
@@ -730,15 +729,13 @@ func (d display) heldOpen(g *Group) bool { return d.holdsEveryOpen() || g.Still 
 // namesLocked says the group itself names what the tabs are locked to, which keeps every line
 // under it.
 func (d display) namesLocked(g *Group) bool {
-	locked := d.narrowsTo()
-	return locked != nil && slices.Contains(g.Entities, *locked)
+	return d.narrowsTo() != nil && d.lock.keeps(g.Entities)
 }
 
 // keepsRow says the lock leaves the row: nothing is locked, a group above names it, or the row
-// names it itself.
+// names it, or a thing its cover answered, itself.
 func (d display) keepsRow(r *Row, held bool) bool {
-	locked := d.narrowsTo()
-	return locked == nil || held || slices.Contains(r.Entities, *locked)
+	return d.narrowsTo() == nil || held || d.lock.keeps(r.Entities)
 }
 
 // lockedTo is what the tabs are locked to, and nil with no lock.
@@ -775,7 +772,7 @@ func (d display) shows(g *Group) bool { return d.showsUnder(g, false) }
 func (d display) showsUnder(g *Group, held bool) bool {
 	locked := d.narrowsTo()
 	if locked != nil && !held {
-		if _, _, holds := entityLine([]Group{*g}, *locked, nil); !holds {
+		if _, _, holds := entityLine([]Group{*g}, d.lock.keeps, nil); !holds {
 			return false
 		}
 	}
@@ -1662,3 +1659,11 @@ func TallyBar(done, underWay, blocked, rest int) Line {
 
 // RuleCode is the gray a rule draws in, which the terminal palette's theme sets.
 const RuleCode = "\033[0;90m"
+
+// lockAnswers is the lock's count of cover answers, and 0 for a table no tabs lock.
+func (d display) lockAnswers() int {
+	if d.lock == nil {
+		return 0
+	}
+	return d.lock.answers
+}

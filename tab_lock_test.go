@@ -148,3 +148,60 @@ func TestThePageOpenedOnAThingComesBackToItOnTheRowLeftAndShowsWholeUnderALock(t
 		t.Errorf("the footer should say the lock lifted and why:\n%s", got)
 	}
 }
+
+// setBoard shows one row naming the set of odd things, which a cover answers for.
+type setBoard struct{}
+
+func (setBoard) Sources() []Refresher { return nil }
+func (setBoard) Groupings() []string  { return nil }
+func (setBoard) Frame(time.Time, string) Frame {
+	return Frame{Columns: []Column{{Title: "NAME"}}, Groups: []Group{{
+		Key: "sets", Title: Line{C("SETS", Bold)},
+		Rows: []Row{{Key: "odd", Cells: []Cell{C("set odd", "")}, Entities: []EntityRef{{Kind: "set", ID: "odd"}}}},
+	}}}
+}
+
+// deliverCovers runs what a key returned and hands each cover's answer back to tabs.
+func deliverCovers(tabs *Tabs, cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	switch msg := cmd().(type) {
+	case tea.BatchMsg:
+		for _, each := range msg {
+			deliverCovers(tabs, each)
+		}
+	case lockCoveredMsg:
+		tabs.Update(msg)
+	}
+}
+
+func TestALockOnAKindWithACoverKeepsEveryLineNamingWhatItAnswers(t *testing.T) {
+	program, err := NewTabs([]Tab{{Name: "sets", Board: setBoard{}}, {Name: "things", Board: &thingsBoard{ids: []string{"1", "2", "3"}}}},
+		gotermstyle.NewPalette(false), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := 0
+	program.CoverLocks("set", func(_ context.Context, ref EntityRef) ([]EntityRef, error) {
+		asked++
+		return []EntityRef{{Kind: "thing", ID: "1"}, {Kind: "thing", ID: "3"}}, nil
+	})
+	program.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	program.active().reveal(time.Now())
+
+	cmd := press(program, typedKey(LockKey))
+	if got := program.View().Content; !strings.Contains(got, "reading what it covers") {
+		t.Errorf("before the cover answers, the footer should say it is reading:\n%s", got)
+	}
+	deliverCovers(program, cmd)
+	deliverCovers(program, press(program, tabKey))
+
+	got := program.View().Content
+	if !strings.Contains(got, LockGlyph+"  row 1") || !strings.Contains(got, LockGlyph+"  row 3") || strings.Contains(got, "row 2") {
+		t.Fatalf("a lock on set odd should keep and mark rows 1 and 3, which its cover answers, and hide row 2:\n%s", got)
+	}
+	if !strings.Contains(got, "and the 2 it covers") || asked != 2 {
+		t.Errorf("the cover should be asked as the lock is set and again as a tab shows, and the footer count it; asked %d:\n%s", asked, got)
+	}
+}

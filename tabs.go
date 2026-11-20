@@ -41,6 +41,10 @@ type Tabs struct {
 	pageShows *EntityRef
 	// lock is what LockKey locked every tab to, which each tab's display shares.
 	lock *tabLock
+	// covers is each kind's LockCover, which CoverLocks registers.
+	covers map[string]LockCover
+	// ctx ends with the program, and bounds what a LockCover reads.
+	ctx context.Context
 	// openNamed says NewTabs was told which tab to open on, which a remembered tab gives way to.
 	openNamed bool
 	// memory is what RemembersDisplayIn keeps, and nil without it.
@@ -76,6 +80,7 @@ func NewTabs(tabs []Tab, pal gotermstyle.Palette, open string) (*Tabs, error) {
 	}
 	t.reopens = t.at
 	ctx, cancel := context.WithCancel(context.Background())
+	t.ctx = ctx
 	t.models = hiddenModels(tabs, t.painter, ctx, cancel)
 	t.lock = &tabLock{}
 	for _, model := range t.models {
@@ -163,7 +168,7 @@ func (t *Tabs) show(at int) tea.Cmd {
 		t.reopens = at
 		t.memory.showing(t.names[at])
 	}
-	return t.active().reveal(time.Now())
+	return tea.Batch(t.active().reveal(time.Now()), t.askCover())
 }
 
 // tabLineHeight is what the line naming the tabs takes from each view's screen.
@@ -202,6 +207,8 @@ func (t *Tabs) update(msg tea.Msg) tea.Cmd {
 		return t.painter.theme.reloaded(msg, t.active().sayThemeFault)
 	case goToMsg:
 		return t.goTo(msg)
+	case lockCoveredMsg:
+		return t.lockCovered(msg)
 	}
 	cmds := make([]tea.Cmd, 0, len(t.models))
 	for _, model := range t.models {

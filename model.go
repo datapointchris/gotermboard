@@ -1125,13 +1125,17 @@ const (
 	readFailed
 )
 
-// lookFor is the key of the first line in the last frame naming ref, the groups holding it,
-// and whether the frame's answer holds at now. A jump's search and the lock's tab line both
-// ask it.
-func (m *Model) lookFor(ref EntityRef, now time.Time) (string, []string, finding) {
-	if m.looked.frame != m.frameCount || m.looked.ref != ref || !m.looked.asked {
-		m.looked = lookedFor{frame: m.frameCount, ref: ref, asked: true}
-		m.looked.key, m.looked.holding, m.looked.found = entityLine(m.frame.Groups, ref, nil)
+// lookFor is the key of the first line in the last frame naming ref, or byLock any line the
+// lock keeps, the groups holding it, and whether the frame's answer holds at now. A jump's
+// search and the lock's tab line both ask it.
+func (m *Model) lookFor(ref EntityRef, byLock bool, now time.Time) (string, []string, finding) {
+	names, answers := func(entities []EntityRef) bool { return slices.Contains(entities, ref) }, -1
+	if byLock {
+		names, answers = m.display.lock.keeps, m.display.lock.answers
+	}
+	if m.looked.frame != m.frameCount || m.looked.ref != ref || m.looked.answers != answers || !m.looked.asked {
+		m.looked = lookedFor{frame: m.frameCount, ref: ref, answers: answers, asked: true}
+		m.looked.key, m.looked.holding, m.looked.found = entityLine(m.frame.Groups, names, nil)
 	}
 	if m.looked.found {
 		return m.looked.key, m.looked.holding, found
@@ -1148,8 +1152,10 @@ func (m *Model) lookFor(ref EntityRef, now time.Time) (string, []string, finding
 // lookedFor is one frame's answer to which line names ref, which the tab line under a lock asks of
 // every hidden tab on every draw.
 type lookedFor struct {
-	frame   uint64
-	ref     EntityRef
+	frame uint64
+	ref   EntityRef
+	// answers is the lock's count of cover answers it was worked out under, and -1 for a jump's.
+	answers int
 	asked   bool
 	key     string
 	holding []string
@@ -1256,7 +1262,7 @@ func (m *Model) kept() *keptLayout {
 	nodes, columns, widths := d.nodes(m.frame.Groups, m.frame.Columns, width, look, m.nodesHint)
 	m.nodesHint = len(nodes)
 	k := &keptLayout{
-		width: width, look: look, under: d.under, panelShown: d.panelShown, filter: d.filter, locked: refOf(d.lockedTo()),
+		width: width, look: look, under: d.under, panelShown: d.panelShown, filter: d.filter, locked: refOf(d.lockedTo()), lockAnswers: d.lockAnswers(),
 		toggles: d.toggles, nodes: nodes, columns: columns, widths: widths,
 	}
 	k.ix = k.index(m.frame.Groups, d.foldsOf)
@@ -1271,6 +1277,8 @@ type keptLayout struct {
 	under, panelShown bool
 	filter            string
 	locked            EntityRef
+	// lockAnswers is the lock's count of cover answers, so an answer landing lays the frame out again.
+	lockAnswers int
 	// toggles is the display's count of folds and opens when this was laid out.
 	toggles uint64
 	nodes   []node
@@ -1295,7 +1303,7 @@ func (m *Model) rereadDocuments() {
 
 func (k *keptLayout) fits(d display, width int, look Look) bool {
 	return k.width == width && k.look == look && k.under == d.under && k.panelShown == d.panelShown &&
-		k.filter == d.filter && k.locked == refOf(d.lockedTo()) && k.toggles == d.toggles
+		k.filter == d.filter && k.locked == refOf(d.lockedTo()) && k.lockAnswers == d.lockAnswers() && k.toggles == d.toggles
 }
 
 // stop is the node at the cursor's stop at.

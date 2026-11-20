@@ -357,6 +357,8 @@ type seek struct {
 	ref EntityRef
 	key string
 	tab string
+	// byLock says the lock asked, so a line naming a thing its cover answered is found too.
+	byLock bool
 }
 
 // CursorEntities is what the group or row under the cursor names.
@@ -388,7 +390,7 @@ func (m *Model) seekEntity() {
 		m.seeking = nil
 		return
 	}
-	key, holding, f := m.lookFor(s.ref, time.Now())
+	key, holding, f := m.lookFor(s.ref, s.byLock, time.Now())
 	switch f {
 	case unanswered:
 		return
@@ -418,26 +420,26 @@ func (m *Model) seekEntity() {
 	}
 	if locked := m.display.narrowsTo(); locked != nil && *locked != s.ref {
 		m.said = fmt.Sprintf("the lock on %s %s hid %s %s here, so it lifted", locked.Kind, locked.ID, s.ref.Kind, s.ref.ID)
-		m.display.lock.ref = nil
+		m.display.lock.lift()
 		m.MoveCursorTo(key)
 	}
 }
 
-// entityLine is the key of the first group or row naming ref, in the order the table draws them,
-// and the keys of the groups holding it.
-func entityLine(groups []Group, ref EntityRef, holding []string) (string, []string, bool) {
+// entityLine is the key of the first group or row whose entities names says yes to, in the order
+// the table draws them, and the keys of the groups holding it.
+func entityLine(groups []Group, names func([]EntityRef) bool, holding []string) (string, []string, bool) {
 	for i := range groups {
 		g := &groups[i]
-		if slices.Contains(g.Entities, ref) {
+		if names(g.Entities) {
 			return g.Key, holding, true
 		}
 		inside := append(slices.Clone(holding), g.Key)
 		for j := range g.Rows {
-			if slices.Contains(g.Rows[j].Entities, ref) {
+			if names(g.Rows[j].Entities) {
 				return g.Rows[j].Key, inside, true
 			}
 		}
-		if key, held, found := entityLine(g.Groups, ref, inside); found {
+		if key, held, found := entityLine(g.Groups, names, inside); found {
 			return key, held, true
 		}
 	}

@@ -129,6 +129,13 @@ and `*` again from any tab lifts it.
   `*` lifts it.
 - **A jump to a line the lock hides lifts the lock,** as it clears a filter hiding one, and the
   footer says so.
+- **A kind with a `LockCover` keeps what its cover answers too.** `Tabs.CoverLocks(kind, cover)`
+  registers one, so a lock on a trace keeps each line naming a span of it, where no row names the
+  trace itself. The cover runs off the screen's loop as the lock is set, and again as each tab
+  shows, because what it covers can grow while the lock holds. Until it answers, the lock keeps
+  the lines naming the thing itself, and the footer says it is reading. A failed answer keeps
+  what the last one covered, and the footer gives the reason. Each line it keeps wears
+  `LockGlyph`, as one naming the thing does.
 - **The lock filters what each board draws, and changes no board's reads.**
 
 `Once` draws one frame from what a board's sources already hold, and `OnceSize` picks
