@@ -23,6 +23,10 @@ type KeyAction[H any] struct {
 	Run    func(H) tea.Cmd
 	// Applies says whether the screen can use the key now. Nil means always.
 	Applies func(H) bool
+	// secondKeys makes the row a prefix key, as vim's z is: its Run leaves the screen waiting, and
+	// the next key picks one of these rows. Its own Label is empty, and the ? overlay lists these
+	// rows in its place, each key written after the prefix's, as zR.
+	secondKeys []KeyAction[H]
 }
 
 // Action is one row of a Model's key table. A board's key hides the table's action for it even

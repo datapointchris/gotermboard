@@ -48,8 +48,8 @@ type rememberedDisplays struct {
 // RemembersDisplayIn keeps the program's display in the file at path, and opens on what the
 // file holds. Each tab, by its name, keeps its side panel (p), its summaries under rows (f), its
 // grouping (v), whether it shows the raw rows (RawRowsKey), and each group folded and row opened
-// by enter, space or the board's own keys. A fold opened is not kept, since it lasts only while
-// its rows sit together.
+// by enter, space, the fold keys after z or the board's own keys. A fold opened is not kept, since
+// it lasts only while its rows sit together.
 // The program opens on the tab the reader last moved to, unless NewTabs was told one to open
 // on. A setting never changed keeps the board's default, and a remembered grouping the board
 // does not offer opens on its first. Each change writes the whole file again. A file that will

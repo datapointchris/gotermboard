@@ -560,6 +560,9 @@ type display struct {
 	// toggles counts every write to folded, opened and raw, so a kept layout knows it is stale
 	// without comparing the maps, which grow to a key a row once every row has been opened.
 	toggles uint64
+	// everyOpen walks as though every group and fold were open, so a fold key reaches what a
+	// folded group hides. Only a copy a fold key walks sets it.
+	everyOpen bool
 }
 
 // fold, open and showRaw are the only writers of folded, opened and raw.
@@ -597,7 +600,9 @@ func (d display) foldHolding(key string) (string, bool) {
 // holdsEveryOpen says a filter or a lock holds every group and fold open.
 func (d display) holdsEveryOpen() bool { return d.filter != "" || d.narrowsTo() != nil }
 
-func (d display) isFoldOpen(f *rowFold) bool { return d.holdsEveryOpen() || d.opened[f.row.Key] }
+func (d display) isFoldOpen(f *rowFold) bool {
+	return d.everyOpen || d.holdsEveryOpen() || d.opened[f.row.Key]
+}
 
 // showsFold says the table draws the fold: its row or one of its rows matches the filter, and one
 // of its rows names what the lock keeps. Only its rows answer to a lock, as entityLine reads them.
@@ -755,7 +760,7 @@ func (d display) narrowsTo() *EntityRef {
 }
 
 func (d display) isOpen(g *Group) bool {
-	if d.heldOpen(g) {
+	if d.everyOpen || d.heldOpen(g) {
 		return true
 	}
 	if folded, set := d.folded[g.Key]; set {

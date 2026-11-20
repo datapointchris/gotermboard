@@ -155,7 +155,10 @@ type Model struct {
 	// filterLine is the filter as it is typed.
 	filterLine typedLine
 	overlay    bool
-	said       string
+	// pendingPrefix is the prefix key pressed last, such as z, while the table waits for the
+	// second key that picks one of its rows.
+	pendingPrefix *Action
+	said          string
 	// asking is the question a key put on the footer, until enter or esc closes it, and answer
 	// is what is typed under it.
 	asking *Question
@@ -573,19 +576,35 @@ func (m *Model) receive(msg tea.Msg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// TableKeys is every key the built-in table binds. A board's key hides the table's, so a board
-// taking keys from its own config asks this which ones would take a key from the table, and
-// Tabs.Keys where it is one of several tabs.
+// TableKeys is every key the built-in table binds, with each prefix key followed by its
+// sequences, as z by zR, zM, zO and zC. A board's key hides the table's, so a board taking keys
+// from its own config asks this which ones would take a key from the table, and Tabs.Keys where
+// it is one of several tabs. A board's z hides every sequence it starts.
 func TableKeys() []string {
 	var keys []string
-	for _, action := range actionTable() {
-		for _, key := range action.Keys {
+	add := func(more []string) {
+		for _, key := range more {
 			if !slices.Contains(keys, key) {
 				keys = append(keys, key)
 			}
 		}
 	}
+	for _, action := range actionTable() {
+		add(action.Keys)
+		for _, second := range action.secondKeys {
+			add(afterPrefix(action.Keys[0], second.Keys))
+		}
+	}
 	return keys
+}
+
+// afterPrefix is each of keys pressed after prefix, written as vim writes zR.
+func afterPrefix(prefix string, keys []string) []string {
+	sequences := make([]string, 0, len(keys))
+	for _, key := range keys {
+		sequences = append(sequences, prefix+key)
+	}
+	return sequences
 }
 
 // actionTable is the universal rows, then the keys only a Model binds.
@@ -622,6 +641,7 @@ func actionTable() []Action {
 			Keys: []string{RawRowsKey}, Label: "fold consecutive rows sharing a fold key into one row", Footer: RawRowsKey + " fold rows",
 			Run: (*Model).switchRaw, Applies: func(m *Model) bool { return m.display.rowFolds.anyFold() && m.display.raw },
 		},
+		prefixAction(foldPrefixKey, foldActions()),
 		{Keys: []string{"/"}, Label: "filter the rows, matching their detail too", Footer: "/ filter", Run: func(m *Model) tea.Cmd {
 			m.filtering = true
 			m.filterLine.set(m.display.filter)
@@ -936,6 +956,9 @@ func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
 	// The keys are read before what was said clears, so the key that reads it whole still has it.
 	actions := m.actions()
 	m.said = ""
+	if m.pendingPrefix != nil {
+		return m.pressedAfterPrefix(key.String())
+	}
 	cmd, _ := RunKey(m, actions, key.String())
 	return cmd
 }
@@ -1542,7 +1565,11 @@ func (m *Model) footer() []string {
 	if locked := m.lockLine(); locked != "" {
 		lines = append(lines, ansi.Truncate(m.painter.cell(C(LockGlyph, LockCode))+" "+locked, m.width, "…"))
 	}
-	return append(lines, ansi.Truncate(strings.Join(FooterHints(m.actions()), "  "), m.width, "…"))
+	hints := FooterHints(m.actions())
+	if prefix := m.pendingPrefix; prefix != nil {
+		hints = append([]string{prefix.Keys[0] + "…"}, FooterHints(applyingTo(m, prefix.secondKeys))...)
+	}
+	return append(lines, ansi.Truncate(strings.Join(hints, "  "), m.width, "…"))
 }
 
 // View is Bubble Tea's.
@@ -1718,6 +1745,10 @@ func (m *Model) keysOverlay(height int) []string {
 	lines := []string{m.painter.bold("Keys, any key closes this")}
 	for _, action := range m.actions() {
 		lines = append(lines, keyLines(action, m.width)...)
+		for _, second := range applyingTo(m, action.secondKeys) {
+			second.Keys = afterPrefix(action.Keys[0], second.Keys)
+			lines = append(lines, keyLines(second, m.width)...)
+		}
 	}
 	lines = append(lines, m.readLines()...)
 	for len(lines) < height {

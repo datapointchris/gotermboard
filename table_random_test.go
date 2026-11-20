@@ -283,6 +283,7 @@ var randomKeys = []tea.KeyPressMsg{
 	{Code: 'd', Mod: tea.ModCtrl},
 	{Code: 'u', Mod: tea.ModCtrl},
 	spaceKey, spaceKey, enterKey, typedKey("f"), typedKey("p"), typedKey("v"), typedKey(RawRowsKey),
+	typedKey(foldPrefixKey), typedKey(foldPrefixKey),
 	typedKey("?"),
 	{Code: tea.KeyEscape},
 	typedKey("/"), typedKey("r"), typedKey("e"),
@@ -290,12 +291,19 @@ var randomKeys = []tea.KeyPressMsg{
 	enterKey,
 }
 
+// afterFoldPrefix is the key a random z is followed by: a fold key, or one that ends the wait.
+var afterFoldPrefix = []tea.KeyPressMsg{typedKey("R"), typedKey("M"), typedKey("O"), typedKey("C"), downKey}
+
 // randomStep does one thing to a model and its board. Every step reads its choices from rng alone,
 // so two models stepped from equal seeds are sent the same things.
 func randomStep(m *Model, b *randomBoard, keys []string, rng *rand.Rand, at time.Time) []string {
 	switch roll := rng.IntN(100); {
 	case roll < 60:
-		m.Update(randomKeys[rng.IntN(len(randomKeys))])
+		key := randomKeys[rng.IntN(len(randomKeys))]
+		m.Update(key)
+		if key.Text == foldPrefixKey {
+			m.Update(afterFoldPrefix[rng.IntN(len(afterFoldPrefix))])
+		}
 	case roll < 68:
 		m.Update(tea.WindowSizeMsg{Width: 40 + rng.IntN(180), Height: 8 + rng.IntN(50)})
 	case roll < 76:

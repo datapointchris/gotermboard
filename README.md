@@ -300,6 +300,25 @@ whose every row opens can blank the row chevrons with `Look.NoRowChevrons`, beca
 chevron tells no row apart. The cell stays, so no column moves for that either. A fold's row keeps
 its chevron, because it is what tells the fold from the rows beside it.
 
+## vim's `zR` and `zM` open and fold the whole table, and `zO` and `zC` what is under the cursor
+
+`zR` opens every group in the table, every fold, and every row's text in place, however deep a
+folded group held it. A tree several levels deep then reads start to finish. `zM` folds it all
+back to the outline. `zO` and `zC` do the same for the cursor's group or row and everything under
+it, and leave the rest alone. A group's fold and a row's text are both folds here, as vim has one
+kind.
+
+`z` is a prefix key, as it is in vim. While the table waits, the footer shows `z…` and the keys
+that may follow. Any other key ends the wait and leaves the table as it was. A filter or a lock
+holds every group and fold open, so there the keys open and close only rows' text, as `space`
+does. Each group folded and row opened is kept as `space` keeps it, so `RemembersDisplayIn`
+reopens on it. A cursor whose line `zM` or `zC` folds away moves to the group that took it in.
+
+A board's own `z` hides the prefix and every key after it, as a board's key hides any table key.
+`TableKeys` lists `z`, then `zR`, `zM`, `zO` and `zC`. `Model.OpenAll`, `Model.FoldAll`,
+`Model.OpenUnderCursor` and `Model.FoldUnderCursor` are the four, for a board binding them to keys
+of its own.
+
 ## Rows sharing a fold key draw as one row until `Z` shows the raw rows
 
 A stream can arrive in bursts: one writer emitting dozens of rows of one kind within a minute.
