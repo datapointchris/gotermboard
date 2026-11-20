@@ -30,7 +30,8 @@ marker" — and never quote it.
   a Role resolves in the live theme and a reload recolors it. The palette the painter holds is
   reachable anywhere in the package, so the reload test over every surface holds this, and a
   new surface adds its cell there.
-- **A hidden tab starts no read, builds no frame and moves no strip.** A tab's return draws its last good
+- **A hidden tab starts no read and moves no strip.** It builds a frame only where its board's
+  `Receive` calls `Rebuild` on a message every tab is handed. A tab's return draws its last good
   read first, then reads what is due.
 - **No cue or mark moves a column.** A change cue sits in the pointer's column, and a mark
   and a chevron each in a cell of a row's indent, so a table never shifts under the eye.

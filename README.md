@@ -48,8 +48,8 @@ func main() {
 ## Tabs read only while they show
 
 `NewTabs` takes the tabs in the order Tab cycles them, and the name of the one to open
-on. Each tab keeps its own cursor, folds and filter. A hidden tab starts no read,
-builds no frame and moves no strip. On its return it draws its last good read with that read's age, and
+on. Each tab keeps its own cursor, folds and filter. A hidden tab starts no read and
+moves no strip, and builds a frame only where its board's `Receive` calls `Rebuild`. On its return it draws its last good read with that read's age, and
 every source past its interval reads at once. A source inside its interval keeps its
 pace, so cycling the tabs quickly starts nothing extra. A program with one tab draws no
 tab line, and Tab does nothing in it.
