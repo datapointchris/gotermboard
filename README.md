@@ -177,8 +177,9 @@ file that will not load at start leaves those 16 too, and the footer says why.
 ## One line says how the reads stand
 
 `ReadStatus` is a line for a view's strip. While every read is on schedule it says
-`read 3s ago`. A failed read is named in red with its reason, one past twice its
-interval in yellow, and a note on a read that covered less follows plain. The `?`
+`read 3s ago`. A failed read is named in red with its reason, one more than five seconds
+past twice its interval in yellow, and a note on a read that covered less follows plain.
+The five seconds keep a read that lands a moment late from flickering there. The `?`
 overlay lists every source's age, interval, cost and fault.
 
 ## A row that changed wears a cue
