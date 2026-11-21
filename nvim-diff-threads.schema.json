@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:gotermboard:nvim-diff-threads:v1",
+  "title": "The review threads beside a diff in nvim",
+  "description": "The file PRS_DIFF_THREADS names in the nvim gotermboard's NvimDiff hands the terminal to. It sits beside the diff's socket and is removed once nvim exits. A pull request's diff carries slug, number, url, base and head. A session's diff has no pull request, so it carries sessions instead.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["diff", "title", "threads_read", "threads", "threads_left_out"],
+  "properties": {
+    "diff": {"description": "Which diff opened. whole runs three-dot from where a pull request's branch left its base branch. since_review runs from the commit the newest review read to the head. session is the commits sessions made, a tab per repo.", "enum": ["whole", "since_review", "session"]},
+    "title": {"description": "What the diff shows, as the panel titles it.", "type": "string"},
+    "slug": {"description": "owner/name of the pull request's repository. A Bitbucket owner is the project key.", "type": "string"},
+    "number": {"type": "integer", "minimum": 1},
+    "url": {"type": "string"},
+    "base": {"description": "The revision the diff runs from, which is its left side's: origin/<base branch> for whole, where the left side is where the branch left it, and the reviewed commit for since_review.", "type": "string"},
+    "head": {"description": "The commit fetched for the pull request's head, which is the diff's right side.", "type": "string"},
+    "sessions": {"description": "The Claude Code session ids whose commits a session diff shows.", "type": "array", "minItems": 1, "items": {"type": "string"}},
+    "threads_read": {"description": "False where the writer held no read of the threads when the diff opened, so an empty threads list says nothing.", "type": "boolean"},
+    "threads": {
+      "description": "Each review thread on a side the diff shows, in the provider's order. That is every one for whole, the RIGHT ones for since_review, whose left side is not the base branch's copy, and none for session.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "line", "side", "resolved", "outdated", "comments", "comment_count"],
+        "properties": {
+          "path": {"description": "The file's path from the repository's root.", "type": "string"},
+          "line": {"description": "The line the thread is on, counted in the copy of the file side names, and null where that line is gone from the diff.", "type": ["integer", "null"], "minimum": 1},
+          "side": {"description": "LEFT where line counts in the base's copy of the file, and RIGHT where it counts in the head's.", "enum": ["LEFT", "RIGHT"]},
+          "resolved": {"type": "boolean"},
+          "outdated": {"description": "True where the lines it was left on changed since.", "type": "boolean"},
+          "comments": {
+            "description": "The thread's comments, oldest first, as many as the writer read.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["author", "author_type", "author_association", "body", "created_at", "url"],
+              "properties": {
+                "author": {"description": "The login that wrote it, and empty for a deleted account.", "type": "string"},
+                "author_type": {"description": "The author's kind, such as User or Bot, in the provider's words, and empty where it does not say.", "type": "string"},
+                "author_association": {"description": "What the author is to the repo, such as OWNER, COLLABORATOR or NONE, in the provider's words, and empty where it does not say.", "type": "string"},
+                "body": {"description": "The comment as markdown.", "type": "string"},
+                "created_at": {"type": "string", "format": "date-time"},
+                "url": {"type": "string"}
+              }
+            }
+          },
+          "comment_count": {"description": "How many comments the thread holds, which can pass the number listed.", "type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "threads_left_out": {"description": "How many threads the writer read on a side this diff does not show: 0 for whole and session, and the LEFT ones for since_review.", "type": "integer", "minimum": 0}
+  },
+  "if": {"properties": {"diff": {"const": "session"}}},
+  "then": {"required": ["sessions"]},
+  "else": {"required": ["slug", "number", "url", "base", "head"]}
+}

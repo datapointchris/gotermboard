@@ -22,7 +22,14 @@ marker" — and never quote it.
 - **A major here is an outage rather than a version**, because the module path carries
   no `/vN` suffix. A breaking change ships as a minor while the module is on 0.x.
 - **It knows nothing of what its callers show.** A row, a group and a column are
-  generic. A caller's domain words never reach this package.
+  generic. A caller's domain words never reach this package, except in the nvim diff
+  handover below, whose threads file is the contract its callers share with an nvim config.
+- **The nvim diff handover is a contract with every nvim config that reads it.** The
+  variables keep prs's names, `PRS_DIFF_DOCUMENT` and `PRS_DIFF_THREADS`. The socket is
+  `$TMPDIR/prs-diff-<stem>.sock` and the window `diff <subject>`, with every file beside the
+  socket, because a program split into the window derives the socket from its name.
+  `nvim-diff-threads.schema.json` is the threads file's shape, and its writers' tests hold
+  their files to it.
 - **Colors come from the TUI theme file through gotermstyle, or ANSI 0–15 without one**, so
   a board follows the terminal's theme. A color named as a theme role reads the file. A color
   given as an ANSI code stays that code.
