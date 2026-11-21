@@ -385,9 +385,13 @@ shows its `Document`, under its `ReaderTitle` in bold where it has one. Such a r
 its `Document` beside the table rather than under itself: `StartsOpen` leaves it folded while
 the panel shows, and `enter` opens it on the full-screen reader. A board implementing `CursorBoard` is
 told each key the cursor lands on, so a read that only one row needs can follow it.
-`Frame.StartAt` names the key the cursor starts on. Without one it starts on the first line
-holding cells, or the last on a `TailBoard`, past any group with no panel text. With no such line
-it starts on the first line with text to read.
+`Frame.StartAt` names the key the cursor starts on. Until that key shows, the cursor waits on the
+first line holding cells, or the last on a `TailBoard`, past any group with no panel text. With no
+such line it waits on the first line with text to read. A board whose first frame is a placeholder,
+drawn while its reads land, still starts on its key: the first frame showing it moves the cursor
+there. Three things end the wait first and leave the cursor where it is: any key pressed on the
+table, `MoveCursorTo`, and a frame drawn once every source has read without failing, none still
+under way. So a key that shows only on a later read never moves a cursor the reader is using.
 
 ## A tall document reads on a full screen
 

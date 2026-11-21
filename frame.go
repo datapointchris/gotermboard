@@ -432,9 +432,13 @@ type Frame struct {
 	Charts  func(width, height int) []Line
 	Columns []Column
 	Groups  []Group
-	// StartAt is the key the cursor starts on, where that key is showing. Without one it
-	// starts on the first line holding cells, or the last on a TailBoard, past any group with
-	// no panel text. With no such line it starts on the first line with text to read.
+	// StartAt is the key the cursor starts on. Until that key shows, as on a frame drawn while
+	// its reads land, the cursor waits on the first line holding cells, or the last on a
+	// TailBoard, past any group with no panel text. With no such line it waits on the first
+	// line with text to read. The first frame showing the key moves the cursor to it. Three
+	// things end the wait first, leaving the cursor where it is: any key pressed on the table,
+	// MoveCursorTo, and a frame drawn once every source has read without failing, none still
+	// under way.
 	StartAt string
 	// Revision is a number the board changes whenever Columns or Groups would draw differently
 	// from the frame it returned before, a Document's text included. A tick or a read whose frame
