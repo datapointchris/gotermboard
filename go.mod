@@ -11,6 +11,7 @@ require (
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/datapointchris/gotermstyle v0.5.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/yuin/goldmark v1.8.7
 	golang.org/x/term v0.47.0
 )
@@ -33,4 +34,5 @@ require (
 	github.com/xo/terminfo v1.2.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
 )

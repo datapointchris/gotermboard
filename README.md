@@ -256,6 +256,9 @@ renderer := markdown.New(nil)
 row.Document = func(width int) []gotermboard.Line { return renderer.Lines(description, min(width, 100)) }
 ```
 
+`markdown.NestHeadings(source, depth)` moves every heading in source deeper by one amount, so
+text pasted under a section keeps its own headings inside it.
+
 A fence naming a language wraps a line wider than its box, marking each continued row with
 `↪`, as `bat` and `delta` do. A `text` or bare fence cuts that line instead, so a diagram or a
 table of output stays lined up. `WrapEveryFence` on the renderer wraps those too, for a text whose
@@ -670,6 +673,41 @@ anything, so a lone argument holding a shell command names the programs it runs 
 comment says what it checks and why. Outside tmux it opens nothing and says why.
 `OpenWindowBehind` takes the same arguments and leaves the board's window current, for a command
 that runs on its own while the board stays in front.
+
+`NvimDiff{Subject, Tabs, Document, Threads}.Write()` writes what nvim's Diffview is handed into a
+directory of its own: a script opening a tab for each `NvimDiffTab`, trying each open twice, and a
+document and threads file. The `NvimDiffHandover` it returns gives nvim's `Argv`, `Dir` and `Env`,
+or `Command` for `HandOver`. `NameWindow` names the tmux window `diff <Subject>` while nvim has it.
+nvim listens on `$TMPDIR/prs-diff-<stem>.sock`, so a program in a window named for the subject finds
+it. The stem is the subject with each run of characters other than letters, digits, `.`, `_` and
+`-` made one `-`, as `LC_ALL=C sed 's/[^A-Za-z0-9._-]\{1,\}/-/g; s/^-*//; s/-*$//'` makes it.
+`Write` refuses a subject whose nvim still listens. A socket path longer than a unix socket takes
+gets no socket, and the diff opens without one. `Ended(status)` reads each tab Diffview opened none
+for, says why nvim showed no diff where its status is `NvimDiffNoDiffview` or `NvimDiffNoTab`, and
+removes the files.
+`NvimDiffDocumentVariable` and `NvimDiffThreadsVariable` name the variables an nvim config reads,
+and `NvimDiffThreadsSchema` is the threads file's JSON Schema, `nvim-diff-threads.schema.json`.
+
+```go
+handover, err := gotermboard.NvimDiff{Subject: "widget #13", Tabs: tabs, Document: doc, Threads: threads}.Write()
+if err != nil {
+ m.Say("the diff did not open: " + err.Error())
+ return nil
+}
+restore := handover.NameWindow()
+return m.HandOver(handover.Command(context.Background()), func(m *gotermboard.Model, err error, stderr []byte) tea.Cmd {
+ restore()
+ var exit *exec.ExitError
+ status := 0
+ if errors.As(err, &exit) {
+  status = exit.ExitCode()
+ }
+ if ended := handover.Ended(status); ended.NoDiff != "" {
+  m.Say(ended.NoDiff)
+ }
+ return nil
+})
+```
 
 `OpenClaudeSession(ClaudeSession{On, Dir, Fallback, Brief, Env})` is a key that opens a Claude
 session on a record. Inside tmux it opens in a window named `claude <On>`, and outside tmux it
