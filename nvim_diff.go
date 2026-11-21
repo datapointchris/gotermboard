@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,8 +16,8 @@ import (
 )
 
 // The variables nvim's diff starts with, each naming a file NvimDiff.Write wrote. An nvim config
-// that finds them shows the document beside the diff and each thread on its line. prs named them
-// first, and every writer keeps its names, because the config reads those.
+// that finds them shows the document beside the diff and each thread on its line. An nvim config
+// reads these names, so renaming one breaks every config that reads it.
 const (
 	NvimDiffDocumentVariable = "PRS_DIFF_DOCUMENT"
 	NvimDiffThreadsVariable  = "PRS_DIFF_THREADS"
@@ -112,43 +113,66 @@ type NvimDiff struct {
 	Threads  NvimDiffThreads
 }
 
-// NvimDiffHandover is an NvimDiff whose files are written, ready to run. Its socket and files sit
-// in the temporary directory as prs-diff-<stem>, where stem is the subject with each run of
-// characters other than letters, digits, `.`, `_` and `-` made one `-`. A program split into
-// the window reads the subject off its name, `diff <subject>`, and finds the socket from it.
+// NvimDiffHandover is an NvimDiff whose files are written, ready to run. The script, the
+// document and the threads file sit in a directory of their own, which Ended removes. The socket
+// sits in the temporary directory as prs-diff-<stem>.sock, where stem is the subject with each
+// run of characters other than letters, digits, `.`, `_` and `-` made one `-`. A program in a
+// window named for the subject, such as `diff <subject>` or `explain <subject>`, finds the
+// socket from that name.
 type NvimDiffHandover struct {
-	subject, stem, dir string
-	documented         bool
+	subject, socket, files, checkout string
+	documented                       bool
 }
 
-// Write writes the document, the threads file and the script nvim runs, beside the socket. It
-// removes a socket an earlier nvim left there.
+// Write writes the script nvim runs, and the document and threads file where there is a
+// Document. It refuses where an nvim still listens on the subject's socket, and removes a socket
+// an nvim that ended left there. A socket path longer than a unix socket holds gets no socket,
+// and the diff opens without one.
 func (d NvimDiff) Write() (*NvimDiffHandover, error) {
 	if len(d.Tabs) == 0 {
 		return nil, fmt.Errorf("the diff of %s names no tab to open", d.Subject)
 	}
-	h := &NvimDiffHandover{subject: d.Subject, stem: nvimDiffStem(d.Subject), dir: d.Tabs[0].Checkout, documented: d.Document != ""}
-	_ = os.Remove(h.socket())
-	_ = os.Remove(h.path(".unopened"))
-	err := os.WriteFile(h.path(".vim"), []byte(d.script(h.path(".unopened"))), 0o600)
-	if err == nil && h.documented {
-		threads := d.Threads
-		if threads.Threads == nil {
-			threads.Threads = []NvimDiffThread{}
+	socket := nvimDiffSocket(d.Subject)
+	if socket != "" {
+		if listening(socket) {
+			return nil, fmt.Errorf("the diff of %s is already open in the nvim listening on %s", d.Subject, socket)
 		}
+		_ = os.Remove(socket)
+	}
+	files, err := os.MkdirTemp("", "nvim-diff-*")
+	if err != nil {
+		return nil, err
+	}
+	h := &NvimDiffHandover{subject: d.Subject, socket: socket, files: files, checkout: d.Tabs[0].Checkout, documented: d.Document != ""}
+	err = os.WriteFile(h.file("diff.vim"), []byte(d.script(h.file("unopened"))), 0o600)
+	if err == nil && h.documented {
 		var encoded []byte
-		if encoded, err = json.MarshalIndent(threads, "", "  "); err == nil {
+		if encoded, err = json.MarshalIndent(d.Threads.withLists(), "", "  "); err == nil {
 			err = errors.Join(
-				os.WriteFile(h.path(".md"), []byte(d.Document), 0o600),
-				os.WriteFile(h.path(".threads.json"), append(encoded, '\n'), 0o600),
+				os.WriteFile(h.file("document.md"), []byte(d.Document), 0o600),
+				os.WriteFile(h.file("threads.json"), append(encoded, '\n'), 0o600),
 			)
 		}
 	}
 	if err != nil {
-		h.remove()
+		_ = os.RemoveAll(files)
 		return nil, err
 	}
 	return h, nil
+}
+
+// withLists is t with an empty list for every list it left nil, since the schema reads a list
+// and JSON writes a nil one as null.
+func (t NvimDiffThreads) withLists() NvimDiffThreads {
+	threads := make([]NvimDiffThread, 0, len(t.Threads))
+	for _, thread := range t.Threads {
+		if thread.Comments == nil {
+			thread.Comments = []NvimDiffComment{}
+		}
+		threads = append(threads, thread)
+	}
+	t.Threads = threads
+	return t
 }
 
 // script opens a Diffview tab for each of d's tabs, then closes the empty tab nvim started on.
@@ -193,11 +217,14 @@ tabfirst
 
 // Argv is nvim listening on the socket and running the script.
 func (h *NvimDiffHandover) Argv() []string {
-	return []string{"nvim", "--listen", h.socket(), "-S", h.path(".vim")}
+	if h.socket == "" {
+		return []string{"nvim", "-S", h.file("diff.vim")}
+	}
+	return []string{"nvim", "--listen", h.socket, "-S", h.file("diff.vim")}
 }
 
 // Dir is the first tab's checkout, where nvim runs.
-func (h *NvimDiffHandover) Dir() string { return h.dir }
+func (h *NvimDiffHandover) Dir() string { return h.checkout }
 
 // Env is the variables naming the document and the threads file, as exec.Cmd's Env takes
 // them, and nil with no Document.
@@ -205,7 +232,7 @@ func (h *NvimDiffHandover) Env() []string {
 	if !h.documented {
 		return nil
 	}
-	return []string{NvimDiffDocumentVariable + "=" + h.path(".md"), NvimDiffThreadsVariable + "=" + h.path(".threads.json")}
+	return []string{NvimDiffDocumentVariable + "=" + h.file("document.md"), NvimDiffThreadsVariable + "=" + h.file("threads.json")}
 }
 
 // Command runs Argv in Dir with Env added, for Model.HandOver. nvim waits on a person, so ctx is
@@ -213,7 +240,7 @@ func (h *NvimDiffHandover) Env() []string {
 func (h *NvimDiffHandover) Command(ctx context.Context) *exec.Cmd {
 	argv := h.Argv()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = h.dir
+	cmd.Dir = h.checkout
 	cmd.Env = append(os.Environ(), h.Env()...)
 	return cmd
 }
@@ -234,10 +261,10 @@ type NvimDiffEnding struct {
 type NvimDiffUnopened struct{ Label, Why string }
 
 // Ended reads what the script left, given the status nvim exited with, then removes every file
-// Write wrote, so nothing reads a diff as it stood at an earlier one.
+// Write wrote.
 func (h *NvimDiffHandover) Ended(status int) NvimDiffEnding {
 	var ending NvimDiffEnding
-	if raw, err := os.ReadFile(h.path(".unopened")); err == nil {
+	if raw, err := os.ReadFile(h.file("unopened")); err == nil {
 		for line := range strings.Lines(string(raw)) {
 			label, why, _ := strings.Cut(strings.TrimRight(line, "\n"), "\t")
 			if label != "" {
@@ -245,7 +272,7 @@ func (h *NvimDiffHandover) Ended(status int) NvimDiffEnding {
 			}
 		}
 	}
-	h.remove()
+	_ = os.RemoveAll(h.files)
 	switch status {
 	case NvimDiffNoDiffview:
 		ending.NoDiff = NvimDiffNoDiffviewSaid
@@ -259,19 +286,34 @@ func (h *NvimDiffHandover) Ended(status int) NvimDiffEnding {
 	return ending
 }
 
-func (h *NvimDiffHandover) socket() string            { return h.path(".sock") }
-func (h *NvimDiffHandover) path(suffix string) string { return h.stem + suffix }
+func (h *NvimDiffHandover) file(name string) string { return filepath.Join(h.files, name) }
 
-func (h *NvimDiffHandover) remove() {
-	for _, suffix := range []string{".md", ".threads.json", ".vim", ".unopened"} {
-		_ = os.Remove(h.path(suffix))
-	}
-}
+// socketPathMost is the longest path a unix socket takes: macOS holds 104 bytes with the closing
+// NUL, and Linux 108.
+const socketPathMost = 103
 
 var outsideStem = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
-func nvimDiffStem(subject string) string {
-	return filepath.Join(os.TempDir(), "prs-diff-"+strings.Trim(outsideStem.ReplaceAllString(subject, "-"), "-"))
+// nvimDiffSocket is the subject's socket, and empty where its path is longer than a unix socket
+// takes.
+func nvimDiffSocket(subject string) string {
+	socket := filepath.Join(os.TempDir(), "prs-diff-"+strings.Trim(outsideStem.ReplaceAllString(subject, "-"), "-")+".sock")
+	if len(socket) > socketPathMost {
+		return ""
+	}
+	return socket
+}
+
+// listening is whether something accepts a connection on socket.
+func listening(socket string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socket)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // vimQuoted is text as a single-quoted Vim string.

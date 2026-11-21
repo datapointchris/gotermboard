@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "urn:gotermboard:nvim-diff-threads:v1",
   "title": "The review threads beside a diff in nvim",
-  "description": "The file PRS_DIFF_THREADS names in the nvim gotermboard's NvimDiff hands the terminal to. It sits beside the diff's socket and is removed once nvim exits. A pull request's diff carries slug, number, url, base and head. A session's diff has no pull request, so it carries sessions instead.",
+  "description": "The file PRS_DIFF_THREADS names in the nvim gotermboard's NvimDiff hands the terminal to. NvimDiffHandover.Ended removes it once nvim exits. A pull request's diff carries slug, number, url, base and head. A session's diff has no pull request, so it carries sessions instead.",
   "type": "object",
   "additionalProperties": false,
   "required": ["diff", "title", "threads_read", "threads", "threads_left_out"],

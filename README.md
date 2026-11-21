@@ -674,14 +674,17 @@ comment says what it checks and why. Outside tmux it opens nothing and says why.
 `OpenWindowBehind` takes the same arguments and leaves the board's window current, for a command
 that runs on its own while the board stays in front.
 
-`NvimDiff{Subject, Tabs, Document, Threads}.Write()` writes what nvim's Diffview is handed: a
-script opening a tab for each `NvimDiffTab`, trying each open twice, and a document and threads
-file beside the diff. The `NvimDiffHandover` it returns gives nvim's `Argv`, `Dir` and `Env`, or
-`Command` for `HandOver`. `NameWindow` names the tmux window `diff <Subject>` while nvim has it, so
-a program split into the window finds nvim's socket, `$TMPDIR/prs-diff-<stem>.sock`. The stem is
-the subject with each run of characters other than letters, digits, `.`, `_` and `-` made one
-`-`. `Ended(status)` reads each tab Diffview opened none for, says why nvim showed no diff where
-its status is `NvimDiffNoDiffview` or `NvimDiffNoTab`, and removes the files.
+`NvimDiff{Subject, Tabs, Document, Threads}.Write()` writes what nvim's Diffview is handed into a
+directory of its own: a script opening a tab for each `NvimDiffTab`, trying each open twice, and a
+document and threads file. The `NvimDiffHandover` it returns gives nvim's `Argv`, `Dir` and `Env`,
+or `Command` for `HandOver`. `NameWindow` names the tmux window `diff <Subject>` while nvim has it.
+nvim listens on `$TMPDIR/prs-diff-<stem>.sock`, so a program in a window named for the subject finds
+it. The stem is the subject with each run of characters other than letters, digits, `.`, `_` and
+`-` made one `-`, as `LC_ALL=C sed 's/[^A-Za-z0-9._-]\{1,\}/-/g; s/^-*//; s/-*$//'` makes it.
+`Write` refuses a subject whose nvim still listens. A socket path longer than a unix socket takes
+gets no socket, and the diff opens without one. `Ended(status)` reads each tab Diffview opened none
+for, says why nvim showed no diff where its status is `NvimDiffNoDiffview` or `NvimDiffNoTab`, and
+removes the files.
 `NvimDiffDocumentVariable` and `NvimDiffThreadsVariable` name the variables an nvim config reads,
 and `NvimDiffThreadsSchema` is the threads file's JSON Schema, `nvim-diff-threads.schema.json`.
 

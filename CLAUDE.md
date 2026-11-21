@@ -25,11 +25,12 @@ marker" — and never quote it.
   generic. A caller's domain words never reach this package, except in the nvim diff
   handover below, whose threads file is the contract its callers share with an nvim config.
 - **The nvim diff handover is a contract with every nvim config that reads it.** The
-  variables keep prs's names, `PRS_DIFF_DOCUMENT` and `PRS_DIFF_THREADS`. The socket is
-  `$TMPDIR/prs-diff-<stem>.sock` and the window `diff <subject>`, with every file beside the
-  socket, because a program split into the window derives the socket from its name.
-  `nvim-diff-threads.schema.json` is the threads file's shape, and its writers' tests hold
-  their files to it.
+  variables are `PRS_DIFF_DOCUMENT` and `PRS_DIFF_THREADS`, the names an nvim config reads.
+  The socket is `$TMPDIR/prs-diff-<stem>.sock`, because a program in a window named for the
+  subject, `diff <subject>` or a caller's own such as `explain <subject>`, derives the socket
+  from that name. Every other file sits in a directory of its own per handover, so two diffs
+  never share one. `nvim-diff-threads.schema.json` is the threads file's shape, and a test
+  holds each kind `Write` writes to it.
 - **Colors come from the TUI theme file through gotermstyle, or ANSI 0–15 without one**, so
   a board follows the terminal's theme. A color named as a theme role reads the file. A color
   given as an ANSI code stays that code.
