@@ -442,6 +442,43 @@ func TestAHeldCursorStaysOnItsLineAsItsRowSortsAwayThenFollowsRowsAgain(t *testi
 	}
 }
 
+func TestTheCursorGoesToTheStartKeyOnceItShowsUnlessAKeyMovedItFirst(t *testing.T) {
+	read := Frame{StartAt: "chain", Columns: []Column{{Title: "NAME"}}, Groups: []Group{{
+		Key: "chain", Title: Line{C("CHAIN", "")}, Detail: []Cell{C("every worker", "")},
+		Rows: []Row{{Key: "coordinator", Cells: []Cell{C("coordinator", "")}}, {Key: "worker", Cells: []Cell{C("worker", "")}}},
+	}}}
+	readsLanding := func(keys ...string) (*fixedBoard, *Model) {
+		var rows []Row
+		for _, key := range keys {
+			rows = append(rows, Row{Key: key, Cells: []Cell{C(key, "")}})
+		}
+		board := &fixedBoard{Frame{Columns: read.Columns, Groups: []Group{{Rows: rows}}}}
+		m := NewModel(board, gotermstyle.NewPalette(false))
+		m.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
+		return board, m
+	}
+
+	board, m := readsLanding("reading")
+	board.frame = read
+	m.Update(refreshedMsg{})
+	if got := m.Cursor(); got != "chain" {
+		t.Fatalf("the cursor should leave the placeholder for the start key once it shows, not sit on %q", got)
+	}
+	board.frame.StartAt = "worker"
+	m.Update(refreshedMsg{})
+	if got := m.Cursor(); got != "chain" {
+		t.Errorf("a start already taken should hold, not move the cursor to %q", got)
+	}
+
+	board, m = readsLanding("reading", "coordinator")
+	m.Update(downKey)
+	board.frame = read
+	m.Update(refreshedMsg{})
+	if got := m.Cursor(); got != "coordinator" {
+		t.Errorf("a start key arriving after a key moved the cursor should leave it there, not move it to %q", got)
+	}
+}
+
 func TestEachTabKeepsItsCursorAndFolds(t *testing.T) {
 	answer := &atomic.Value{}
 	answer.Store("value")
@@ -497,7 +534,7 @@ func TestARowThatChangedWearsTheCueForAWhileAndAnAgeNeverLightsIt(t *testing.T) 
 	m := newModel(board, painter{pal: gotermstyle.NewPalette(false), theme: &liveTheme{current: tuitheme.Default()}}, context.Background(), func() {})
 	m.width, m.height = 100, 20
 	m.reveal(now)
-	m.cursor, m.placed = "g", true
+	m.cursor, m.placed = "g", settled
 	worn := func() bool { return strings.Contains(m.screen(), CueGlyph) }
 	if worn() {
 		t.Fatalf("a first frame marks nothing:\n%s", m.screen())

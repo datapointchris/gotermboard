@@ -164,7 +164,7 @@ func (m *Model) cursorOwners() []string {
 // where a fold took its line in. A cursor still looking for its starting line stays on the line
 // the key acted on.
 func (m *Model) settleAfterFolds(owners []string) {
-	m.placed = true
+	m.placed = settled
 	stops := m.kept().ix.stopAt
 	if _, shows := stops[m.cursor]; !shows {
 		for _, owner := range owners {

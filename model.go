@@ -119,6 +119,20 @@ const PanelFrom = 160
 // tickEvery redraws the ages and starts what is due.
 const tickEvery = time.Second
 
+// placement is how the cursor came to the line it is on.
+type placement int
+
+const (
+	// unplaced is a cursor on no line yet.
+	unplaced placement = iota
+	// awaitingStart is a cursor the board put on its starting line. The frame's StartAt still
+	// takes it the first time that key shows.
+	awaitingStart
+	// settled is a cursor on the frame's StartAt, or wherever a key moved it. No later StartAt
+	// moves it.
+	settled
+)
+
 // Model is the Bubble Tea program of one view. Tabs holds one per tab.
 type Model struct {
 	board   Board
@@ -142,7 +156,7 @@ type Model struct {
 	// holding is the key HoldLine was asked on, while the cursor waits on it for its row to move.
 	holding  string
 	top      int
-	placed   bool
+	placed   placement
 	panelOff bool
 	// memory keeps this tab's display settings under tabName for the next run. It is nil
 	// outside a Tabs that RemembersDisplayIn a file.
@@ -749,7 +763,7 @@ func (m *Model) MoveCursorTo(key string) bool {
 	if key == "" || !shows {
 		return false
 	}
-	m.cursor, m.cursorAt, m.placed, m.scrolled = key, at, true, false
+	m.cursor, m.cursorAt, m.placed, m.scrolled = key, at, settled, false
 	m.follow()
 	return true
 }
@@ -763,7 +777,7 @@ func (m *Model) CloseInPlace() bool {
 		return false
 	}
 	m.openInPlace(n, false)
-	m.placed = true
+	m.placed = settled
 	m.revealDetail()
 	return true
 }
@@ -777,7 +791,7 @@ func (m *Model) OpenInPlace() bool {
 		return false
 	}
 	m.openInPlace(n, true)
-	m.placed = true
+	m.placed = settled
 	m.revealDetail()
 	return true
 }
@@ -816,7 +830,7 @@ func (m *Model) Restart() tea.Cmd {
 
 // toTop puts the cursor back at the top and has every source read at the next reveal.
 func (m *Model) toTop() {
-	m.cursor, m.cursorAt, m.top, m.placed, m.scrolled = "", 0, 0, false, false
+	m.cursor, m.cursorAt, m.top, m.placed, m.scrolled = "", 0, 0, unplaced, false
 	for _, source := range m.board.Sources() {
 		source.Force()
 	}
@@ -1011,7 +1025,7 @@ func (m *Model) toggleInPlace() tea.Cmd {
 		m.openInPlace(n, !n.open)
 	}
 	// A cursor still looking for its starting line stays on the line this key acted on.
-	m.placed = true
+	m.placed = settled
 	m.revealDetail()
 	return nil
 }
@@ -1187,7 +1201,7 @@ type lookedFor struct {
 
 // cursorShows says the cursor is on a line the table draws.
 func (m *Model) cursorShows() bool {
-	if !m.placed {
+	if m.placed == unplaced {
 		return false
 	}
 	_, shows := m.kept().ix.stopAt[m.cursor]
@@ -1203,7 +1217,7 @@ func (m *Model) rebuild(now time.Time) { m.rebuildKeeping(now, false) }
 // answers and the change cues, and only the Strip, Charts and StartAt are taken. The clock and a
 // read that landed ask this way. A new grouping comes through Rebuild, which never keeps.
 func (m *Model) rebuildKeeping(now time.Time, mayKeep bool) {
-	wasLast := m.tails() && m.placed && m.onLastRow()
+	wasLast := m.tails() && m.placed != unplaced && m.onLastRow()
 	grouping := m.currentGrouping()
 	next := m.board.Frame(now, grouping)
 	same := mayKeep && next.Revision != 0 && next.Revision == m.frame.Revision
@@ -1226,11 +1240,13 @@ func (m *Model) rebuildKeeping(now time.Time, mayKeep bool) {
 	if !same || m.cue.due(now) {
 		m.cue.mark(m.frame.Groups, now)
 	}
-	if settled := m.cue.quietFrom.Add(settleFor); m.cue.quiet && !now.Before(settled) && !m.readsUnderWayFrom(settled) {
+	if settledAt := m.cue.quietFrom.Add(settleFor); m.cue.quiet && !now.Before(settledAt) && !m.readsUnderWayFrom(settledAt) {
 		m.cue.quiet = false
 	}
+	startOwed := m.placed != settled
 	m.place()
-	if wasLast {
+	// A start that took the cursor just now outranks following the tail.
+	if tookStart := startOwed && m.placed == settled; wasLast && !tookStart {
 		m.moveToLastRow()
 	}
 	m.seekEntity()
@@ -1345,21 +1361,25 @@ func (m *Model) panelDrawsDocumentOf(r *Row) bool {
 	return m.panelWidth() > 0 && r.panelDrawsDocument()
 }
 
-// place puts the cursor on its key, or on where it starts the first time there is such a
-// line, or on the fold that took its row in, or on the line it was on where its row is gone.
+// place puts the cursor on the frame's StartAt the first time that key shows, unless a key
+// moved the cursor first. Otherwise it puts it on its key, or on its starting line the first
+// time there is such a line, or on the fold that took its row in, or on the line it was on
+// where its row is gone.
 func (m *Model) place() {
 	k := m.kept()
 	if len(k.ix.stops) == 0 {
 		m.cursor, m.cursorAt = "", 0
 		return
 	}
-	if !m.placed {
+	if m.placed != settled {
 		if i, shows := k.ix.stopAt[m.frame.StartAt]; shows && m.frame.StartAt != "" {
-			m.cursor, m.cursorAt, m.placed = m.frame.StartAt, i, true
+			m.cursor, m.cursorAt, m.placed = m.frame.StartAt, i, settled
 			return
 		}
+	}
+	if m.placed == unplaced {
 		if i := m.startingLine(k); i >= 0 {
-			m.cursor, m.cursorAt, m.placed = k.stop(i).key, i, true
+			m.cursor, m.cursorAt, m.placed = k.stop(i).key, i, awaitingStart
 			return
 		}
 	}
@@ -1428,7 +1448,7 @@ func (m *Model) move(by int) {
 	}
 	m.cursorAt = max(0, min(m.cursorAt+by, len(k.ix.stops)-1))
 	m.cursor, m.holding = k.stop(m.cursorAt).key, ""
-	m.placed = true
+	m.placed = settled
 	m.scrolled = false
 	m.follow()
 }
