@@ -103,7 +103,8 @@ type NvimDiffTab struct {
 
 // NvimDiff is a diff to hand the terminal to nvim for: a Diffview tab for each of Tabs, with
 // Document and Threads beside it. Subject names it on its tmux window and its socket, such as
-// `widget #13` or `session 8c5cbcad`.
+// `widget #13` or `session 8c5cbcad`. With no Document, Write writes neither file and nvim starts
+// with neither variable, as for Diffview's resolver on a merge's conflicts.
 type NvimDiff struct {
 	Subject  string
 	Tabs     []NvimDiffTab
@@ -117,6 +118,7 @@ type NvimDiff struct {
 // the window reads the subject off its name, `diff <subject>`, and finds the socket from it.
 type NvimDiffHandover struct {
 	subject, stem, dir string
+	documented         bool
 }
 
 // Write writes the document, the threads file and the script nvim runs, beside the socket. It
@@ -125,22 +127,23 @@ func (d NvimDiff) Write() (*NvimDiffHandover, error) {
 	if len(d.Tabs) == 0 {
 		return nil, fmt.Errorf("the diff of %s names no tab to open", d.Subject)
 	}
-	h := &NvimDiffHandover{subject: d.Subject, stem: nvimDiffStem(d.Subject), dir: d.Tabs[0].Checkout}
-	threads := d.Threads
-	if threads.Threads == nil {
-		threads.Threads = []NvimDiffThread{}
-	}
-	encoded, err := json.MarshalIndent(threads, "", "  ")
-	if err != nil {
-		return nil, err
-	}
+	h := &NvimDiffHandover{subject: d.Subject, stem: nvimDiffStem(d.Subject), dir: d.Tabs[0].Checkout, documented: d.Document != ""}
 	_ = os.Remove(h.socket())
 	_ = os.Remove(h.path(".unopened"))
-	err = errors.Join(
-		os.WriteFile(h.path(".md"), []byte(d.Document), 0o600),
-		os.WriteFile(h.path(".threads.json"), append(encoded, '\n'), 0o600),
-		os.WriteFile(h.path(".vim"), []byte(d.script(h.path(".unopened"))), 0o600),
-	)
+	err := os.WriteFile(h.path(".vim"), []byte(d.script(h.path(".unopened"))), 0o600)
+	if err == nil && h.documented {
+		threads := d.Threads
+		if threads.Threads == nil {
+			threads.Threads = []NvimDiffThread{}
+		}
+		var encoded []byte
+		if encoded, err = json.MarshalIndent(threads, "", "  "); err == nil {
+			err = errors.Join(
+				os.WriteFile(h.path(".md"), []byte(d.Document), 0o600),
+				os.WriteFile(h.path(".threads.json"), append(encoded, '\n'), 0o600),
+			)
+		}
+	}
 	if err != nil {
 		h.remove()
 		return nil, err
@@ -196,8 +199,12 @@ func (h *NvimDiffHandover) Argv() []string {
 // Dir is the first tab's checkout, where nvim runs.
 func (h *NvimDiffHandover) Dir() string { return h.dir }
 
-// Env is the variables naming the document and the threads file, as exec.Cmd's Env takes them.
+// Env is the variables naming the document and the threads file, as exec.Cmd's Env takes
+// them, and nil with no Document.
 func (h *NvimDiffHandover) Env() []string {
+	if !h.documented {
+		return nil
+	}
 	return []string{NvimDiffDocumentVariable + "=" + h.path(".md"), NvimDiffThreadsVariable + "=" + h.path(".threads.json")}
 }
 
