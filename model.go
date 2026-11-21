@@ -125,11 +125,11 @@ type placement int
 const (
 	// unplaced is a cursor on no line yet.
 	unplaced placement = iota
-	// awaitingStart is a cursor the board put on its starting line. The frame's StartAt still
-	// takes it the first time that key shows.
+	// awaitingStart is a cursor the board put on its starting line while its reads land. The
+	// frame's StartAt still takes it the first time that key shows.
 	awaitingStart
-	// settled is a cursor on the frame's StartAt, or wherever a key moved it. No later StartAt
-	// moves it.
+	// settled is a cursor on the frame's StartAt, one MoveCursorTo put, or one waiting when a key
+	// was pressed on the table or every read landed. No later StartAt moves it.
 	settled
 )
 
@@ -777,7 +777,6 @@ func (m *Model) CloseInPlace() bool {
 		return false
 	}
 	m.openInPlace(n, false)
-	m.placed = settled
 	m.revealDetail()
 	return true
 }
@@ -791,7 +790,6 @@ func (m *Model) OpenInPlace() bool {
 		return false
 	}
 	m.openInPlace(n, true)
-	m.placed = settled
 	m.revealDetail()
 	return true
 }
@@ -967,6 +965,11 @@ func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
 		m.typed(key)
 		return nil
 	}
+	// A key pressed on the table keeps the cursor where it is, so a start key showing later
+	// never moves it off the line the key acted on.
+	if m.placed != settled && len(m.kept().ix.stops) > 0 {
+		m.placed = settled
+	}
 	// The keys are read before what was said clears, so the key that reads it whole still has it.
 	actions := m.actions()
 	m.said = ""
@@ -1024,8 +1027,6 @@ func (m *Model) toggleInPlace() tea.Cmd {
 	case nodeRow:
 		m.openInPlace(n, !n.open)
 	}
-	// A cursor still looking for its starting line stays on the line this key acted on.
-	m.placed = settled
 	m.revealDetail()
 	return nil
 }
@@ -1219,9 +1220,11 @@ func (m *Model) rebuild(now time.Time) { m.rebuildKeeping(now, false) }
 func (m *Model) rebuildKeeping(now time.Time, mayKeep bool) {
 	wasLast := m.tails() && m.placed != unplaced && m.onLastRow()
 	grouping := m.currentGrouping()
+	// The reads are asked before the frame is built, so a read landing in between can only make
+	// them say less than the frame holds.
+	m.drawnFrom = m.readNow()
 	next := m.board.Frame(now, grouping)
 	same := mayKeep && next.Revision != 0 && next.Revision == m.frame.Revision
-	m.drawnFrom = m.readNow()
 	if same {
 		next.Columns, next.Groups = m.frame.Columns, m.frame.Groups
 		m.frame = next
@@ -1248,6 +1251,11 @@ func (m *Model) rebuildKeeping(now time.Time, mayKeep bool) {
 	// A start that took the cursor just now outranks following the tail.
 	if tookStart := startOwed && m.placed == settled; wasLast && !tookStart {
 		m.moveToLastRow()
+	}
+	// Once every read has landed, a start key the frame does not show is not on its way, so the
+	// cursor stays where the reader has it.
+	if m.placed == awaitingStart && m.drawnFrom.landed {
+		m.placed = settled
 	}
 	m.seekEntity()
 	m.follow()
@@ -1361,10 +1369,10 @@ func (m *Model) panelDrawsDocumentOf(r *Row) bool {
 	return m.panelWidth() > 0 && r.panelDrawsDocument()
 }
 
-// place puts the cursor on the frame's StartAt the first time that key shows, unless a key
-// moved the cursor first. Otherwise it puts it on its key, or on its starting line the first
-// time there is such a line, or on the fold that took its row in, or on the line it was on
-// where its row is gone.
+// place puts the cursor on the frame's StartAt the first time that key shows, while the cursor
+// is not settled. Otherwise it puts it on its key, or on its starting line the first time there
+// is such a line, or on the fold that took its row in, or on the line it was on where its row is
+// gone.
 func (m *Model) place() {
 	k := m.kept()
 	if len(k.ix.stops) == 0 {
@@ -1448,7 +1456,6 @@ func (m *Model) move(by int) {
 	}
 	m.cursorAt = max(0, min(m.cursorAt+by, len(k.ix.stops)-1))
 	m.cursor, m.holding = k.stop(m.cursorAt).key, ""
-	m.placed = settled
 	m.scrolled = false
 	m.follow()
 }

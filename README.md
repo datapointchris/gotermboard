@@ -389,7 +389,9 @@ told each key the cursor lands on, so a read that only one row needs can follow 
 first line holding cells, or the last on a `TailBoard`, past any group with no panel text. With no
 such line it waits on the first line with text to read. A board whose first frame is a placeholder,
 drawn while its reads land, still starts on its key: the first frame showing it moves the cursor
-there, unless a key has moved the cursor by then.
+there. Three things end the wait first and leave the cursor where it is: any key pressed on the
+table, `MoveCursorTo`, and a frame drawn once every source has read without failing, none still
+under way. So a key that shows only on a later read never moves a cursor the reader is using.
 
 ## A tall document reads on a full screen
 

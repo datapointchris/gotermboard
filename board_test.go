@@ -442,40 +442,66 @@ func TestAHeldCursorStaysOnItsLineAsItsRowSortsAwayThenFollowsRowsAgain(t *testi
 	}
 }
 
-func TestTheCursorGoesToTheStartKeyOnceItShowsUnlessAKeyMovedItFirst(t *testing.T) {
-	read := Frame{StartAt: "chain", Columns: []Column{{Title: "NAME"}}, Groups: []Group{{
+// landingBoard draws its placeholder until its one source has read, then the frame the read brought.
+type landingBoard struct {
+	placeholder, read Frame
+	source            *Source[string]
+}
+
+func (b *landingBoard) Sources() []Refresher { return []Refresher{b.source} }
+func (b *landingBoard) Groupings() []string  { return nil }
+func (b *landingBoard) Frame(time.Time, string) Frame {
+	if b.source.Status().ReadAt.IsZero() {
+		return b.placeholder
+	}
+	return b.read
+}
+
+func TestTheCursorGoesToTheStartKeyOnceItShowsUnlessAKeyOrEveryReadCameFirst(t *testing.T) {
+	row := func(key string) Row { return Row{Key: key, Cells: []Cell{C(key, "")}} }
+	columns := []Column{{Title: "NAME"}}
+	chain := Frame{StartAt: "chain", Columns: columns, Groups: []Group{{
 		Key: "chain", Title: Line{C("CHAIN", "")}, Detail: []Cell{C("every worker", "")},
-		Rows: []Row{{Key: "coordinator", Cells: []Cell{C("coordinator", "")}}, {Key: "worker", Cells: []Cell{C("worker", "")}}},
+		Rows: []Row{row("coordinator"), row("worker")},
 	}}}
-	readsLanding := func(keys ...string) (*fixedBoard, *Model) {
-		var rows []Row
-		for _, key := range keys {
-			rows = append(rows, Row{Key: key, Cells: []Cell{C(key, "")}})
-		}
-		board := &fixedBoard{Frame{Columns: read.Columns, Groups: []Group{{Rows: rows}}}}
+	opened := func(placeholder ...Row) (*landingBoard, *Model) {
+		board := &landingBoard{placeholder: Frame{Columns: columns, Groups: []Group{{Rows: placeholder}}}}
+		board.source = NewSource("rows", 0, func(context.Context) (string, string, error) { return "", "", nil })
 		m := NewModel(board, gotermstyle.NewPalette(false))
 		m.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
 		return board, m
 	}
+	lands := func(board *landingBoard, m *Model, frame Frame) {
+		board.read = frame
+		board.source.Refresh(context.Background())
+		m.Update(refreshedMsg{})
+	}
 
-	board, m := readsLanding("reading")
-	board.frame = read
-	m.Update(refreshedMsg{})
+	board, m := opened(row("reading"))
+	lands(board, m, chain)
 	if got := m.Cursor(); got != "chain" {
 		t.Fatalf("the cursor should leave the placeholder for the start key once it shows, not sit on %q", got)
 	}
-	board.frame.StartAt = "worker"
-	m.Update(refreshedMsg{})
+	later := chain
+	later.StartAt = "worker"
+	lands(board, m, later)
 	if got := m.Cursor(); got != "chain" {
 		t.Errorf("a start already taken should hold, not move the cursor to %q", got)
 	}
 
-	board, m = readsLanding("reading", "coordinator")
+	board, m = opened(row("reading"), row("coordinator"))
 	m.Update(downKey)
-	board.frame = read
-	m.Update(refreshedMsg{})
+	lands(board, m, chain)
 	if got := m.Cursor(); got != "coordinator" {
 		t.Errorf("a start key arriving after a key moved the cursor should leave it there, not move it to %q", got)
+	}
+
+	board, m = opened(row("reading"))
+	lands(board, m, Frame{StartAt: "chain", Columns: columns, Groups: []Group{{Rows: []Row{row("coordinator"), row("worker")}}}})
+	landedOn := m.Cursor()
+	lands(board, m, chain)
+	if got := m.Cursor(); got != landedOn {
+		t.Errorf("a start key that only a later read brings should leave the cursor on %q, not move it to %q", landedOn, got)
 	}
 }
 
