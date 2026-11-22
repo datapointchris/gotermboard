@@ -413,7 +413,11 @@ path line the same way: the `breadcrumb` package imports nothing that draws, so 
 out of that screen's build.
 
 `Model.Read` opens one over the board from a board's own key, and `esc` or `space` returns to the
-board. `Model.Follow` opens one at the document's last line and keeps it there as the document
+board. `Model.ReadWithKeys` also binds `Action`s of the board's own on the reader, each where the
+reader's own key does not apply, so a board's `n` steps only while no search has hits. They lead
+the reader's footer. One whose `Run` calls `ReadWithKeys` again replaces the reader in place, as a
+pager steps to its next file, and one that calls `MoveCursorTo` first leaves `esc` on that row.
+`Model.Follow` opens one at the document's last line and keeps it there as the document
 grows, as `tail -f` and `less +F` do. Scrolling up holds it where it is, and `G` follows again. The
 footer says `following` or `G follows`, and the function it takes runs as the reader closes, so the
 board can stop what feeds it. An open reader lays its document out again after each

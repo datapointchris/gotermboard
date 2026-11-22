@@ -891,6 +891,22 @@ func (m *Model) Read(title string, document Document) {
 	m.reading.resize(m.width, m.height)
 }
 
+// ReadWithKeys is Read with keys of the board's own bound on the reader, each where the reader's
+// own key does not apply, so n steps only while no search has hits. They lead its footer, and its
+// ? overlay lists them. A key whose Run calls ReadWithKeys again replaces the reader in place, as
+// a pager steps to its next file, and one that moves the cursor first leaves esc on that row.
+func (m *Model) ReadWithKeys(title string, document Document, keys []Action) {
+	m.Read(title, document)
+	for _, key := range keys {
+		row := KeyAction[*Reader]{Keys: key.Keys, Section: key.Section, Label: key.Label, Footer: key.Footer}
+		row.Run = func(*Reader) tea.Cmd { return key.Run(m) }
+		if key.Applies != nil {
+			row.Applies = func(*Reader) bool { return key.Applies(m) }
+		}
+		m.reading.boardKeys = append(m.reading.boardKeys, row)
+	}
+}
+
 // Follow opens document on a full-screen Reader over the board at its last line, and keeps it
 // there as the document grows, as tail -f and less +F do, until esc or space closes it.
 // Scrolling up holds the reader where it is, and G follows again. Lines a board's command

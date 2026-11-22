@@ -222,6 +222,43 @@ func TestAFollowingReaderKeepsToTheLastLineUntilScrolledUpAndGFollowsAgain(t *te
 	}
 }
 
+// A board's n steps to its next document and leads the footer, a search with hits keeps n on its
+// matches, and esc still returns to the board.
+func TestABoardsKeysStepTheReaderWhereItsOwnKeysLeaveThemFree(t *testing.T) {
+	m := NewModel(fixedBoard{Frame{Columns: []Column{{Title: "ROW"}}}}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 10})
+	var keys []Action
+	keys = []Action{{Keys: []string{"n"}, Label: "read the next document", Footer: "n next", Run: func(m *Model) tea.Cmd {
+		m.ReadWithKeys("the second", wrappedDocument, keys)
+		return nil
+	}}}
+	m.ReadWithKeys("the first", wrappedDocument, keys)
+	footer := m.screen()[strings.LastIndex(m.screen(), "\n")+1:]
+	if !strings.Contains(footer, "n next  j/k scroll") {
+		t.Fatalf("the board's key should lead the footer: %q", footer)
+	}
+
+	m.Update(typedKey("/"))
+	for _, c := range "number 3" {
+		m.Update(typedKey(string(c)))
+	}
+	m.Update(enterKey)
+	m.Update(typedKey("n"))
+	if got := m.screen(); !strings.Contains(got, "the first") || !strings.Contains(got, "2 of") {
+		t.Fatalf("n with a search's hits should go to the next match:\n%s", got)
+	}
+
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m.Update(typedKey("n"))
+	if got := m.screen(); !strings.Contains(got, "the second") {
+		t.Fatalf("n with no search should run the board's key:\n%s", got)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.reading != nil {
+		t.Error("esc should return to the board")
+	}
+}
+
 func TestTheReadersTopLineNamesWhatHeldTheRowThenTheSectionScrolledInto(t *testing.T) {
 	frame := Frame{Columns: []Column{{Title: "ROW"}}, Groups: []Group{{Key: "outer", Title: Line{C("OUTER", "")}, Rows: []Row{
 		{Key: "tall", Cells: []Cell{C("the tall row", "")}, Document: wrappedDocument},

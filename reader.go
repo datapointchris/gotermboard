@@ -46,6 +46,9 @@ type Reader struct {
 	// follows keeps the reader on the document's last line as the document grows, while that
 	// line shows.
 	follows bool
+	// boardKeys is the keys of the board that opened the reader, which Model.ReadWithKeys binds
+	// where the reader's own key for them does not apply.
+	boardKeys []KeyAction[*Reader]
 
 	width, height int
 	rows          []Line
@@ -339,8 +342,17 @@ func readerActions() []KeyAction[*Reader] {
 }
 
 // actions is the Reader's key table as it applies now, which the handler, the footer and the ?
-// overlay read.
-func (r *Reader) actions() []KeyAction[*Reader] { return ActionsNow(r, readerActions()) }
+// overlay read. Its own keys come first, so a board's n steps only while no search has hits.
+func (r *Reader) actions() []KeyAction[*Reader] { return ActionsNow(r, readerActions(), r.boardKeys) }
+
+// footerHints is the footer's words for the keys that apply now, the board's first, because they
+// are what this reader adds and a narrow footer cuts from the end. The reader's own rows lead
+// actions whole, since no layer comes before them to take a key.
+func (r *Reader) footerHints() []string {
+	actions := r.actions()
+	own := len(applyingTo(r, readerActions()))
+	return append(FooterHints(actions[own:]), FooterHints(actions[:own])...)
+}
 
 func (r *Reader) pressed(key tea.KeyPressMsg) tea.Cmd {
 	if r.overlay {
@@ -517,7 +529,7 @@ func (r *Reader) footer() string {
 	case r.said != "":
 		parts = append(parts, r.said)
 	default:
-		parts = append(parts, FooterHints(r.actions())...)
+		parts = append(parts, r.footerHints()...)
 	}
 	return strings.Join(parts, "  ")
 }
