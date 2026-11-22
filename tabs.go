@@ -49,6 +49,8 @@ type Tabs struct {
 	openNamed bool
 	// memory is what RemembersDisplayIn keeps, and nil without it.
 	memory *rememberedDisplays
+	// selecting is the mouse's selection over the whole screen, tab line and all.
+	selecting selecting
 }
 
 // backStep is the tab a jump left, the line its cursor was on, and what the entity page showed
@@ -200,9 +202,14 @@ func (t *Tabs) update(msg tea.Msg) tea.Cmd {
 			model.Update(msg)
 		}
 		return nil
-	case tickMsg, refreshedMsg, moveMsg, spinMsg, tea.KeyPressMsg, tea.PasteMsg:
+	case tickMsg, refreshedMsg, moveMsg, spinMsg, tea.KeyPressMsg, tea.PasteMsg, tea.MouseWheelMsg:
 		_, cmd := t.active().Update(msg)
 		return cmd
+	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		model := t.active()
+		return model.copied(t.selecting.mouse(msg.(tea.MouseMsg), time.Now(), func(x, y int) columns {
+			return model.regionOnScreen(x, y, t.tabLineHeight())
+		}))
 	case themeLoadedMsg:
 		return t.painter.theme.reloaded(msg, t.active().sayThemeFault)
 	case goToMsg:
@@ -224,8 +231,9 @@ func (t *Tabs) View() tea.View {
 	if t.tabLineHeight() > 0 {
 		inside = t.tabLine() + "\n" + inside
 	}
-	v := tea.NewView(t.active().framed(inside))
+	v := tea.NewView(t.selecting.paint(t.active().framed(inside)))
 	v.AltScreen = true
+	v.MouseMode = mouseMode
 	return v
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
@@ -56,6 +57,8 @@ type Reader struct {
 	top           int
 	overlay       bool
 	said          string
+	// selecting is the mouse's selection, where the reader runs as a program of its own.
+	selecting selecting
 
 	searching    bool
 	searchedFrom int
@@ -119,6 +122,14 @@ func (r *Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		cmd := r.pressed(msg)
 		return r, cmd
+	case tea.MouseWheelMsg:
+		r.wheel(msg.Button)
+	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		text, chose := r.selecting.mouse(msg.(tea.MouseMsg), time.Now(), func(int, int) columns { return columns{0, r.width} })
+		if chose {
+			r.said = copiedSaid(text)
+			return r, tea.SetClipboard(text)
+		}
 	case editedMsg:
 		if msg.err != nil {
 			r.said = "the editor failed: " + LastLine(msg.stderr, msg.err)
@@ -156,9 +167,17 @@ func (r *Reader) copyToClipboard() tea.Cmd {
 
 // View is Bubble Tea's.
 func (r *Reader) View() tea.View {
-	v := tea.NewView(r.screen())
+	v := tea.NewView(r.selecting.paint(r.screen()))
 	v.AltScreen = true
+	v.MouseMode = mouseMode
 	return v
+}
+
+// wheel scrolls the text by a notch of the mouse wheel.
+func (r *Reader) wheel(button tea.MouseButton) {
+	if lines, ok := wheelBy(button); ok {
+		r.scrollTo(r.top + lines)
+	}
 }
 
 // resize lays the text out again and keeps the same words at the top of the screen. A reader

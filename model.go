@@ -216,6 +216,12 @@ type Model struct {
 	// keeps it, because only a move came in since.
 	underStrip []string
 	stripOnly  bool
+	// underStripAt is how many lines of the screen inside the margin sit over the under strip, and
+	// panelDrawn is where in it the last draw put the side panel.
+	underStripAt int
+	panelDrawn   panelPlace
+	// selecting is the mouse's selection, where the model runs as a program of its own.
+	selecting selecting
 	// charts is the frame's Charts laid out at the screen's size. Each draw paints them, so a
 	// reload recolors them as it does the rest.
 	charts []Line
@@ -560,6 +566,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.said = msg.Said
 			return m.receive(msg)
 		}
+	case tea.MouseWheelMsg:
+		m.wheel(msg.Button)
+	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		return m.copied(m.selecting.mouse(msg.(tea.MouseMsg), time.Now(), func(x, y int) columns { return m.regionOnScreen(x, y, 0) }))
 	default:
 		return m.receive(msg)
 	}
@@ -873,6 +883,62 @@ func (m *Model) ScrollBy(lines int) {
 	m.scrolled = true
 	m.top += lines
 	m.follow()
+}
+
+// wheel scrolls by a notch of the mouse wheel: the reader open over the board, or else the screen
+// over the table, leaving the cursor where it is as J and K do.
+func (m *Model) wheel(button tea.MouseButton) {
+	lines, ok := wheelBy(button)
+	switch {
+	case !ok, m.mode() == overlayMode:
+	case m.reading != nil:
+		m.reading.wheel(button)
+	default:
+		m.ScrollBy(lines)
+	}
+}
+
+// panelPlace is the side panel's lines in the under strip, and the column it starts at.
+type panelPlace struct{ top, lines, left int }
+
+// panelSeparator stands between the table and the side panel on each line.
+const panelSeparator = " │ "
+
+// regionAt is the columns of the part of the screen inside the margin holding x, y: the table or
+// the side panel beside it, or else the whole width.
+func (m *Model) regionAt(x, y int) columns {
+	p := m.panelDrawn
+	y -= m.underStripAt + p.top
+	switch {
+	case m.reading != nil || p.lines == 0 || y < 0 || y >= p.lines:
+		return columns{0, m.width}
+	case x >= p.left:
+		return columns{p.left, m.width}
+	}
+	return columns{0, p.left - textWidth(panelSeparator)}
+}
+
+// regionOnScreen is regionAt for a cell of the framed screen, where the first above lines inside
+// the margin are a host's.
+func (m *Model) regionOnScreen(x, y, above int) columns {
+	return m.regionAt(x-m.margin.Sides, y-m.margin.Ends-above).shift(m.margin.Sides)
+}
+
+// copied puts text that the mouse chose on the clipboard, and says so on the footer showing.
+func (m *Model) copied(text string, chose bool) tea.Cmd {
+	if !chose {
+		return nil
+	}
+	if m.reading != nil {
+		m.reading.said = copiedSaid(text)
+		return tea.SetClipboard(text)
+	}
+	footer := len(m.footer())
+	m.said = copiedSaid(text)
+	if len(m.footer()) != footer {
+		m.follow()
+	}
+	return tea.SetClipboard(text)
 }
 
 // HalfScreen is half the table's height in lines.
@@ -1617,8 +1683,9 @@ func (m *Model) footer() []string {
 
 // View is Bubble Tea's.
 func (m *Model) View() tea.View {
-	v := tea.NewView(m.screen())
+	v := tea.NewView(m.selecting.paint(m.screen()))
 	v.AltScreen = true
+	v.MouseMode = mouseMode
 	return v
 }
 
@@ -1640,6 +1707,7 @@ func (m *Model) inside() string {
 	for _, line := range slices.Concat(m.stripSayingFolds(), charts) {
 		out = append(out, ansi.Truncate(m.painter.line(line), m.width, "…"))
 	}
+	m.underStripAt = len(out)
 	return strings.Join(append(out, m.underStrip...), "\n")
 }
 
@@ -1671,6 +1739,7 @@ func (m *Model) stripSayingFolds() []Line {
 // and the lines the band leaves showing.
 func (m *Model) drawUnderStrip(body int, footer []string) []string {
 	out := make([]string, 0, body+len(footer))
+	m.panelDrawn = panelPlace{}
 	if m.overlay {
 		out = append(out, m.keysOverlay(body)...)
 		return append(out, footer...)
@@ -1683,6 +1752,9 @@ func (m *Model) drawUnderStrip(body int, footer []string) []string {
 	shown := t.lines(k.ix.pinned+m.top+len(band), k.ix.pinned+m.top+h)
 	panelWidth := m.panelWidth()
 	panel := m.panelLines(h)
+	if panelWidth > 0 {
+		m.panelDrawn = panelPlace{top: k.ix.pinned, lines: h, left: k.width + textWidth(panelSeparator)}
+	}
 	for i := range h {
 		left := ""
 		switch {
@@ -1700,7 +1772,7 @@ func (m *Model) drawUnderStrip(body int, footer []string) []string {
 		if i < len(panel) {
 			right = panel[i]
 		}
-		out = append(out, strings.TrimRight(left+" │ "+right, " "))
+		out = append(out, strings.TrimRight(left+panelSeparator+right, " "))
 	}
 	out = append(out, footer...)
 	if drawHook != nil {

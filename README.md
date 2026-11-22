@@ -435,6 +435,21 @@ A `Cell` with `Section` set starts the words of a heading, and its value is the 
 outermost. A heading closes every open one at its depth or deeper. The `markdown` package sets it
 on each heading's first word, past the bar that marks it.
 
+## The wheel scrolls the screen, and a drag copies what it covers
+
+A board, `Tabs` and a `Reader` take the mouse. A notch of the wheel scrolls three lines: the
+screen over the table, as `J` and `K` do, or the reader's text. The cursor stays where it is. A new
+frame leaves the screen where the wheel put it, and the next key that moves the cursor brings it
+back into view.
+
+Taking the mouse takes the terminal's own selection, so the program selects as a terminal does. A
+drag shows what it covers in reverse video and copies it over OSC 52 on release. A double click
+copies the word under it, and a triple click its line. The footer says what was copied.
+
+A selection keeps to the part of the screen it starts in, the table or the side panel. So a drag
+down the panel copies none of the table beside it. A word ends at a space, a box-drawing rule, a
+bracket, a quote, a comma or a semicolon, so a path, a URL or a hyphenated id copies whole.
+
 ## A board's strip can move between its frames
 
 A board implementing `MovingBoard` gets its strip from `StripAt(now)`, redrawn every `MoveEvery()`,
