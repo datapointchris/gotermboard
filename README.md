@@ -78,6 +78,10 @@ every source past its interval reads at once. A source inside its interval keeps
 pace, so cycling the tabs quickly starts nothing extra. A program with one tab draws no
 tab line, and Tab does nothing in it.
 
+A board implementing `HidingBoard` hears `Hidden()` each time its tab hides, whether a key, a
+jump or `esc` back shows another tab. It can then let go of what it held only while the reader
+was on it, such as a scope a jump widened. A go-to inside the tab showing does not hide it.
+
 ## A program can reopen on the tabs and display its reader left
 
 `RemembersDisplayIn(path)` keeps the display in a JSON file the program names, under its own

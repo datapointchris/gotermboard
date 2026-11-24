@@ -9,13 +9,16 @@ import (
 	"github.com/datapointchris/gotermstyle"
 )
 
-// thingsBoard draws a row naming each thing it holds, shows the kind thing, and binds esc itself.
+// thingsBoard draws a row naming each thing it holds, shows the kind thing, binds esc itself,
+// and counts each time its tab hides.
 type thingsBoard struct {
 	ids     []string
 	sources []Refresher
 	escaped bool
+	hidden  int
 }
 
+func (b *thingsBoard) Hidden()              { b.hidden++ }
 func (b *thingsBoard) Sources() []Refresher { return b.sources }
 func (b *thingsBoard) Groupings() []string  { return nil }
 func (b *thingsBoard) Frame(time.Time, string) Frame {
@@ -70,6 +73,12 @@ func TestABoardsKeyGoesToTheNamedTabOnItsThingAndEscComesBack(t *testing.T) {
 	if got := tabs.View().Content; tabs.at != 0 || !strings.Contains(got, `no tab "three"`) {
 		t.Errorf("a tab that is not there should leave the cursor where it is and say so:\n%s", got)
 	}
+
+	one.to = "one"
+	tabs.Update(press(tabs, typedKey("o"))())
+	if tabs.at != 0 || one.hidden != 1 {
+		t.Errorf("a go-to inside the tab showing should keep it shown, not hide it (hidden %d times, once for o to two)", one.hidden)
+	}
 }
 
 func TestAJumpLandsOnTheRowNamingItsEntityAndEscReturnsToTheRowItLeft(t *testing.T) {
@@ -94,8 +103,16 @@ func TestAJumpLandsOnTheRowNamingItsEntityAndEscReturnsToTheRowItLeft(t *testing
 	if got := tabs.names[tabs.at] + " " + tabs.active().Cursor(); got != "one row-2" || two.escaped {
 		t.Fatalf("esc should go back to one's row ahead of two's own esc, not %q (two's esc ran: %v)", got, two.escaped)
 	}
+	if one.hidden != 1 || two.hidden != 1 {
+		t.Errorf("the jump should hide one and esc back should hide two, each once, not %d and %d", one.hidden, two.hidden)
+	}
 	press(tabs, tea.KeyPressMsg{Code: tea.KeyEscape})
 	if !one.escaped || tabs.at != 0 {
 		t.Error("with no jump to go back along, esc should be the board's own")
+	}
+
+	press(tabs, tabKey)
+	if tabs.at != 1 || one.hidden != 2 || two.hidden != 1 {
+		t.Errorf("tab should hide one once more and leave two shown, not %d and %d", one.hidden, two.hidden)
 	}
 }

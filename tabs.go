@@ -157,11 +157,15 @@ func (t *Tabs) cycleActions() []Action {
 
 // show hides the tab showing and shows the one at at, from its last good reads. A search set for
 // it survives the hide, and under a lock one with none goes to the first line naming the thing
-// where the line its cursor is on does not show. Every way onto a tab comes through here.
+// where the line its cursor is on does not show. Every way onto a tab comes through here. The
+// tab showing is not hidden to show it again, so a board's go-to inside its own tab keeps what
+// its ShowEntity set.
 func (t *Tabs) show(at int) tea.Cmd {
 	at = (at + len(t.models)) % len(t.models)
 	seeking := t.models[at].seeking
-	t.active().hide()
+	if at != t.at {
+		t.active().hide()
+	}
 	t.at = at
 	t.active().seeking = seeking
 	t.seekLocked(at)
