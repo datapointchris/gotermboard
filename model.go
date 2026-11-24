@@ -1396,7 +1396,7 @@ func (m *Model) rebuildKeeping(now time.Time, mayKeep bool) {
 	// The reads are asked before the frame is built, so a read landing in between can only make
 	// them say less than the frame holds.
 	m.drawnFrom = m.readNow()
-	next := m.board.Frame(now, grouping)
+	next := strippedFrame(m.board.Frame(now, grouping))
 	same := mayKeep && next.Revision != 0 && next.Revision == m.frame.Revision
 	if same {
 		next.Columns, next.Groups = m.frame.Columns, m.frame.Groups
@@ -1760,7 +1760,7 @@ func (m *Model) footer() []string {
 	case m.said != "":
 		lines = append(lines, m.wrapped(m.said, footerTextLines, " "+saidReadKey+" reads it whole")...)
 	case m.display.filter != "":
-		lines = append(lines, ansi.Truncate("filter (esc clears): "+terminalcontrol.Strip(m.display.filter), m.width, "…"))
+		lines = append(lines, ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…"))
 	}
 	if locked := m.lockLine(); locked != "" {
 		lines = append(lines, ansi.Truncate(m.painter.cell(C(LockGlyph, LockCode))+" "+terminalcontrol.Strip(locked), m.width, "…"))
@@ -1887,7 +1887,7 @@ func (m *Model) panelLines(height int) []string {
 	if p := &k.panel; !p.held || p.node != at || p.width != width {
 		*p = keptPanel{node: at, width: width, held: true}
 		if authored, _ := n.panelSource(); authored != nil {
-			p.lines = authored(width)
+			p.lines = strippedLines(authored(width))
 		}
 	}
 	return m.panelTextOf(n, k.panel.lines, width, height)

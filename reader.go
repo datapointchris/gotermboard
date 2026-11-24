@@ -186,7 +186,7 @@ func (r *Reader) resize(width, height int) {
 	above := lettersIn(r.rows[:min(r.top, len(r.rows))])
 	toEnd := r.follows && r.atEnd()
 	r.width, r.height = width, height
-	r.rows = r.document(min(max(width-2, 1), ReadingWidth))
+	r.rows = strippedLines(r.document(min(max(width-2, 1), ReadingWidth)))
 	r.sections = r.sections[:0]
 	for i, row := range r.rows {
 		if slices.ContainsFunc(row, opensSection) {

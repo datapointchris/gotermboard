@@ -16,9 +16,11 @@ import (
 	"github.com/datapointchris/gotermstyle"
 )
 
-// textBoard draws a caller's text wherever a test puts it, under a bold column title.
+// textBoard draws a caller's text wherever a test puts it, under bold column titles. clean adds
+// a row whose columns the text's row lines up with.
 type textBoard struct {
 	cell     gotermboard.Cell
+	clean    bool
 	header   gotermboard.Line
 	entities []gotermboard.EntityRef
 	actions  []gotermboard.Action
@@ -36,10 +38,14 @@ func (b textBoard) Frame(time.Time, string) gotermboard.Frame {
 	if cell.Text == "" {
 		cell = gotermboard.C("row", "")
 	}
-	return gotermboard.Frame{Columns: []gotermboard.Column{{Title: "NAME"}}, Groups: []gotermboard.Group{{
-		Key: "g", Title: b.header,
-		Rows: []gotermboard.Row{{Key: "r", Cells: []gotermboard.Cell{cell}, Entities: b.entities}},
-	}}}
+	rows := []gotermboard.Row{{Key: "r", Cells: []gotermboard.Cell{cell, gotermboard.C("X9", "")}, Entities: b.entities}}
+	if b.clean {
+		rows = append(rows, gotermboard.Row{Key: "clean", Cells: []gotermboard.Cell{gotermboard.C("beforeafter", ""), gotermboard.C("X9", "")}})
+	}
+	return gotermboard.Frame{
+		Columns: []gotermboard.Column{{Title: "NAME"}, {Title: "STATE"}},
+		Groups:  []gotermboard.Group{{Key: "g", Title: b.header, Rows: rows}},
+	}
 }
 
 // acting is a board whose s key runs act.
@@ -95,42 +101,55 @@ func TestACallersTextReachesTheTerminalWithNoControlAtEverySinkAndTheBoardsColor
 		{"BEL", "\a"},
 		{"BS over the word before", "\b\b\b\b\b\b"},
 		{"CR back to the line's start", "\r"},
-		{"CSI as a C1 control", "\u009b2J"},
+		{"CSI's C1 code point", "\u009b"},
+		{"a CSI that a BS cuts short, which x/ansi reads on into the next letter", "\x1b[1\b"},
 	}
 	// Each sink draws text and names the color the board puts on it or beside it.
+	// A pasted sink reads a CR as a line break, which a typed line joins with a space.
 	sinks := []struct {
-		name string
-		draw func(text string) (screen, own string)
+		name   string
+		pasted bool
+		draw   func(text string) (screen, own string)
 	}{
-		{"a row cell", func(text string) (string, string) {
-			return gotermboard.Once(textBoard{cell: gotermboard.C(text, gotermboard.Red)}, pal, width, height), gotermboard.Red
+		{"a row cell", false, func(text string) (string, string) {
+			screen := gotermboard.Once(textBoard{cell: gotermboard.C(text, gotermboard.Red), clean: true}, pal, width, height)
+			var at []int
+			for _, line := range strings.Split(ansi.Strip(screen), "\n") {
+				if i := strings.Index(line, "X9"); i >= 0 {
+					at = append(at, ansi.StringWidth(line[:i]))
+				}
+			}
+			if len(at) != 2 || at[0] != at[1] {
+				t.Errorf("a row cell holding %q puts its next column at %v, out of line with a clean row's", text, at)
+			}
+			return screen, gotermboard.Red
 		}},
-		{"a group header", func(text string) (string, string) {
+		{"a group header", false, func(text string) (string, string) {
 			board := textBoard{header: gotermboard.Line{gotermboard.C(text, gotermboard.Magenta)}}
 			return gotermboard.Once(board, pal, width, height), gotermboard.Magenta
 		}},
-		{"a markdown body", func(text string) (string, string) {
+		{"a markdown body", false, func(text string) (string, string) {
 			renderer := markdown.New(nil)
 			reader := gotermboard.NewReader("doc", func(w int) []gotermboard.Line { return renderer.Lines("*"+text+"*", w) }, pal)
 			return reader.Once(width), "\x1b[3m"
 		}},
-		{"what a key said", func(text string) (string, string) {
+		{"what a key said", false, func(text string) (string, string) {
 			return pressed(acting(func(m *gotermboard.Model) { m.Say(text) }), key("s")), gotermstyle.CodeBold
 		}},
-		{"a question's text", func(text string) (string, string) {
+		{"a question's text", false, func(text string) (string, string) {
 			ask := acting(func(m *gotermboard.Model) { m.Ask(gotermboard.Question{Text: text, Typed: true}) })
 			return pressed(ask, key("s")), gotermstyle.CodeBold
 		}},
-		{"a question's choice", func(text string) (string, string) {
+		{"a question's choice", false, func(text string) (string, string) {
 			ask := acting(func(m *gotermboard.Model) {
 				m.Ask(gotermboard.Question{Text: "pick:", Choices: []gotermboard.Choice{{Key: "n", Label: text}}})
 			})
 			return pressed(ask, key("s")), gotermstyle.CodeBold
 		}},
-		{"a busy line", func(text string) (string, string) {
+		{"a busy line", false, func(text string) (string, string) {
 			return gotermboard.Once(textBoard{busy: text}, pal, width, height), gotermboard.Yellow
 		}},
-		{"a lock's id", func(text string) (string, string) {
+		{"a lock's id", false, func(text string) (string, string) {
 			board := textBoard{entities: []gotermboard.EntityRef{{Kind: "thing", ID: text}}}
 			tabs, err := gotermboard.NewTabs([]gotermboard.Tab{{Name: "one", Board: board}, {Name: "two", Board: board}}, pal, "")
 			if err != nil {
@@ -141,14 +160,21 @@ func TestACallersTextReachesTheTerminalWithNoControlAtEverySinkAndTheBoardsColor
 			tabs.Update(key(gotermboard.LockKey))
 			return tabs.View().Content, gotermboard.LockCode
 		}},
-		{"a read's note", func(text string) (string, string) {
+		{"a read's note", false, func(text string) (string, string) {
 			source := gotermboard.NewSource("hosts", time.Minute, func(context.Context) (string, string, error) { return "read", text, nil })
 			source.Refresh(context.Background())
 			return pressed(textBoard{sources: []gotermboard.Refresher{source}}, key("?")), gotermstyle.CodeBold
 		}},
-		{"a printed table", func(text string) (string, string) {
+		{"a printed table", false, func(text string) (string, string) {
 			table := printedtable.Table{Columns: []printedtable.Column{{Title: text}}, Rows: [][]printedtable.Cell{{printedtable.C(text, gotermstyle.CodeRed)}}}
 			return strings.Join(table.Lines(pal), "\n"), gotermstyle.CodeRed
+		}},
+		{"a reader's search, pasted and entered", true, func(text string) (string, string) {
+			reader := gotermboard.NewReader("doc", func(int) []gotermboard.Line { return []gotermboard.Line{{gotermboard.C("body", "")}} }, pal)
+			for _, msg := range []tea.Msg{tea.WindowSizeMsg{Width: width, Height: height}, key("/"), tea.PasteMsg{Content: text}, tea.KeyPressMsg{Code: tea.KeyEnter}} {
+				reader.Update(msg)
+			}
+			return reader.View().Content, gotermstyle.CodeBold
 		}},
 	}
 	for _, sink := range sinks {
@@ -157,7 +183,11 @@ func TestACallersTextReachesTheTerminalWithNoControlAtEverySinkAndTheBoardsColor
 			if found := controlsOn(screen); len(found) > 0 {
 				t.Errorf("%s holding %s reached the terminal with %s:\n%q", sink.name, control.name, strings.Join(found, ", "), screen)
 			}
-			if !strings.Contains(ansi.Strip(screen), "beforeafter") {
+			words := "beforeafter"
+			if sink.pasted && control.text == "\r" {
+				words = "before after"
+			}
+			if !strings.Contains(ansi.Strip(screen), words) {
 				t.Errorf("%s holding %s should draw the words around it and none of the sequence:\n%s", sink.name, control.name, ansi.Strip(screen))
 			}
 			if !strings.Contains(screen, own) {

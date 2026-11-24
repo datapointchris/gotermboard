@@ -13,8 +13,8 @@ func TestStripTakesEachSequenceOutWholeAndKeepsTheLinesAroundIt(t *testing.T) {
 		{"an ESC inside an OSC opens the next sequence", "a\x1b]0;t\x1b[31mb", "ab"},
 		{"an APC runs to its terminator", "a\x1b_Gf=24;AAAA\x1b\\b", "ab"},
 		{"ESC and intermediate bytes take one final byte", "a\x1b(Bb\x1b#8c", "abc"},
-		{"a C1 byte outside any character opens CSI as its code point does", "a\x9b2Jb", "ab"},
-		{"a C1 control that opens nothing, and DEL, leave alone", "a\u0085\x7fb", "ab"},
+		{"a C1 control leaves alone, as a code point or a lone byte, so a quote decoded in the wrong charset keeps the words after it", "â€\u009dyes\x9b2J", "â€yes2J"},
+		{"DEL leaves", "a\x7fb", "ab"},
 		{"an ESC before another control, and one ending the text, leave alone", "a\x1b\x01b\x1b", "ab"},
 		{"characters whose bytes fall in C1's range stay", "…—█é", "…—█é"},
 	} {

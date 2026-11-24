@@ -12,11 +12,13 @@ import (
 
 const esc = 0x1b
 
-// Strip is text without its terminal controls. Each escape sequence leaves whole, whether ESC
-// or its one-byte C1 form opens it: CSI, OSC, DCS, SOS, PM, APC, and ESC with the bytes it
-// takes. Every other C0 and C1 control leaves too, and so does DEL. A newline and a tab stay,
-// and each ends a sequence it falls inside, so the text keeps its lines however it is split.
-// Text holding no control comes back as it was, with nothing allocated.
+// Strip is text without its terminal controls. ESC opens a sequence, and the whole sequence
+// leaves: CSI, OSC, DCS, SOS, PM, APC, or ESC with the bytes it takes. Every C0 and C1 control
+// leaves too, and so does DEL. A C1 control leaves alone, as a code point or a byte outside any
+// character, so the text after it stays. Text decoded in the wrong charset carries C1 code
+// points, and a quote that turned into U+009D must not take the rest of a title with it. A
+// newline and a tab stay, and each ends a sequence it falls inside, so the text keeps its lines
+// however it is split. Text holding no control comes back as it was, with nothing allocated.
 func Strip(text string) string {
 	start := firstControl(text)
 	if start == len(text) {
@@ -40,20 +42,23 @@ func Strip(text string) string {
 			i++
 		default:
 			r, size := utf8.DecodeRuneInString(text[i:])
-			if control, ok := c1(r, c, size); ok {
-				i = afterC1(text, i+size, control)
-				continue
+			if _, ok := c1(r, c, size); !ok {
+				b.WriteString(text[i : i+size])
 			}
-			b.WriteString(text[i : i+size])
 			i += size
 		}
 	}
 	return b.String()
 }
 
-// firstControl is where text's first control starts, or its length where it holds none.
+// firstControl is where text's first control starts, or its length where it holds none. It
+// passes eight bytes at a time while each is printable ASCII, because a board strips every cell.
 func firstControl(text string) int {
 	for i := 0; i < len(text); {
+		if i+8 <= len(text) && printableASCII(text[i:i+8]) {
+			i += 8
+			continue
+		}
 		c := text[i]
 		if c < utf8.RuneSelf {
 			if (c < 0x20 && c != '\n' && c != '\t') || c == 0x7f {
@@ -71,6 +76,17 @@ func firstControl(text string) int {
 	return len(text)
 }
 
+// printableASCII says each of eight bytes runs from 0x20 to 0x7E, tested as one word: the high
+// bits for a byte past ASCII, and the borrow tests for a byte below 0x20 and for DEL.
+func printableASCII(eight string) bool {
+	const ones, highs = 0x0101010101010101, 0x8080808080808080
+	x := uint64(eight[0]) | uint64(eight[1])<<8 | uint64(eight[2])<<16 | uint64(eight[3])<<24 |
+		uint64(eight[4])<<32 | uint64(eight[5])<<40 | uint64(eight[6])<<48 | uint64(eight[7])<<56
+	below := (x - 0x20*ones) &^ x & highs
+	del := x ^ 0x7f*ones
+	return x&highs|below|(del-ones)&^del&highs == 0
+}
+
 // c1 is the C1 control a decoded rune stands for: a code point from U+0080 to U+009F, or a
 // byte in that range standing alone, outside any character.
 func c1(r rune, lead byte, size int) (byte, bool) {
@@ -83,17 +99,27 @@ func c1(r rune, lead byte, size int) (byte, bool) {
 	return 0, false
 }
 
-// afterEscape is where the sequence ends whose ESC sits just before i. ESC and a byte from
-// 0x40 to 0x5F is that byte's C1 control. ESC and intermediate bytes take one final byte,
-// and ESC and any other byte from 0x30 to 0x7E is the whole sequence. An ESC before anything
-// else leaves alone.
+// afterEscape is where the sequence ends whose ESC sits just before i. ESC [ opens CSI, which
+// runs through its parameter and intermediate bytes to its final byte. ESC ], P, X, ^ and _ open
+// OSC, DCS, SOS, PM and APC, which each run to their terminator. ESC and intermediate bytes take
+// one final byte, and ESC and any other byte from 0x30 to 0x7E is the whole sequence. An ESC
+// before anything else leaves alone.
 func afterEscape(text string, i int) int {
 	if i == len(text) {
 		return i
 	}
 	switch c := text[i]; {
-	case c >= 0x40 && c <= 0x5f:
-		return afterC1(text, i+1, c+0x40)
+	case c == '[':
+		i++
+		for i < len(text) && text[i] >= 0x20 && text[i] <= 0x3f {
+			i++
+		}
+		if i < len(text) && text[i] >= 0x40 && text[i] <= 0x7e {
+			i++
+		}
+		return i
+	case strings.IndexByte("]PX^_", c) >= 0:
+		return afterString(text, i+1)
 	case c >= 0x20 && c <= 0x2f:
 		for i < len(text) && text[i] >= 0x20 && text[i] <= 0x2f {
 			i++
@@ -104,25 +130,6 @@ func afterEscape(text string, i int) int {
 		return i
 	case c >= 0x30 && c <= 0x7e:
 		return i + 1
-	}
-	return i
-}
-
-// afterC1 is where a sequence ends when control opens it, with its body starting at i. CSI
-// runs through its parameter and intermediate bytes to its final byte. OSC, DCS, SOS, PM and
-// APC each run to their terminator. Any other C1 control stands alone.
-func afterC1(text string, i int, control byte) int {
-	switch control {
-	case 0x9b:
-		for i < len(text) && text[i] >= 0x20 && text[i] <= 0x3f {
-			i++
-		}
-		if i < len(text) && text[i] >= 0x40 && text[i] <= 0x7e {
-			i++
-		}
-		return i
-	case 0x90, 0x98, 0x9d, 0x9e, 0x9f:
-		return afterString(text, i)
 	}
 	return i
 }

@@ -9,7 +9,9 @@ import (
 )
 
 // typedLine is one line being typed and edited from its end: a question's answer, the filter,
-// the reader's search. What enter and esc then do is each caller's own.
+// the reader's search. What enter and esc then do is each caller's own. A key or a paste loses
+// its terminal controls as it enters, so the line, and every footer that draws what it holds,
+// carries none. A paste copied from a document can hold them.
 type typedLine struct{ runes []rune }
 
 // lineEnd is how a key left a typed line.
@@ -36,7 +38,7 @@ func (l *typedLine) press(key tea.KeyPressMsg) lineEnd {
 		l.runes = nil
 	default:
 		if key.Mod&^tea.ModShift == 0 {
-			l.runes = append(l.runes, []rune(key.Text)...)
+			l.runes = append(l.runes, []rune(terminalcontrol.Strip(key.Text))...)
 		}
 	}
 	return lineOpen
@@ -44,7 +46,7 @@ func (l *typedLine) press(key tea.KeyPressMsg) lineEnd {
 
 // paste adds a paste as one line, so a newline in it enters nothing.
 func (l *typedLine) paste(content string) {
-	l.runes = append(l.runes, []rune(strings.Join(strings.Fields(content), " "))...)
+	l.runes = append(l.runes, []rune(terminalcontrol.Strip(strings.Join(strings.Fields(content), " ")))...)
 }
 
 func (l *typedLine) set(text string) { l.runes = []rune(text) }
@@ -52,10 +54,9 @@ func (l *typedLine) set(text string) { l.runes = []rune(text) }
 func (l *typedLine) String() string { return string(l.runes) }
 
 // draw is the line after prefix with the cursor at its end, in width cells. It is cut from the
-// left, so the end being typed stays on the screen. A paste can carry terminal controls, so they
-// leave the drawn line.
+// left, so the end being typed stays on the screen.
 func (l *typedLine) draw(prefix string, width int) string {
-	text := terminalcontrol.Strip(l.String()) + "█"
+	text := l.String() + "█"
 	if over := ansi.StringWidth(prefix+text) - width; over > 0 {
 		text = ansi.TruncateLeft(text, over+1, "…")
 	}

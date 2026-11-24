@@ -99,7 +99,7 @@ func (f *frameFolds) workGroups(groups []Group, taken map[string]bool) {
 
 // made is the fold of rows, which start at from in group's rows.
 func (f *frameFolds) made(group string, rows []Row, from int, taken map[string]bool) rowFold {
-	row := f.foldRow(rows)
+	row := strippedRow(f.foldRow(rows))
 	// A row made from a copy of one of its rows would otherwise wear that row's cue as it was.
 	row.changed = false
 	row.Key = f.key(group, row.Key, rows, taken)
