@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/datapointchris/gotermboard/terminalcontrol"
 )
 
 // Question is what a key asks on the footer's lines, until enter or a choice's key answers it or
@@ -116,7 +117,7 @@ func (m *Model) questionLines(room int) (lines []string, keys string) {
 	case len(m.asking.Choices) > 0:
 		picks := make([]string, len(m.asking.Choices))
 		for i, choice := range m.asking.Choices {
-			lines = append(lines, ansi.Truncate("  "+m.painter.bold(choice.Key)+"  "+choice.Label, m.width, "…"))
+			lines = append(lines, ansi.Truncate("  "+m.painter.bold(choice.Key)+"  "+terminalcontrol.Strip(choice.Label), m.width, "…"))
 			picks[i] = choice.Key
 		}
 		keys = strings.Join(picks, " ") + " chooses  esc cancels"
@@ -154,9 +155,10 @@ const footerTextLines = 4
 // saidReadKey opens the whole of what the last key said on a Reader, while the footer cuts it.
 const saidReadKey = "ctrl+o"
 
-// wrappedLines is text wrapped to width.
+// wrappedLines is text wrapped to width, its terminal controls out first, because the wrap keeps
+// every escape sequence it meets.
 func wrappedLines(text string, width int) []string {
-	return strings.Split(ansi.Wrap(text, width, "/"), "\n")
+	return strings.Split(ansi.Wrap(terminalcontrol.Strip(text), width, "/"), "\n")
 }
 
 // wrapped is text wrapped to the screen in most lines, at least one, the last ending in … and

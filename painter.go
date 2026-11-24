@@ -1,10 +1,15 @@
 package gotermboard
 
-import "github.com/datapointchris/gotermstyle"
+import (
+	"github.com/datapointchris/gotermboard/terminalcontrol"
+	"github.com/datapointchris/gotermstyle"
+)
 
 // painter is what a board, its tabs and its readers draw every cell with: the palette, and the
 // live TUI theme a cell's Role resolves in. A reload swaps the theme it holds, so the next draw
 // recolors every role. Line.Paint is the way to draw outside a board, in the built-in theme.
+// Each text it draws loses its terminal controls first, and its colors go on after, so a
+// caller's text cannot drive the terminal and the board's colors still draw.
 type painter struct {
 	pal   gotermstyle.Palette
 	theme *liveTheme
@@ -14,9 +19,11 @@ type painter struct {
 func (p painter) line(l Line) string { return l.paint(p.pal, p.theme.current) }
 
 // cell is c's text in its color: its Role in the live theme, then its Code.
-func (p painter) cell(c Cell) string { return p.pal.Paint(c.code(p.theme.current), c.Text) }
+func (p painter) cell(c Cell) string {
+	return p.pal.Paint(c.code(p.theme.current), terminalcontrol.Strip(c.Text))
+}
 
-func (p painter) bold(text string) string { return p.pal.Bold(text) }
+func (p painter) bold(text string) string { return p.pal.Bold(terminalcontrol.Strip(text)) }
 
 // on says the palette draws color.
 func (p painter) on() bool { return p.pal.On() }

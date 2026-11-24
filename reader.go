@@ -13,6 +13,7 @@ import (
 	"github.com/datapointchris/gotermstyle"
 
 	"github.com/datapointchris/gotermboard/breadcrumb"
+	"github.com/datapointchris/gotermboard/terminalcontrol"
 )
 
 // ReadingWidth is the widest a reader lays text out, because a longer line is hard to
@@ -545,7 +546,7 @@ func (r *Reader) footer() string {
 	case r.query != "":
 		parts = append(parts, "/"+r.query, r.hitsSaid(), "n/N match", "esc clears")
 	case r.said != "":
-		parts = append(parts, r.said)
+		parts = append(parts, terminalcontrol.Strip(r.said))
 	default:
 		parts = append(parts, r.footerHints()...)
 	}

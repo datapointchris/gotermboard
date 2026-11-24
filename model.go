@@ -13,6 +13,7 @@ import (
 	"github.com/datapointchris/gotermstyle"
 
 	"github.com/datapointchris/gotermboard/printedframe"
+	"github.com/datapointchris/gotermboard/terminalcontrol"
 )
 
 // Board is one view, as this package draws it: sources to keep fresh, and the
@@ -1747,7 +1748,7 @@ func (m *Model) footer() []string {
 		lines = append(lines, RuleThin.across(m.painter, m.width, ""))
 	}
 	if work := m.underWay(); work != "" {
-		lines = append(lines, ansi.Truncate(m.painter.cell(C(spinner[m.spinAt], Yellow))+" "+work, m.width, "…"))
+		lines = append(lines, ansi.Truncate(m.painter.cell(C(spinner[m.spinAt], Yellow))+" "+terminalcontrol.Strip(work), m.width, "…"))
 	}
 	if m.mode() == askingMode {
 		asked, keys := m.questionLines(m.height - len(m.frame.Strip) - len(lines) - 2)
@@ -1759,10 +1760,10 @@ func (m *Model) footer() []string {
 	case m.said != "":
 		lines = append(lines, m.wrapped(m.said, footerTextLines, " "+saidReadKey+" reads it whole")...)
 	case m.display.filter != "":
-		lines = append(lines, ansi.Truncate("filter (esc clears): "+m.display.filter, m.width, "…"))
+		lines = append(lines, ansi.Truncate("filter (esc clears): "+terminalcontrol.Strip(m.display.filter), m.width, "…"))
 	}
 	if locked := m.lockLine(); locked != "" {
-		lines = append(lines, ansi.Truncate(m.painter.cell(C(LockGlyph, LockCode))+" "+locked, m.width, "…"))
+		lines = append(lines, ansi.Truncate(m.painter.cell(C(LockGlyph, LockCode))+" "+terminalcontrol.Strip(locked), m.width, "…"))
 	}
 	hints := FooterHints(m.actions())
 	if prefix := m.pendingPrefix; prefix != nil {
@@ -1980,7 +1981,7 @@ func (m *Model) readLines() []string {
 		case status.Fault != "":
 			line += "  " + m.painter.cell(C(status.Fault, Red))
 		case status.Note != "":
-			line += "  " + status.Note
+			line += "  " + terminalcontrol.Strip(status.Note)
 		}
 		lines = append(lines, ansi.Truncate(line, m.width, "…"))
 	}

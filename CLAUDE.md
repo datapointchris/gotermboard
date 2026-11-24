@@ -31,6 +31,11 @@ marker" — and never quote it.
   from that name. Every other file sits in a directory of its own per handover, so two diffs
   never share one. `nvim-diff-threads.schema.json` is the threads file's shape, and a test
   holds each kind `Write` writes to it.
+- **A caller's text reaches the terminal only through `terminalcontrol.Strip`**, because
+  stored or remote text otherwise drives the terminal: OSC 52 sets the clipboard, and CSI hides
+  lines. The painter's `line`, `cell` and `bold` strip each text before its color goes on, and
+  a footer line that appends a caller's string strips it there, so a new place that paints one
+  strips it too. The stored value keeps its bytes. `terminal_controls_test.go` holds each place.
 - **Colors come from the TUI theme file through gotermstyle, or ANSI 0–15 without one**, so
   a board follows the terminal's theme. A color named as a theme role reads the file. A color
   given as an ANSI code stays that code.

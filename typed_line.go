@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/datapointchris/gotermboard/terminalcontrol"
 )
 
 // typedLine is one line being typed and edited from its end: a question's answer, the filter,
@@ -51,9 +52,10 @@ func (l *typedLine) set(text string) { l.runes = []rune(text) }
 func (l *typedLine) String() string { return string(l.runes) }
 
 // draw is the line after prefix with the cursor at its end, in width cells. It is cut from the
-// left, so the end being typed stays on the screen.
+// left, so the end being typed stays on the screen. A paste can carry terminal controls, so they
+// leave the drawn line.
 func (l *typedLine) draw(prefix string, width int) string {
-	text := l.String() + "█"
+	text := terminalcontrol.Strip(l.String()) + "█"
 	if over := ansi.StringWidth(prefix+text) - width; over > 0 {
 		text = ansi.TruncateLeft(text, over+1, "…")
 	}
