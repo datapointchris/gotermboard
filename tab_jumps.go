@@ -350,6 +350,29 @@ func (t *Tabs) goBack() tea.Cmd {
 	return t.show(from.tab)
 }
 
+// tellLeft tells the board at at that the reader left its tab, unless a step on the back stack
+// returns to it, as a browser keeps a page whole while its history can still go back to it.
+func (t *Tabs) tellLeft(at int) {
+	if slices.ContainsFunc(t.back, func(step backStep) bool { return step.tab == at }) {
+		return
+	}
+	if board, ok := t.models[at].board.(HidingBoard); ok {
+		board.Hidden()
+	}
+}
+
+// forgetBack empties the back stack, as a move by key or click does, and tells each hidden tab
+// it would have returned to that the reader left. The tab showing hears it as show hides it.
+func (t *Tabs) forgetBack() {
+	steps := t.back
+	t.back = nil
+	for at := range t.models {
+		if at != t.at && slices.ContainsFunc(steps, func(step backStep) bool { return step.tab == at }) {
+			t.tellLeft(at)
+		}
+	}
+}
+
 // seek is what the cursor goes to once the reads land: the first line naming the entity a jump
 // or the lock came for, or the line keyed key that esc comes back to. tab is the tab it went to,
 // which the footer names where no line names the entity.

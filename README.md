@@ -78,6 +78,12 @@ every source past its interval reads at once. A source inside its interval keeps
 pace, so cycling the tabs quickly starts nothing extra. A program with one tab draws no
 tab line, and Tab does nothing in it.
 
+A board implementing `HidingBoard` hears `Hidden()` once the reader leaves its tab with no jump
+to come back along: a key or a click shows another tab, or `esc` goes back from it. It can then
+let go of what it held only while the reader was on it, such as a scope a jump widened. A tab
+that `esc` can still return to hears it only once a key or a click drops the way back, so `esc`
+finds the row it left. A go-to inside the tab showing does not hide it.
+
 ## A program can reopen on the tabs and display its reader left
 
 `RemembersDisplayIn(path)` keeps the display in a JSON file the program names, under its own
@@ -162,10 +168,31 @@ and `*` again from any tab lifts it.
   `LockGlyph`, as one naming the thing does.
 - **The lock filters what each board draws, and changes no board's reads.**
 
+## `PrintTab` prints one tab once, as a frame or as its snapshot
+
 `Once` draws one frame from what a board's sources already hold, and `OnceSize` picks
 its size: `COLUMNS` by `LINES`, then the terminal, then a fallback you pass. A screen that
 is no board picks its printed frame's size the same way with `printedframe.Size`, which
 imports nothing that draws.
+
+`PrintTab` is the whole step for a program whose `--once` and `--json` print the tab `--view`
+names. Its board is a `SnapshotBoard`, which answers `Snapshot(now)` beside its frame. With JSON
+asked for, it writes the snapshot indented two spaces, with HTML escaping on. Otherwise it writes
+one frame at `OnceSize`, in the palette the program passes, as `Once` takes one. Both print what
+the sources already hold, so the program reads them first.
+
+`RefuseUnknownView` is the error for a `--view` that names none of the tabs, and nil for an
+empty one. This package imports no CLI kit, so the program wraps it as its own usage errors are
+wrapped.
+
+```go
+if err := gotermboard.RefuseUnknownView(view, tabNames); err != nil {
+ return usageError(err)
+}
+board := buildTab(view)
+board.readOnce(ctx)
+return gotermboard.PrintTab(os.Stdout, asJSON, board, gotermstyle.PaletteFor(os.Stdout), 188, 88)
+```
 
 ## A theme file colors a board by role, and SIGUSR2 recolors a running board
 

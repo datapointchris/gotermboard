@@ -102,6 +102,14 @@ type BusyBoard interface {
 	UnderWay() string
 }
 
+// HidingBoard is a Board told once the reader leaves its tab with no jump to come back along: a
+// key or a click shows another tab, or esc goes back from it. A board can then let go of what it
+// held only while the reader was on it. A tab that esc can still return to is told only once
+// the way back to it goes, so esc finds the row it left.
+type HidingBoard interface {
+	Hidden()
+}
+
 // MovingBoard is a Board whose strip moves between its frames, as a diagram of work in motion
 // does. Only the strip redraws at this pace, so the table and its change cue wait for their
 // frame. Only the tab showing runs it, and a reader over the board holds it.
