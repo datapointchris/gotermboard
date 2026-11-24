@@ -45,6 +45,30 @@ func main() {
 }
 ```
 
+## Stored or remote text reaches the terminal with its controls taken out
+
+Text a board draws often comes from a store or a remote API, and the terminal reads an escape
+sequence in it as a command. OSC 52 sets the clipboard, and CSI moves the cursor to hide lines
+or fake them. So gotermboard strips that text where it draws it, as an HTML template escapes at
+render time.
+
+- **ESC opens a sequence, and the whole sequence leaves:** CSI, OSC, DCS, SOS, PM and APC, or
+  ESC with the bytes it takes. Every C0 and C1 control leaves too, and so does DEL. A newline
+  and a tab stay.
+- **A C1 control leaves alone,** as a code point or a byte, so the words after it stay. Text
+  decoded in the wrong charset carries C1 code points.
+- **It covers the text a board paints for a caller.** The board's frame strips as the board
+  reads it, so the layout measures what draws, and the painter strips each cell again before
+  its color goes on. Every footer line that appends a caller's string strips it too, and
+  `terminal_controls_test.go` draws each place. Key hints, a tab's name and a source's name
+  draw as written, because a program writes them in its own code.
+- **Color goes in a cell's `Code` or `Role`,** which the painter adds after the strip. An escape
+  written into `Text` leaves with the rest.
+- **The stored value keeps its bytes.** Only what reaches the screen changes.
+
+A program printing stored or remote text outside a board calls `terminalcontrol.Strip` there.
+That package imports nothing that draws, as `printedtable` uses it.
+
 ## Tabs read only while they show
 
 `NewTabs` takes the tabs in the order Tab cycles them, and the name of the one to open

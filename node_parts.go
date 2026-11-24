@@ -54,7 +54,7 @@ func partsOf(n node, widths []int, width int) nodeParts {
 	case nodeDetail:
 		return nodeParts{pieces: wrap(n.cell.Text, detailRoom(n, width))}
 	case nodeDocument:
-		return nodeParts{document: n.document(documentRoom(n, width))}
+		return nodeParts{document: strippedLines(n.document(documentRoom(n, width)))}
 	}
 	return nodeParts{head: true}
 }

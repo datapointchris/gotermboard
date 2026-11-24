@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/datapointchris/gotermboard/terminalcontrol"
 	"github.com/datapointchris/gotermstyle"
 	"github.com/datapointchris/gotermstyle/tuitheme"
 )
@@ -141,11 +142,12 @@ func (l Line) cut(width int) Line {
 // cell's Role draws in the built-in theme.
 func (l Line) Paint(pal gotermstyle.Palette) string { return l.paint(pal, builtInTheme) }
 
-// paint is the line as text in its cells' colors, each Role drawn in theme.
+// paint is the line as text in its cells' colors, each Role drawn in theme. Each cell's text
+// loses its terminal controls before its color goes on.
 func (l Line) paint(pal gotermstyle.Palette, theme *tuitheme.Theme) string {
 	var b strings.Builder
 	for _, c := range l {
-		b.WriteString(pal.Paint(c.code(theme), c.Text))
+		b.WriteString(pal.Paint(c.code(theme), terminalcontrol.Strip(c.Text)))
 	}
 	return b.String()
 }

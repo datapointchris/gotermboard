@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/datapointchris/gotermboard"
+	"github.com/datapointchris/gotermboard/terminalcontrol"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -66,8 +67,10 @@ func (r *Renderer) Lines(source string, width int) []gotermboard.Line {
 }
 
 func (r *Renderer) layOut(source string, width int) []gotermboard.Line {
-	// A terminal draws a tab to its next stop, which width counting reads as nothing.
-	src := []byte(strings.ReplaceAll(source, "\t", "    "))
+	// The source loses its terminal controls before the layout measures it, so neither prose nor
+	// code carries one to the screen. A terminal draws a tab to its next stop, which width
+	// counting reads as nothing.
+	src := []byte(strings.ReplaceAll(terminalcontrol.Strip(source), "\t", "    "))
 	l := &layout{renderer: r, source: src}
 	l.blocks(parser.Parse(text.NewReader(src)), nil, nil, max(width, narrowest), style{})
 	return l.out

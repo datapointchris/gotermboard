@@ -13,6 +13,7 @@ import (
 	"github.com/datapointchris/gotermstyle"
 
 	"github.com/datapointchris/gotermboard/breadcrumb"
+	"github.com/datapointchris/gotermboard/terminalcontrol"
 )
 
 // ReadingWidth is the widest a reader lays text out, because a longer line is hard to
@@ -185,7 +186,7 @@ func (r *Reader) resize(width, height int) {
 	above := lettersIn(r.rows[:min(r.top, len(r.rows))])
 	toEnd := r.follows && r.atEnd()
 	r.width, r.height = width, height
-	r.rows = r.document(min(max(width-2, 1), ReadingWidth))
+	r.rows = strippedLines(r.document(min(max(width-2, 1), ReadingWidth)))
 	r.sections = r.sections[:0]
 	for i, row := range r.rows {
 		if slices.ContainsFunc(row, opensSection) {
@@ -545,7 +546,7 @@ func (r *Reader) footer() string {
 	case r.query != "":
 		parts = append(parts, "/"+r.query, r.hitsSaid(), "n/N match", "esc clears")
 	case r.said != "":
-		parts = append(parts, r.said)
+		parts = append(parts, terminalcontrol.Strip(r.said))
 	default:
 		parts = append(parts, r.footerHints()...)
 	}

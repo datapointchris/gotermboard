@@ -2,7 +2,9 @@
 // table prints for a Python one. It lays the table out through lipgloss's table, which measures
 // a cell by the width it prints at, so a colored cell lines up where text/tabwriter would count
 // its escapes as width. Each cell prints in the gotermstyle code it carries, through a palette
-// the caller resolves once, so a palette that is off prints no escape at all.
+// the caller resolves once, so a palette that is off prints no escape at all. Each cell's text
+// and each title loses its terminal controls before it is measured, so a stored value cannot
+// drive the terminal the table prints to.
 package printedtable
 
 import (
@@ -11,6 +13,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
+	"github.com/datapointchris/gotermboard/terminalcontrol"
 	"github.com/datapointchris/gotermstyle"
 )
 
@@ -86,16 +89,18 @@ func (t Table) Lines(p gotermstyle.Palette) []string {
 	titles := make([]string, len(columns))
 	titled := false
 	for j, column := range columns {
-		widest[j] = lipgloss.Width(column.Title)
-		titles[j] = painted(p, gotermstyle.CodeBold, column.Title)
-		titled = titled || column.Title != ""
+		title := terminalcontrol.Strip(column.Title)
+		widest[j] = lipgloss.Width(title)
+		titles[j] = painted(p, gotermstyle.CodeBold, title)
+		titled = titled || title != ""
 	}
 	rows := make([][]string, len(t.Rows))
 	for i, row := range t.Rows {
 		rows[i] = make([]string, len(columns))
 		for j, cell := range row {
-			widest[j] = max(widest[j], lipgloss.Width(cell.Text))
-			rows[i][j] = painted(p, cell.Code, cell.Text)
+			text := terminalcontrol.Strip(cell.Text)
+			widest[j] = max(widest[j], lipgloss.Width(text))
+			rows[i][j] = painted(p, cell.Code, text)
 		}
 	}
 
