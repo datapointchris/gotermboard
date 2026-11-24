@@ -178,8 +178,8 @@ imports nothing that draws.
 `PrintTab` is the whole step for a program whose `--once` and `--json` print the tab `--view`
 names. Its board is a `SnapshotBoard`, which answers `Snapshot(now)` beside its frame. With JSON
 asked for, it writes the snapshot indented two spaces, with HTML escaping on. Otherwise it writes
-one frame at `OnceSize`, in the palette stdout takes. Both print what the sources already hold,
-so the program reads them first.
+one frame at `OnceSize`, in the palette the program passes, as `Once` takes one. Both print what
+the sources already hold, so the program reads them first.
 
 `RefuseUnknownView` is the error for a `--view` that names none of the tabs, and nil for an
 empty one. This package imports no CLI kit, so the program wraps it as its own usage errors are
@@ -191,7 +191,7 @@ if err := gotermboard.RefuseUnknownView(view, tabNames); err != nil {
 }
 board := buildTab(view)
 board.readOnce(ctx)
-return gotermboard.PrintTab(os.Stdout, asJSON, board, 188, 88)
+return gotermboard.PrintTab(os.Stdout, asJSON, board, gotermstyle.PaletteFor(os.Stdout), 188, 88)
 ```
 
 ## A theme file colors a board by role, and SIGUSR2 recolors a running board

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -21,15 +20,15 @@ type SnapshotBoard[S any] interface {
 
 // PrintTab prints a tab once, from what its board's sources already hold. With asJSON set it
 // writes the snapshot indented two spaces, with HTML escaping on. Otherwise it writes one frame
-// at OnceSize, given the fallback size, in the palette stdout takes.
-func PrintTab[S any](out io.Writer, asJSON bool, board SnapshotBoard[S], fallbackWidth, fallbackHeight int) error {
+// in pal at OnceSize, given the fallback size.
+func PrintTab[S any](out io.Writer, asJSON bool, board SnapshotBoard[S], pal gotermstyle.Palette, fallbackWidth, fallbackHeight int) error {
 	if asJSON {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		return enc.Encode(board.Snapshot(time.Now()))
 	}
 	width, height := OnceSize(fallbackWidth, fallbackHeight)
-	_, err := fmt.Fprintln(out, Once(board, gotermstyle.PaletteFor(os.Stdout), width, height))
+	_, err := fmt.Fprintln(out, Once(board, pal, width, height))
 	return err
 }
 

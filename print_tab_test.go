@@ -1,7 +1,6 @@
 package gotermboard
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -20,11 +19,12 @@ func (b titledBoard) Snapshot(time.Time) titleSnapshot { return titleSnapshot{Ti
 
 func TestPrintTabPrintsTheSnapshotAsIndentedEscapedJSONOrOneFrameAtOnceSize(t *testing.T) {
 	board := titledBoard{fixedBoard{Frame{Columns: []Column{{Title: "NAME"}}, Groups: []Group{{Key: "g", Rows: []Row{
-		{Key: "one", Cells: []Cell{C("first", "")}},
+		{Key: "one", Cells: []Cell{C("first", Red)}},
 	}}}}}}
+	pal := gotermstyle.NewPalette(true)
 
 	var printed strings.Builder
-	if err := PrintTab(&printed, true, board, 188, 88); err != nil {
+	if err := PrintTab(&printed, true, board, pal, 188, 88); err != nil {
 		t.Fatal(err)
 	}
 	if want := "{\n  \"title\": \"\\u003cb\\u003e\\u0026\\u003c/b\\u003e\"\n}\n"; printed.String() != want {
@@ -34,10 +34,10 @@ func TestPrintTabPrintsTheSnapshotAsIndentedEscapedJSONOrOneFrameAtOnceSize(t *t
 	t.Setenv("COLUMNS", "50")
 	t.Setenv("LINES", "6")
 	printed.Reset()
-	if err := PrintTab(&printed, false, board, 188, 88); err != nil {
+	if err := PrintTab(&printed, false, board, pal, 188, 88); err != nil {
 		t.Fatal(err)
 	}
-	if want := Once(board, gotermstyle.PaletteFor(os.Stdout), 50, 6) + "\n"; printed.String() != want {
-		t.Errorf("the frame should print at COLUMNS by LINES:\n%s\nnot:\n%s", want, printed.String())
+	if want := Once(board, pal, 50, 6) + "\n"; printed.String() != want || !strings.Contains(want, "\x1b[") {
+		t.Errorf("the frame should print in color at COLUMNS by LINES:\n%q\nnot:\n%q", want, printed.String())
 	}
 }
