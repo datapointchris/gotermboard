@@ -125,10 +125,9 @@ func (r *Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		r.wheel(msg.Button)
 	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
-		text, chose := r.selecting.mouse(msg.(tea.MouseMsg), time.Now(), func(int, int) columns { return columns{0, r.width} })
-		if chose {
-			r.said = copiedSaid(text)
-			return r, tea.SetClipboard(text)
+		if p := r.selecting.mouse(msg.(tea.MouseMsg), time.Now(), func(int, int) columns { return columns{0, r.width} }); p.chose {
+			r.said = copiedSaid(p.text)
+			return r, tea.SetClipboard(p.text)
 		}
 	case editedMsg:
 		if msg.err != nil {

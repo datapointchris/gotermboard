@@ -207,9 +207,15 @@ func (t *Tabs) update(msg tea.Msg) tea.Cmd {
 		return cmd
 	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
 		model := t.active()
-		return model.copied(t.selecting.mouse(msg.(tea.MouseMsg), time.Now(), func(x, y int) columns {
+		p := t.selecting.mouse(msg.(tea.MouseMsg), time.Now(), func(x, y int) columns {
 			return model.regionOnScreen(x, y, t.tabLineHeight())
-		}))
+		})
+		if p.clicked && t.tabLineHeight() > 0 && p.at.y == model.margin.Ends {
+			return t.clickedTab(p.at.x - model.margin.Sides)
+		}
+		cmd := model.pointedAt(p, t.tabLineHeight())
+		model.tellCursor()
+		return cmd
 	case themeLoadedMsg:
 		return t.painter.theme.reloaded(msg, t.active().sayThemeFault)
 	case goToMsg:
@@ -259,4 +265,21 @@ func (t *Tabs) tabLine() string {
 		parts = append(parts, t.painter.cell(C(LockGlyph+" "+ref.Kind+" "+ref.ID, LockCode)))
 	}
 	return ansi.Truncate(strings.Join(parts, "  "), t.active().width, "…")
+}
+
+// clickedTab shows the tab whose name the tab line draws at x, measured as tabLine lays them out.
+func (t *Tabs) clickedTab(x int) tea.Cmd {
+	left := 0
+	for _, i := range t.listed(time.Now()) {
+		right := left + ansi.StringWidth(t.names[i]) + 2
+		if x >= left && x < right {
+			if i == t.at {
+				return nil
+			}
+			t.back = nil
+			return t.show(i)
+		}
+		left = right + 2
+	}
+	return nil
 }

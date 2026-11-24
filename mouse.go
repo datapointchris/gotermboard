@@ -55,15 +55,26 @@ type selecting struct {
 	presses   int
 }
 
+// pointed is what the mouse did: chose text to copy, or let a click go on the cell it pressed.
+type pointed struct {
+	text    string
+	chose   bool
+	clicked bool
+	at      cellAt
+}
+
+func copying(text string, chose bool) pointed { return pointed{text: text, chose: chose} }
+
 // mouse takes a press, a drag or a release. region is the columns of the part of the screen
-// holding a cell. It returns the text a release, a double or a triple click chose.
-func (s *selecting) mouse(msg tea.MouseMsg, now time.Time, region func(x, y int) columns) (string, bool) {
+// holding a cell. It returns the text a release, a double or a triple click chose, or the cell a
+// single click let go of without a drag.
+func (s *selecting) mouse(msg tea.MouseMsg, now time.Time, region func(x, y int) columns) pointed {
 	m := msg.Mouse()
 	at := cellAt{m.X, m.Y}
 	switch msg.(type) {
 	case tea.MouseClickMsg:
 		if m.Button != tea.MouseLeft {
-			return "", false
+			return pointed{}
 		}
 		if at == s.pressedOn && now.Sub(s.pressedAt) < multiClickWithin {
 			s.presses = s.presses%3 + 1
@@ -76,9 +87,9 @@ func (s *selecting) mouse(msg tea.MouseMsg, now time.Time, region func(x, y int)
 		s.from, s.to, s.dragging = at, at, s.presses == 1
 		switch s.presses {
 		case 2:
-			return s.word(at)
+			return copying(s.word(at))
 		case 3:
-			return chosen(cellText(s.line(at.y), s.within))
+			return copying(chosen(cellText(s.line(at.y), s.within)))
 		}
 	case tea.MouseMotionMsg:
 		if s.dragging {
@@ -86,16 +97,16 @@ func (s *selecting) mouse(msg tea.MouseMsg, now time.Time, region func(x, y int)
 		}
 	case tea.MouseReleaseMsg:
 		if !s.dragging {
-			return "", false
+			return pointed{}
 		}
 		s.dragging = false
 		s.to = cellAt{s.within.clamp(at.x), at.y}
 		if s.from == s.to {
-			return "", false
+			return pointed{clicked: true, at: s.from}
 		}
-		return s.covered()
+		return copying(s.covered())
 	}
-	return "", false
+	return pointed{}
 }
 
 func chosen(text string) (string, bool) { return text, strings.TrimSpace(text) != "" }

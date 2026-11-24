@@ -239,20 +239,30 @@ func (t tablePainter) lines(from, to int) []string {
 // band is the lines covering the top of those that scroll: the first line of each owner of the
 // first line the band leaves showing, outermost first.
 func (t tablePainter) band(top, height int) []string {
-	over, count := t.k.ix.bandOver(top, height)
+	owners := t.k.bandNodes(top, height)
+	band := make([]string, len(owners))
+	for i, at := range owners {
+		band[i] = firstLine(t.node(at), t.k.nodes[at])
+	}
+	return band
+}
+
+// bandNodes is each node the band names, outermost first, a line of the band apiece.
+func (k *keptLayout) bandNodes(top, height int) []int {
+	over, count := k.ix.bandOver(top, height)
 	if count == 0 {
 		return nil
 	}
-	band := make([]string, count)
-	at := t.k.nodes[over].parent
+	owners := make([]int, count)
+	at := k.nodes[over].parent
 	for i := count - 1; i >= 0; i-- {
-		for !t.k.nodes[at].names {
-			at = t.k.nodes[at].parent
+		for !k.nodes[at].names {
+			at = k.nodes[at].parent
 		}
-		band[i] = firstLine(t.node(at), t.k.nodes[at])
-		at = t.k.nodes[at].parent
+		owners[i] = at
+		at = k.nodes[at].parent
 	}
-	return band
+	return owners
 }
 
 // titleLines is the column titles on a line of their own, and the rule a board's Look.Rules puts

@@ -2,6 +2,7 @@ package gotermboard
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,64 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/datapointchris/gotermstyle"
 )
+
+type clickedBoard struct {
+	fixedBoard
+	ran *[]string
+}
+
+func (b clickedBoard) Actions() []Action {
+	ran := func(name string) func(*Model) tea.Cmd {
+		return func(m *Model) tea.Cmd {
+			*b.ran = append(*b.ran, name+" "+m.Cursor())
+			return nil
+		}
+	}
+	return []Action{
+		{Keys: []string{"enter"}, Label: "finish the row", Footer: "enter finish", Run: ran("finished")},
+		{Keys: []string{"x"}, Label: "mark the row", Footer: "x mark", Run: ran("marked")},
+	}
+}
+
+func TestAClickMovesTheCursorActsOnItsOwnRowAndRunsAHintOrATab(t *testing.T) {
+	frame := Frame{Columns: []Column{{Title: ""}}, Groups: []Group{{Key: "g", Title: Line{C("group", "")}, Rows: []Row{
+		{Key: "a", Cells: []Cell{C("alpha one", "")}},
+		{Key: "b", Cells: []Cell{C("gamma delta", "")}},
+	}}}}
+	var ran []string
+	tabs, err := NewTabs([]Tab{{Name: "one", Board: clickedBoard{fixedBoard{frame}, &ran}}, {Name: "two", Board: fixedBoard{frame}}}, gotermstyle.NewPalette(true), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabs.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	tabs.active().reveal(time.Now())
+	click := func(text string) {
+		lines := strings.Split(ansi.Strip(tabs.View().Content), "\n")
+		for y, line := range lines {
+			if at := strings.Index(line, text); at >= 0 {
+				x := ansi.StringWidth(line[:at])
+				tabs.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+				tabs.Update(tea.MouseReleaseMsg{X: x, Y: y})
+				return
+			}
+		}
+		t.Fatalf("%q is not on the screen:\n%s", text, strings.Join(lines, "\n"))
+	}
+
+	click("gamma")
+	if got := tabs.active().Cursor(); got != "b" || len(ran) != 0 {
+		t.Errorf("a click on a row should move the cursor to it and run nothing: cursor %q, ran %v", got, ran)
+	}
+	click("delta")
+	click("x mark")
+	if want := []string{"finished b", "marked b"}; !slices.Equal(ran, want) {
+		t.Errorf("a click on the cursor's row should do what enter does, and one on a hint what its key does: %v", ran)
+	}
+	click("two")
+	if tabs.at != 1 {
+		t.Errorf("a click on a tab's name should show that tab")
+	}
+}
 
 func TestTheMouseCopiesADragKeptToTheTableOrThePanelAndADoubleClickedWord(t *testing.T) {
 	said := []Cell{C("panel words here", "")}

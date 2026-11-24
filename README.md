@@ -435,12 +435,17 @@ A `Cell` with `Section` set starts the words of a heading, and its value is the 
 outermost. A heading closes every open one at its depth or deeper. The `markdown` package sets it
 on each heading's first word, past the bar that marks it.
 
-## The wheel scrolls the screen, and a drag copies what it covers
+## The wheel scrolls the screen, a click picks what it lands on, and a drag copies what it covers
 
 A board, `Tabs` and a `Reader` take the mouse. A notch of the wheel scrolls three lines: the
 screen over the table, as `J` and `K` do, or the reader's text. The cursor stays where it is. A new
 frame leaves the screen where the wheel put it, and the next key that moves the cursor brings it
 back into view.
+
+A click on the table moves the cursor to the row or group drawing that line, the sticky band's
+groups among them. A click on the cursor's own line does what `enter` does, so a board's `enter`
+key is its click. A click on a footer hint does what that hint's key does, and a click on a tab's
+name shows that tab. A click on the side panel, or on the reader, does nothing.
 
 Taking the mouse takes the terminal's own selection, so the program selects as a terminal does. A
 drag shows what it covers in reverse video and copies it over OSC 52 on release. A double click

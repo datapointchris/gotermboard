@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -569,7 +570,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case tea.MouseWheelMsg:
 		m.wheel(msg.Button)
 	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
-		return m.copied(m.selecting.mouse(msg.(tea.MouseMsg), time.Now(), func(x, y int) columns { return m.regionOnScreen(x, y, 0) }))
+		return m.pointedAt(m.selecting.mouse(msg.(tea.MouseMsg), time.Now(), func(x, y int) columns { return m.regionOnScreen(x, y, 0) }), 0)
 	default:
 		return m.receive(msg)
 	}
@@ -924,6 +925,90 @@ func (m *Model) regionOnScreen(x, y, above int) columns {
 	return m.regionAt(x-m.margin.Sides, y-m.margin.Ends-above).shift(m.margin.Sides)
 }
 
+// pointedAt acts on what the mouse did on the framed screen, under above lines of a host's: a
+// click, or text it chose to copy.
+func (m *Model) pointedAt(p pointed, above int) tea.Cmd {
+	if p.clicked {
+		return m.clicked(p.at.x-m.margin.Sides, p.at.y-m.margin.Ends-above)
+	}
+	return m.copied(p.text, p.chose)
+}
+
+// clicked is a click on the cell at x, y inside the margin. On a line of the table it moves the
+// cursor to the row or group drawing that line, and on the cursor's own line it does what enter
+// does. On a footer hint it does what the hint's key does. A click anywhere else does nothing.
+func (m *Model) clicked(x, y int) tea.Cmd {
+	if m.mode() != tableMode {
+		return nil
+	}
+	at := y - m.underStripAt
+	if at == len(m.underStrip)-1 {
+		return m.clickedHint(x)
+	}
+	k := m.kept()
+	pinned := k.ix.pinned
+	body := max(1, m.heightsOver(m.footerDrawn).body-pinned)
+	if at < 0 || at >= pinned+body || m.panelDrawn.lines > 0 && x >= k.width {
+		return nil
+	}
+	line, node := at, -1
+	if at >= pinned {
+		band := k.bandNodes(m.top, body)
+		if i := at - pinned; i < len(band) {
+			node = band[i]
+		} else {
+			line = pinned + m.top + i
+		}
+	}
+	if node < 0 {
+		if line < k.ix.head || line >= k.ix.total() {
+			return nil
+		}
+		node = k.ix.nodeAt(line)
+	}
+	for node >= 0 && !k.nodes[node].selectable() {
+		node = k.nodes[node].parent
+	}
+	stop := sort.SearchInts(k.ix.stops, node)
+	if node < 0 || stop >= len(k.ix.stops) || k.ix.stops[stop] != node {
+		return nil
+	}
+	if stop == m.cursorAt {
+		return m.ranKey("enter")
+	}
+	m.placed, m.said = settled, ""
+	m.cursorAt = stop
+	m.cursor, m.holding = k.stop(stop).key, ""
+	m.scrolled = false
+	m.follow()
+	return nil
+}
+
+// clickedHint does what the key does whose hint the footer draws at x.
+func (m *Model) clickedHint(x int) tea.Cmd {
+	type hint struct{ words, key string }
+	var hints []hint
+	hinted := m.actions()
+	if prefix := m.pendingPrefix; prefix != nil {
+		hints = append(hints, hint{words: prefix.Keys[0] + "…"})
+		hinted = applyingTo(m, prefix.secondKeys)
+	}
+	for _, action := range hinted {
+		if action.Footer != "" {
+			hints = append(hints, hint{action.Footer, action.Keys[0]})
+		}
+	}
+	left := 0
+	for _, h := range hints {
+		right := left + ansi.StringWidth(h.words)
+		if x >= left && x < right && h.key != "" {
+			return m.ranKey(h.key)
+		}
+		left = right + 2
+	}
+	return nil
+}
+
 // copied puts text that the mouse chose on the clipboard, and says so on the footer showing.
 func (m *Model) copied(text string, chose bool) tea.Cmd {
 	if !chose {
@@ -1052,13 +1137,18 @@ func (m *Model) pressed(key tea.KeyPressMsg) tea.Cmd {
 	if m.placed != settled && len(m.kept().ix.stops) > 0 {
 		m.placed = settled
 	}
+	return m.ranKey(key.String())
+}
+
+// ranKey runs the table's action bound to key, as a press of it or a click on its footer hint.
+func (m *Model) ranKey(key string) tea.Cmd {
 	// The keys are read before what was said clears, so the key that reads it whole still has it.
 	actions := m.actions()
 	m.said = ""
 	if m.pendingPrefix != nil {
-		return m.pressedAfterPrefix(key.String())
+		return m.pressedAfterPrefix(key)
 	}
-	cmd, _ := RunKey(m, actions, key.String())
+	cmd, _ := RunKey(m, actions, key)
 	return cmd
 }
 
