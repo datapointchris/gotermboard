@@ -102,9 +102,10 @@ type BusyBoard interface {
 	UnderWay() string
 }
 
-// HidingBoard is a Board told each time its tab hides, as Tabs shows another tab. A board can
-// then let go of what it held only while the reader was on it. A tab shown again while it
-// shows does not hide.
+// HidingBoard is a Board told once the reader leaves its tab with no jump to come back along: a
+// key or a click shows another tab, or esc goes back from it. A board can then let go of what it
+// held only while the reader was on it. A tab that esc can still return to is told only once
+// the way back to it goes, so esc finds the row it left.
 type HidingBoard interface {
 	Hidden()
 }
@@ -378,15 +379,12 @@ func (m *Model) reveal(now time.Time) tea.Cmd {
 	return tea.Batch(reads, m.nextMove())
 }
 
-// hide stops what runs only while the tab shows, and tells a HidingBoard. A read under way runs
-// to its end. A jump's search ends, so a return later never moves the cursor under the reader.
+// hide stops what runs only while the tab shows. A read under way runs to its end. A jump's
+// search ends, so a return later never moves the cursor under the reader.
 func (m *Model) hide() {
 	m.hidden, m.moving, m.spinning = true, false, false
 	m.moveClock++
 	m.seeking = nil
-	if board, ok := m.board.(HidingBoard); ok {
-		board.Hidden()
-	}
 }
 
 func (m *Model) underWay() string {

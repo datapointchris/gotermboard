@@ -78,9 +78,11 @@ every source past its interval reads at once. A source inside its interval keeps
 pace, so cycling the tabs quickly starts nothing extra. A program with one tab draws no
 tab line, and Tab does nothing in it.
 
-A board implementing `HidingBoard` hears `Hidden()` each time its tab hides, whether a key, a
-jump or `esc` back shows another tab. It can then let go of what it held only while the reader
-was on it, such as a scope a jump widened. A go-to inside the tab showing does not hide it.
+A board implementing `HidingBoard` hears `Hidden()` once the reader leaves its tab with no jump
+to come back along: a key or a click shows another tab, or `esc` goes back from it. It can then
+let go of what it held only while the reader was on it, such as a scope a jump widened. A tab
+that `esc` can still return to hears it only once a key or a click drops the way back, so `esc`
+finds the row it left. A go-to inside the tab showing does not hide it.
 
 ## A program can reopen on the tabs and display its reader left
 

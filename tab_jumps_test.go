@@ -49,6 +49,47 @@ func (b *openingBoard) Actions() []Action {
 	}}}
 }
 
+// narrowingBoard is an openingBoard that shows thing 1 alone until a jump asks for any thing, and
+// narrows back once told the reader left its tab.
+type narrowingBoard struct{ openingBoard }
+
+func (b *narrowingBoard) ShowEntity(EntityRef) (whole bool) {
+	b.ids = []string{"1", "2", "3"}
+	return false
+}
+
+func (b *narrowingBoard) Hidden() {
+	b.hidden++
+	b.ids = []string{"1"}
+}
+
+func TestEscAlongChainedJumpsFindsTheRowOnABoardThatNarrowsOnceTheReaderLeaves(t *testing.T) {
+	src := &openingBoard{thingsBoard: thingsBoard{ids: []string{"1", "2"}}, to: "inbox"}
+	inbox := &narrowingBoard{openingBoard{thingsBoard: thingsBoard{ids: []string{"1"}}, to: "far"}}
+	far := &thingsBoard{ids: []string{"2"}}
+	tabs, err := NewTabs([]Tab{{Name: "src", Board: src}, {Name: "inbox", Board: inbox}, {Name: "far", Board: far}}, gotermstyle.NewPalette(false), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabs.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	tabs.active().reveal(time.Now())
+	press(tabs, downKey)
+	where := func() string { return tabs.names[tabs.at] + " " + tabs.active().Cursor() }
+
+	tabs.Update(press(tabs, typedKey("o"))())
+	tabs.Update(press(tabs, typedKey("o"))())
+	press(tabs, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if got := where(); got != "inbox row-2" || inbox.hidden != 0 {
+		t.Fatalf("esc should find the row the second jump left, on a board not yet told it hid, not %q (hidden %d)", got, inbox.hidden)
+	}
+
+	tabs.Update(press(tabs, typedKey("o"))())
+	press(tabs, tabKey)
+	if where() != "src row-2" || inbox.hidden != 1 || len(inbox.ids) != 1 {
+		t.Errorf("tab should drop the way back and tell inbox once that the reader left, not %d times", inbox.hidden)
+	}
+}
+
 func TestABoardsKeyGoesToTheNamedTabOnItsThingAndEscComesBack(t *testing.T) {
 	one, two := &openingBoard{thingsBoard: thingsBoard{ids: []string{"1", "2"}}, to: "two"}, &thingsBoard{ids: []string{"3", "2"}}
 	tabs, err := NewTabs([]Tab{{Name: "one", Board: one}, {Name: "two", Board: two}}, gotermstyle.NewPalette(false), "")
@@ -76,8 +117,8 @@ func TestABoardsKeyGoesToTheNamedTabOnItsThingAndEscComesBack(t *testing.T) {
 
 	one.to = "one"
 	tabs.Update(press(tabs, typedKey("o"))())
-	if tabs.at != 0 || one.hidden != 1 {
-		t.Errorf("a go-to inside the tab showing should keep it shown, not hide it (hidden %d times, once for o to two)", one.hidden)
+	if tabs.at != 0 || one.hidden != 0 {
+		t.Errorf("a go-to inside the tab showing should keep it shown, not hide it (hidden %d times)", one.hidden)
 	}
 }
 
@@ -103,8 +144,8 @@ func TestAJumpLandsOnTheRowNamingItsEntityAndEscReturnsToTheRowItLeft(t *testing
 	if got := tabs.names[tabs.at] + " " + tabs.active().Cursor(); got != "one row-2" || two.escaped {
 		t.Fatalf("esc should go back to one's row ahead of two's own esc, not %q (two's esc ran: %v)", got, two.escaped)
 	}
-	if one.hidden != 1 || two.hidden != 1 {
-		t.Errorf("the jump should hide one and esc back should hide two, each once, not %d and %d", one.hidden, two.hidden)
+	if one.hidden != 0 || two.hidden != 1 {
+		t.Errorf("esc back should tell two once and one, which the jump came back to, never, not %d and %d", two.hidden, one.hidden)
 	}
 	press(tabs, tea.KeyPressMsg{Code: tea.KeyEscape})
 	if !one.escaped || tabs.at != 0 {
@@ -112,7 +153,7 @@ func TestAJumpLandsOnTheRowNamingItsEntityAndEscReturnsToTheRowItLeft(t *testing
 	}
 
 	press(tabs, tabKey)
-	if tabs.at != 1 || one.hidden != 2 || two.hidden != 1 {
-		t.Errorf("tab should hide one once more and leave two shown, not %d and %d", one.hidden, two.hidden)
+	if tabs.at != 1 || one.hidden != 1 || two.hidden != 1 {
+		t.Errorf("tab should tell one once and leave two shown, not %d and %d", one.hidden, two.hidden)
 	}
 }

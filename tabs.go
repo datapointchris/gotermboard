@@ -145,7 +145,7 @@ func (t *Tabs) cycleActions() []Action {
 	}
 	cycle := func(by int) func(*Model) tea.Cmd {
 		return func(*Model) tea.Cmd {
-			t.back = nil
+			t.forgetBack()
 			return t.show(t.nextListed(by))
 		}
 	}
@@ -165,6 +165,7 @@ func (t *Tabs) show(at int) tea.Cmd {
 	seeking := t.models[at].seeking
 	if at != t.at {
 		t.active().hide()
+		t.tellLeft(t.at)
 	}
 	t.at = at
 	t.active().seeking = seeking
@@ -280,7 +281,7 @@ func (t *Tabs) clickedTab(x int) tea.Cmd {
 			if i == t.at {
 				return nil
 			}
-			t.back = nil
+			t.forgetBack()
 			return t.show(i)
 		}
 		left = right + 2
