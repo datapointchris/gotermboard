@@ -40,6 +40,10 @@ type Outside struct {
 	Kind string
 	// Name names it among the places a row goes, as a tab's name does.
 	Name string
+	// CannotOpen says why the program cannot open an id, such as a link of a scheme it refuses or
+	// the program missing from PATH, and nothing where it can. Where it says why, the footer
+	// says that and nothing opens. Nil hands every id to Command.
+	CannotOpen func(id string) string
 	// Command is the program opened on one entity's id, which the caller's own runner starts,
 	// or nil where it cannot open that id. It ends as Model.HandOver's program does: the end
 	// of its stderr is kept, the board whose row it left receives the HandedBack, and a
@@ -307,6 +311,12 @@ func (t *Tabs) showEntity(at int, ref EntityRef, backTo string) tea.Cmd {
 
 // openOutside hands the terminal to the program outside on ref, as HandOver does.
 func (m *Model) openOutside(outside *Outside, ref EntityRef) tea.Cmd {
+	if outside.CannotOpen != nil {
+		if why := outside.CannotOpen(ref.ID); why != "" {
+			m.Say(why)
+			return nil
+		}
+	}
 	program := outside.Command(ref.ID)
 	if program == nil {
 		m.Say(fmt.Sprintf("%s cannot open %s %s", outside.Name, ref.Kind, ref.ID))

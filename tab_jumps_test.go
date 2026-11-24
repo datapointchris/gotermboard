@@ -1,6 +1,7 @@
 package gotermboard
 
 import (
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -119,6 +120,41 @@ func TestABoardsKeyGoesToTheNamedTabOnItsThingAndEscComesBack(t *testing.T) {
 	tabs.Update(press(tabs, typedKey("o"))())
 	if tabs.at != 0 || one.hidden != 0 {
 		t.Errorf("a go-to inside the tab showing should keep it shown, not hide it (hidden %d times)", one.hidden)
+	}
+}
+
+// idleProgram is a program a jump hands the terminal to, which a test never runs.
+type idleProgram struct{}
+
+func (idleProgram) Run() error          { return nil }
+func (idleProgram) SetStdin(io.Reader)  {}
+func (idleProgram) SetStdout(io.Writer) {}
+func (idleProgram) SetStderr(io.Writer) {}
+
+func TestAProgramOutsideSaysWhyItCannotOpenAThingAndOpensTheRest(t *testing.T) {
+	tabs, err := NewTabs([]Tab{{Name: "one", Board: &thingsBoard{ids: []string{"1", "2"}}}}, gotermstyle.NewPalette(false), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabs.OpensOutside(Outside{
+		Kind: "thing", Name: "viewer",
+		CannotOpen: func(id string) string {
+			if id == "2" {
+				return "viewer is not on PATH"
+			}
+			return ""
+		},
+		Command: func(string) tea.ExecCommand { return idleProgram{} },
+	})
+	tabs.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	tabs.active().reveal(time.Now())
+
+	if press(tabs, typedKey(JumpKey)) == nil {
+		t.Error("t on thing 1 should hand the terminal to viewer")
+	}
+	press(tabs, downKey)
+	if cmd := press(tabs, typedKey(JumpKey)); cmd != nil || !strings.Contains(tabs.View().Content, "viewer is not on PATH") {
+		t.Errorf("t on thing 2 should open nothing and say why:\n%s", tabs.View().Content)
 	}
 }
 
