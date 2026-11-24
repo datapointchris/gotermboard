@@ -162,10 +162,31 @@ and `*` again from any tab lifts it.
   `LockGlyph`, as one naming the thing does.
 - **The lock filters what each board draws, and changes no board's reads.**
 
+## `PrintTab` prints one tab once, as a frame or as its snapshot
+
 `Once` draws one frame from what a board's sources already hold, and `OnceSize` picks
 its size: `COLUMNS` by `LINES`, then the terminal, then a fallback you pass. A screen that
 is no board picks its printed frame's size the same way with `printedframe.Size`, which
 imports nothing that draws.
+
+`PrintTab` is the whole step for a program whose `--once` and `--json` print the tab `--view`
+names. Its board is a `SnapshotBoard`, which answers `Snapshot(now)` beside its frame. With JSON
+asked for, it writes the snapshot indented two spaces, with HTML escaping on. Otherwise it writes
+one frame at `OnceSize`, in the palette stdout takes. Both print what the sources already hold,
+so the program reads them first.
+
+`RefuseUnknownView` is the error for a `--view` that names none of the tabs, and nil for an
+empty one. This package imports no CLI kit, so the program wraps it as its own usage errors are
+wrapped.
+
+```go
+if err := gotermboard.RefuseUnknownView(view, tabNames); err != nil {
+ return usageError(err)
+}
+board := buildTab(view)
+board.readOnce(ctx)
+return gotermboard.PrintTab(os.Stdout, asJSON, board, 188, 88)
+```
 
 ## A theme file colors a board by role, and SIGUSR2 recolors a running board
 
