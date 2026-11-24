@@ -548,6 +548,42 @@ frame.Charts = func(width, height int) []gotermboard.Line {
 A row's `Panel` takes a chart the same way, at the panel's width: `chart.Document(week, 12)`. The
 charts are laid out once a frame, so a moving strip's beat leaves them as they stand.
 
+## A printed table lines up colored cells by the width each prints at
+
+The `printedtable` package prints rows as a table for a command that prints and exits, as a rich
+table prints for a Python one. `text/tabwriter` counts a color's escapes as width, so one colored
+cell shifts every column after it. `printedtable` lays the table out through lipgloss's `table`,
+which measures each cell by the width it prints at.
+
+- **Each cell carries a gotermstyle code,** and a palette paints it. The caller resolves that
+  palette once, and a palette that is off, as `NO_COLOR` makes it, prints no escape at all.
+- **The look is rich's borderless table:** bold titles, two blank columns between neighbors, and
+  no trailing spaces. A table with no titles prints no title line, and `Gap` sets another gap.
+- **`Width` cuts the widest cells to fit,** each ending in `…`, and a narrower table keeps its own
+  width. Zero prints every cell whole, as piped output is read whole.
+- **A `Whole` column is never cut,** because a cut handle is a command that fails when typed. The
+  other columns give up the room, and where they cannot, the table prints wider than `Width`.
+
+```go
+width, _ := printedframe.Size(0, 0)
+jobs := printedtable.Table{
+ Columns: []printedtable.Column{{Title: "job"}, {Title: "state"}, {Title: "runs", Right: true}, {Whole: true}},
+ Width:   width,
+}
+for _, j := range readJobs() {
+ jobs.Rows = append(jobs.Rows, []printedtable.Cell{
+  printedtable.C(j.Name, ""),
+  printedtable.C(j.State, gotermstyle.CodeRed),
+  printedtable.C(strconv.Itoa(j.Runs), ""),
+  printedtable.C("↳ jobs show "+j.Name, gotermstyle.CodeCommand),
+ })
+}
+err := jobs.Print(os.Stdout, gotermstyle.PaletteFor(os.Stdout))
+```
+
+`Lines` returns the same lines unwritten, for a caller that indents them or prints a heading
+between two tables.
+
 ## A board can add keys
 
 A board implementing `Keyed` adds `Action`s, which take precedence over the table's and
