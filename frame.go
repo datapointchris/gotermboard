@@ -361,7 +361,8 @@ type Group struct {
 	// Document draws under Below whether the group is folded or not, so a view can open
 	// a group's text in place. The cursor moves past it too.
 	Document Document
-	// Summary is drawn past the title while the group is folded.
+	// Summary is drawn past the title, or past the Span and wrapping with it, while the group
+	// is folded.
 	Summary Line
 	Folded  bool
 	// Gap draws a blank line after the group.
@@ -1016,6 +1017,15 @@ func spanColumn(depth int, g *Group) int {
 	return indentOf(depth) + 2 + groupLabel(g).width() + len(columnGap)
 }
 
+// spanLine is a Span group's Span, then its Summary while the group is folded or draws no row
+// under it, as a group with no Span shows its Summary past its title.
+func (n node) spanLine() Line {
+	if len(n.group.Summary) == 0 || (n.open && n.drawsRows) {
+		return n.group.Span
+	}
+	return slices.Concat(n.group.Span, Line{C(columnGap, "")}, n.group.Summary)
+}
+
 // layout is the width each column takes for what shows, within width, and the columns with
 // the gaps ahead of them. The last column takes what is left and is never padded, unless
 // look spreads the columns and no row or group wraps its last column under itself.
@@ -1497,7 +1507,7 @@ func spanLines(p painter, n node, parts nodeParts, pointer string, columns []Col
 		if i == 0 {
 			lines = append(lines, drawn{
 				text: ansi.Truncate(opening+p.line(piece), width, "…"), key: selectableKey(n),
-				whole: ansi.Truncate(opening+p.line(n.group.Span), width, "…"),
+				whole: ansi.Truncate(opening+p.line(n.spanLine()), width, "…"),
 			})
 			continue
 		}
@@ -1599,6 +1609,9 @@ func wrapWords(line Line, width int) []Line {
 	var current Line
 	room := width
 	finish := func() {
+		for len(current) > 1 && strings.TrimRight(current[len(current)-1].Text, " ") == "" {
+			current = current[:len(current)-1]
+		}
 		current[len(current)-1].Text = strings.TrimRight(current[len(current)-1].Text, " ")
 		out = append(out, current)
 		current, room = nil, width

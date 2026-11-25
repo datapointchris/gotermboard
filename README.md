@@ -272,6 +272,8 @@ or row has a summary to draw.
 `Span` draws a long value whole past a group's title, wrapping under itself, so it never
 sets the first column's width. The group's cells then take the next line, with `Beside`
 ahead of them in the first column. `Column.Min` holds that column wide enough to be useful.
+A group's `Summary` draws past its `Span` while the group is folded, and wraps with it. An
+open group with rows under it draws none, as a group without a `Span` does.
 
 ## A board can draw its rows as blocks ruled apart, spread across a margined screen
 

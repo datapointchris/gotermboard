@@ -4,7 +4,7 @@ package gotermboard
 // its lines and drawNode paints it, so a node's height and its lines come from one plan.
 type nodeParts struct {
 	overline, underline bool
-	// span is a Span group's Span, wrapped.
+	// span is a Span group's Span and any Summary it shows, wrapped.
 	span []Line
 	// head is the line holding the node's cells, or the one line a blank, a rule or an unwrapped
 	// summary draws.
@@ -38,7 +38,7 @@ func partsOf(n node, widths []int, width int) nodeParts {
 		g := n.group
 		parts := nodeParts{overline: n.overlined(), underline: g.Underline != RuleNone, below: g.Below, head: true}
 		if len(g.Span) > 0 {
-			parts.span = wrapWords(g.Span, spanRoom(n, width))
+			parts.span = wrapWords(n.spanLine(), spanRoom(n, width))
 			parts.head = len(g.Cells) > 0 || len(g.WrapLast) > 0 || len(g.Beside) > 0
 		}
 		if parts.head {

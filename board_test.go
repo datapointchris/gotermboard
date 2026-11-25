@@ -934,6 +934,26 @@ func TestASpanGroupDrawsItsSpanWholeWithItsCellsAndBesideOnTheLineBelow(t *testi
 	}
 }
 
+func TestAFoldedSpanGroupDrawsItsSummaryPastItsSpanAndAnOpenOneDrawsNone(t *testing.T) {
+	record := func(key string, folded bool) Group {
+		return Group{
+			Key: key, Title: Line{C(key, Cyan)}, Span: Line{C("a title that wraps", Bold)},
+			Summary: Line{C("design · retro", "")}, Folded: folded,
+			Rows: []Row{{Key: key + "-row", Cells: []Cell{C("row", "")}}},
+		}
+	}
+	frame := Frame{Columns: []Column{{Title: "NAME"}}, Groups: []Group{record("4281", true), record("1931", false)}}
+	lines := strings.Split(Once(fixedBoard{frame}, gotermstyle.NewPalette(false), 30, 12), "\n")
+	want := []string{
+		" ▸ 4281  a title that wraps",
+		"         design · retro",
+		" ▾ 1931  a title that wraps",
+	}
+	if got := lines[:3]; strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestBracketsJumpGroupsAtTheCursorsDepthOrShallower(t *testing.T) {
 	heading := func(key string, groups ...Group) Group {
 		return Group{Key: key, Title: Line{C(key, "")}, Groups: groups}
