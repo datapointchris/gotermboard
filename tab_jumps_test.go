@@ -91,7 +91,7 @@ func TestEscAlongChainedJumpsFindsTheRowOnABoardThatNarrowsOnceTheReaderLeaves(t
 	}
 }
 
-func TestABoardsKeyGoesToTheNamedTabOnItsThingAndEscComesBack(t *testing.T) {
+func TestABoardsKeyGoesToTheTabOrProgramOutsideItNamesOnItsThing(t *testing.T) {
 	one, two := &openingBoard{thingsBoard: thingsBoard{ids: []string{"1", "2"}}, to: "two"}, &thingsBoard{ids: []string{"3", "2"}}
 	tabs, err := NewTabs([]Tab{{Name: "one", Board: one}, {Name: "two", Board: two}}, gotermstyle.NewPalette(false), "")
 	if err != nil {
@@ -114,6 +114,12 @@ func TestABoardsKeyGoesToTheNamedTabOnItsThingAndEscComesBack(t *testing.T) {
 	tabs.Update(press(tabs, typedKey("o"))())
 	if got := tabs.View().Content; tabs.at != 0 || !strings.Contains(got, `no tab "three"`) {
 		t.Errorf("a tab that is not there should leave the cursor where it is and say so:\n%s", got)
+	}
+
+	tabs.OpensOutside(Outside{Kind: "thing", Name: "viewer", Command: func(string) tea.ExecCommand { return idleProgram{} }})
+	one.to = "viewer"
+	if _, cmd := tabs.Update(press(tabs, typedKey("o"))()); cmd == nil || tabs.at != 0 || len(tabs.back) != 0 {
+		t.Errorf("o should hand thing 2 to the program outside named viewer, on tab one with nothing pushed, not tab %d with %d pushed", tabs.at, len(tabs.back))
 	}
 
 	one.to = "one"

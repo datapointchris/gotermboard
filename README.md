@@ -120,14 +120,16 @@ names goes to more than one place, `t` lists them by number and goes to the one 
 - **Tab and shift+tab empty the stack,** because the reader left the trail the jumps made.
 - **A board's own key jumps by returning `GoTo(tab, ref)`,** for a key with one place to go,
   such as enter on a row opening it where another tab shows it whole. It pushes and lands as
-  picking that tab from `t`'s list does. A tab that is not there, or shows no such kind, goes
-  nowhere, and the footer says why.
+  picking that tab from `t`'s list does. Where no tab has the name, the program outside of that
+  name opens, so enter and `t` on one row take one door. A tab or program that is not there, or
+  shows no such kind, goes nowhere, and the footer says why.
 - **`OpensOutside` adds a program that shows a kind whole,** such as a pull request tool opened
   on one. A jump there hands it the terminal and pushes nothing, because quitting it comes back.
-  It ends as `HandOver` does: the board receives the `HandedBack`, and a failure says the last
-  line of its stderr. `Command` returns a `tea.ExecCommand`, so the caller's own runner starts it.
-  `CannotOpen` answers why an id cannot open, such as the program missing from `PATH`, and the
-  footer says that rather than a bare refusal.
+  It ends as `HandOver` does, and the board receives the `HandedBack`. `Ended` says what the
+  footer reads from how it ended, and without it a failure says the last line of its stderr.
+  `Command` returns a `tea.ExecCommand`, so the caller's own runner starts it. `CannotOpen`
+  answers why an id cannot open, such as the program missing from `PATH`, and the footer says
+  that rather than a bare refusal.
 - **`EntityPage` names the tab that shows any one entity whole,** as Backstage gives each entity
   one page. `i` opens it on what the row names, from any tab, the page's own included, and lists
   the row's things by number where it names several. `t` leaves the page out of its list, because

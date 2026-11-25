@@ -46,9 +46,12 @@ type Outside struct {
 	CannotOpen func(id string) string
 	// Command is the program opened on one entity's id, which the caller's own runner starts,
 	// or nil where it cannot open that id. It ends as Model.HandOver's program does: the end
-	// of its stderr is kept, the board whose row it left receives the HandedBack, and a
-	// failure says its last line.
+	// of its stderr is kept, and the board whose row it left receives the HandedBack.
 	Command func(id string) tea.ExecCommand
+	// Ended is what the footer says once the program hands the terminal back, from how it
+	// ended and the end of its stderr, and nothing where it answers "". Nil says a failure's
+	// last line, and nothing where the program exited 0.
+	Ended func(id string, err error, stderr []byte) string
 }
 
 // JumpKey goes to what the cursor's row names, where another tab or a program outside shows it.
@@ -56,9 +59,11 @@ const JumpKey = "t"
 
 // GoTo is the command a board's own key returns to show ref in the tab named tab, as picking that
 // tab from JumpKey's list does: the tab it leaves is pushed for esc, and that tab's board is told
-// ref. It is for a key with one place to go, such as enter on a row opening it where another tab
-// shows it whole. A tab that is not there, or whose board shows no ref's kind, goes nowhere, and
-// the footer says why. A board in a program of one Model hears it as any message it does not own.
+// ref. Where no tab has that name, the program outside of that name and ref's kind opens on ref,
+// as picking it from JumpKey's list does. It is for a key with one place to go, such as enter on
+// a row opening it where another tab or a program outside shows it whole. A tab or program that
+// is not there, or that shows no ref's kind, goes nowhere, and the footer says why. A board in a
+// program of one Model hears it as any message it does not own.
 func GoTo(tab string, ref EntityRef) tea.Cmd {
 	return func() tea.Msg { return goToMsg{tab: tab, ref: ref} }
 }
@@ -71,8 +76,7 @@ type goToMsg struct {
 func (t *Tabs) goTo(msg goToMsg) tea.Cmd {
 	at := slices.Index(t.names, msg.tab)
 	if at < 0 {
-		t.active().Say(fmt.Sprintf("no tab %q to show %s %s in", msg.tab, msg.ref.Kind, msg.ref.ID))
-		return nil
+		return t.goOutside(msg)
 	}
 	if board, ok := t.models[at].board.(EntityBoard); !ok || !slices.Contains(board.EntityKinds(), msg.ref.Kind) {
 		t.active().Say(fmt.Sprintf("%s shows no %s", msg.tab, msg.ref.Kind))
@@ -82,6 +86,26 @@ func (t *Tabs) goTo(msg goToMsg) tea.Cmd {
 		return t.showEntity(at, msg.ref, "")
 	}
 	return t.jump(jumpTarget{ref: msg.ref, tab: at})
+}
+
+// goOutside is GoTo where no tab has the name: the program outside of that name and ref's kind.
+func (t *Tabs) goOutside(msg goToMsg) tea.Cmd {
+	named := false
+	for i := range t.outside {
+		if t.outside[i].Name != msg.tab {
+			continue
+		}
+		if t.outside[i].Kind == msg.ref.Kind {
+			return t.jump(jumpTarget{ref: msg.ref, tab: -1, outside: &t.outside[i]})
+		}
+		named = true
+	}
+	if named {
+		t.active().Say(fmt.Sprintf("%s shows no %s", msg.tab, msg.ref.Kind))
+	} else {
+		t.active().Say(fmt.Sprintf("no tab %q to show %s %s in", msg.tab, msg.ref.Kind, msg.ref.ID))
+	}
+	return nil
 }
 
 // OpensOutside adds programs that a row's entity can jump to, after the tabs that show its kind.
@@ -323,7 +347,12 @@ func (m *Model) openOutside(outside *Outside, ref EntityRef) tea.Cmd {
 		return nil
 	}
 	return m.handOverProgram(&runnerHandedOver{ExecCommand: program}, func(m *Model, err error, stderr []byte) tea.Cmd {
-		if err != nil {
+		switch {
+		case outside.Ended != nil:
+			if said := outside.Ended(ref.ID, err, stderr); said != "" {
+				m.Say(said)
+			}
+		case err != nil:
 			m.Say(fmt.Sprintf("%s on %s %s: %s", outside.Name, ref.Kind, ref.ID, LastLine(stderr, err)))
 		}
 		return nil
