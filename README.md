@@ -755,6 +755,27 @@ func (b *board) Receive(m *gotermboard.Model, msg tea.Msg) tea.Cmd {
 }
 ```
 
+## A key's write runs off the loop, one at a time, and quitting waits for it
+
+`keywrites.Writes` is a board's queue of the writes its keys start. `Start` queues a `Write` and
+returns the drain that runs the queue, or nil where one already runs, so the next key never waits.
+Writes run one at a time, in the order the keys started them, and one read follows the drain.
+
+A write's `Row` stays pending from its key until a read that began after the write ended lands.
+`Settle(readFrom)` lets those rows go, and `Pending(row).Refusal()` is what a key on a pending row
+says instead of acting. A refused write keeps its row with its error, and that row takes its next
+key. `Line` is the strip's line about the writes, and `SayEnded` puts the newest answer on the
+footer as a frame is built. Quitting calls `Await`, so the program never exits under a write half
+sent.
+
+```go
+func (b *board) place(m *gotermboard.Model, key string) tea.Cmd {
+ return b.writes.Start(m, keywrites.Write{Doing: "placing " + key, Row: key, Run: func() (string, error) {
+  return b.service.Place(key)
+ }}, b.readAgain)
+}
+```
+
 ## A key leaves the board for another program and comes back
 
 `Model.HandOver(cmd, then)` gives the terminal to `cmd` until it exits, and `then` gets how it ended
