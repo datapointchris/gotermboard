@@ -296,7 +296,8 @@ look.
   column titles on a line of their own with a rule under it, and a rule over the footer.
   Both rules span the table's width. `BoldCursor` draws the cursor's row bold over the
   theme's selection, across every line the row draws. `NoRowChevrons` leaves each row's
-  chevron cell blank.
+  chevron cell blank. `NoSidePanel` gives the table the whole width at any size and unbinds
+  `p`, for a board whose rows open in place, where the panel would only repeat the open row.
 
 ## A row can open a document laid out at its width
 
@@ -430,7 +431,7 @@ it matches nothing.
 ## The side panel follows the cursor
 
 From `PanelFrom` columns inside a `Look`'s margin, or of the screen where a board has none,
-the panel grows with the screen, up to `ReadingWidth`. It draws where any
+the panel grows with the screen, up to `ReadingWidth`, unless the board's `Look` sets `NoSidePanel`. It draws where any
 row in the frame holds `Panel`, `Document` or `Detail`, or any group but a `Still` one holds `Panel`
 or `Detail`, counting lines folded away or held back for a filter. A frame with none of them draws
 no panel, and the table takes the width. The frame decides rather than the cursor's line, so the
@@ -452,8 +453,8 @@ under way. So a key that shows only on a later read never moves a cursor the rea
 
 ## A tall document reads on a full screen
 
-`Reader` is a full screen over one `Document`. It lays the text out at up to `ReadingWidth` columns,
-centers it on a wider screen, and keeps the same words at the top through a resize. `j` and
+`Reader` is a full screen over one `Document`. It lays the text out at the window's width, less a
+column at each side, and keeps the same words at the top through a resize. `j` and
 `k`, `ctrl+d` and `ctrl+u`, `g` and `G` move through it, `[` and `]` jump between sections,
 and `/` searches with `n` and `N`. A query with no capital in it ignores case. `y` copies
 `CopyText`, or the text as drawn, over OSC 52. `e` opens `EditFile` in `$VISUAL` or `$EDITOR`

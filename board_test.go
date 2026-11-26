@@ -1201,4 +1201,14 @@ func TestThePanelGrowsToAReadingWidthWhereAFrameHasTextForItAndTheCursorStartsPa
 	if got := silent.screen(); strings.Contains(got, "│") || strings.Contains(got, "p panel") {
 		t.Errorf("a frame with nothing for the panel should give the table its width:\n%s", got)
 	}
+
+	panelless := NewModel(noSidePanelBoard{fixedBoard{frame([]Cell{C("what it says", "")})}}, gotermstyle.NewPalette(false))
+	panelless.Update(tea.WindowSizeMsg{Width: 378, Height: 20})
+	if got := panelless.screen(); panelless.panelWidth() != 0 || strings.Contains(got, "p panel") {
+		t.Errorf("a Look with NoSidePanel should give the table its width and leave p unbound:\n%s", got)
+	}
 }
+
+type noSidePanelBoard struct{ fixedBoard }
+
+func (noSidePanelBoard) Look(int) Look { return Look{NoSidePanel: true} }

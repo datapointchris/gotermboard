@@ -16,11 +16,6 @@ import (
 	"github.com/datapointchris/gotermboard/terminalcontrol"
 )
 
-// ReadingWidth is the widest a reader lays text out, because a longer line is hard to
-// follow back to its start. A wider screen keeps the rest as margin. A view that lays
-// the same text out in its table reads this, so the two wrap alike.
-const ReadingWidth = 100
-
 // hitContext is how many rows a search leaves above the row it lands on.
 const hitContext = 2
 
@@ -186,7 +181,7 @@ func (r *Reader) resize(width, height int) {
 	above := lettersIn(r.rows[:min(r.top, len(r.rows))])
 	toEnd := r.follows && r.atEnd()
 	r.width, r.height = width, height
-	r.rows = strippedLines(r.document(min(max(width-2, 1), ReadingWidth)))
+	r.rows = strippedLines(r.document(max(width-2*len(readerSide), 1)))
 	r.sections = r.sections[:0]
 	for i, row := range r.rows {
 		if slices.ContainsFunc(row, opensSection) {
@@ -232,8 +227,7 @@ func (r *Reader) topLine() string {
 	if r.title != "" {
 		segments = append(segments, Line{C(r.title, Bold)})
 	}
-	margin := r.margin()
-	return margin + r.pathLine(append(segments, r.headingsInView()...), r.width-len(margin))
+	return readerSide + r.pathLine(append(segments, r.headingsInView()...), r.width-len(readerSide))
 }
 
 // pathLine draws segments on one line within room, cut as [breadcrumb.Fit] cuts them.
@@ -275,7 +269,8 @@ func rowAfterLetters(rows []Line, letters int) int {
 // bodyHeight is what the top line and the footer leave for the text.
 func (r *Reader) bodyHeight() int { return max(r.height-2, 1) }
 
-func (r *Reader) margin() string { return strings.Repeat(" ", max((r.width-ReadingWidth)/2, 1)) }
+// readerSide is the blank column at each side of the text, which runs to the window's width.
+const readerSide = " "
 
 func (r *Reader) scrollTo(top int) {
 	r.top = max(min(top, len(r.rows)-r.bodyHeight()), 0)
@@ -516,9 +511,8 @@ func (r *Reader) screen() string {
 		}
 		lines = lines[:min(len(lines), body+1)]
 	} else {
-		margin := r.margin()
 		for _, row := range r.rows[r.top:min(r.top+body, len(r.rows))] {
-			lines = append(lines, ansi.Truncate(margin+r.painter.line(r.marked(row)), r.width, "…"))
+			lines = append(lines, ansi.Truncate(readerSide+r.painter.line(r.marked(row)), r.width, "…"))
 		}
 	}
 	for len(lines) < body+1 {

@@ -77,6 +77,9 @@ type Look struct {
 	// NoRowChevrons leaves a row's chevron cell blank, for a board whose every row opens, where
 	// a chevron tells no row apart. A group's chevron still draws, and no column moves.
 	NoRowChevrons bool
+	// NoSidePanel gives the table the whole width at any size, for a board whose rows open in
+	// place, where the panel would only repeat the open row. p is then unbound.
+	NoSidePanel bool
 }
 
 // CursorBoard is a Board told which key the cursor is on, for a read that follows it.
@@ -125,6 +128,10 @@ type MovingBoard interface {
 // PanelFrom is the narrowest width inside a board's Look margin that gets the side panel. On
 // a board with no Look, that is the screen's width.
 const PanelFrom = 160
+
+// ReadingWidth is the widest the side panel grows, because a longer line is hard to follow back
+// to its start. A Document in the table and the Reader each lay out at the width they are given.
+const ReadingWidth = 100
 
 // tickEvery redraws the ages and starts what is due.
 const tickEvery = time.Second
@@ -1675,9 +1682,11 @@ func (m *Model) onOpenText() bool {
 	return n.open && n.fold == nil
 }
 
-// panelFits says the screen has room for the side panel and this frame has text for it.
+// panelFits says the screen has room for the side panel, this frame has text for it, and the
+// board's Look keeps one.
 func (m *Model) panelFits() bool {
-	return m.width >= PanelFrom && (m.panelHasText || !m.display.raw && m.display.rowFolds.anyPanelText())
+	return m.width >= PanelFrom && !m.look().NoSidePanel &&
+		(m.panelHasText || !m.display.raw && m.display.rowFolds.anyPanelText())
 }
 
 // panelWidth grows with the screen up to ReadingWidth. A frame with nothing for the panel to
