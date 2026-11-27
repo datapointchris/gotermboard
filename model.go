@@ -1256,6 +1256,9 @@ func (r Row) title() string {
 	if len(r.Span) > 0 {
 		return r.Span.Text()
 	}
+	if len(r.Paragraph) > 0 {
+		return r.Paragraph.Text()
+	}
 	texts := make([]string, 0, len(r.Cells))
 	for _, cell := range r.Cells {
 		texts = append(texts, cell.Text)
@@ -1428,7 +1431,7 @@ func (m *Model) rebuildKeeping(now time.Time, mayKeep bool) {
 	next := strippedFrame(m.board.Frame(now, grouping))
 	same := mayKeep && next.Revision != 0 && next.Revision == m.frame.Revision
 	if same {
-		next.Columns, next.Groups = m.frame.Columns, m.frame.Groups
+		next.Columns, next.Groups, next.SymbolWidth = m.frame.Columns, m.frame.Groups, m.frame.SymbolWidth
 		m.frame = next
 	} else {
 		m.frame = next
@@ -1508,11 +1511,11 @@ func (m *Model) kept() *keptLayout {
 	if kept := m.layout; kept != nil && kept.fits(d, width, look) {
 		return kept
 	}
-	nodes, columns, widths := d.nodes(m.frame.Groups, m.frame.Columns, width, look, m.nodesHint)
+	nodes, columns, widths := d.nodes(m.frame.Groups, m.frame.Columns, width, look, m.frame.SymbolWidth, m.nodesHint)
 	m.nodesHint = len(nodes)
 	k := &keptLayout{
 		width: width, look: look, under: d.under, panelShown: d.panelShown, filter: d.filter, locked: refOf(d.lockedTo()), lockAnswers: d.lockAnswers(),
-		toggles: d.toggles, nodes: nodes, columns: columns, widths: widths,
+		toggles: d.toggles, nodes: nodes, columns: columns, widths: widths, symbols: m.frame.SymbolWidth,
 	}
 	k.ix = k.index(m.frame.Groups, d.foldsOf)
 	m.layout = k
@@ -1533,6 +1536,8 @@ type keptLayout struct {
 	nodes   []node
 	columns []Column
 	widths  []int
+	// symbols is the frame's SymbolWidth.
+	symbols int
 	ix      *lineIndex
 	// panel is the side panel's document for the cursor's stop, read once and kept unpainted.
 	panel keptPanel

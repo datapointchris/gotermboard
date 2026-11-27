@@ -115,9 +115,15 @@ func (b *randomBoard) document(key string) Document {
 
 func (b *randomBoard) row(key string, columns int) Row {
 	r := Row{Key: key, Text: b.words()}
-	if b.often(6) {
+	switch b.rng.IntN(6) {
+	case 0:
 		r.Span = b.line(1 + b.rng.IntN(3))
-	} else {
+	case 1:
+		r.Paragraph = Line{C(strings.Repeat(b.words()+" ", 1+b.rng.IntN(30)), b.code()), C(b.words(), Cyan)}
+		if b.often(2) {
+			r.Bar = C("┃", b.code())
+		}
+	default:
 		for range columns {
 			r.Cells = append(r.Cells, C(b.words(), b.code()))
 		}
@@ -252,6 +258,9 @@ func (b *randomBoard) build() []string {
 	}
 	if b.often(3) {
 		frame.Strip = []Line{b.line(2)}
+	}
+	if b.often(3) {
+		frame.SymbolWidth = 1 + b.rng.IntN(2)
 	}
 	if b.often(6) {
 		frame.Charts = func(width, _ int) []Line { return []Line{{C(strings.Repeat("▁", min(width, 30)), Cyan)}} }

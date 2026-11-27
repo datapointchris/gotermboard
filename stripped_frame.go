@@ -91,16 +91,16 @@ func strippedColumn(c *Column) (Column, bool) {
 
 func strippedRowAt(r *Row) (Row, bool) {
 	var s stripper
-	symbol, under, readerTitle := s.cell(r.Symbol), s.cell(r.Under), s.text(r.ReaderTitle)
+	symbol, under, readerTitle, bar := s.cell(r.Symbol), s.cell(r.Under), s.text(r.ReaderTitle), s.cell(r.Bar)
 	cells, span, wrapLast, cutLast := s.line(r.Cells), s.line(r.Span), s.line(r.WrapLast), s.line(r.CutLast)
-	second, detail := s.line(r.Second), s.line(r.Detail)
+	second, detail, paragraph := s.line(r.Second), s.line(r.Detail), s.line(r.Paragraph)
 	if !s.changed {
 		return Row{}, false
 	}
 	out := *r
-	out.Symbol, out.Under, out.ReaderTitle = symbol, under, readerTitle
+	out.Symbol, out.Under, out.ReaderTitle, out.Bar = symbol, under, readerTitle, bar
 	out.Cells, out.Span, out.WrapLast, out.CutLast = cells, span, wrapLast, cutLast
-	out.Second, out.Detail = second, detail
+	out.Second, out.Detail, out.Paragraph = second, detail, paragraph
 	return out, true
 }
 

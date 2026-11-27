@@ -48,7 +48,7 @@ func (ix *lineIndex) nodeAt(line int) int {
 func (k *keptLayout) index(groups []Group, folds func(*Group) []rowFold) *lineIndex {
 	ix := &lineIndex{
 		starts: make([]int, len(k.nodes)+1), owners: make([]int32, len(k.nodes)), titlesAt: -1,
-		stopAt: make(map[string]int, len(k.nodes)), anyUnder: anyUnder(groups, k.widths, 0, folds),
+		stopAt: make(map[string]int, len(k.nodes)), anyUnder: anyUnder(groups, k.widths, 0, folds, k.symbols),
 	}
 	titled := false
 	if len(k.columns) > 0 && (k.look.Rules || titlesTakeOwnLine(k.nodes)) {
@@ -122,7 +122,8 @@ func (k *keptLayout) keyLine(i int) int {
 }
 
 // cursorSpan is the scrolling lines the cursor keeps in view on key: the line it lands on, through
-// a row's Second. ok is false where no line the table draws holds key.
+// a row's Second or the last line of its Paragraph. ok is false where no line the table draws
+// holds key.
 func (k *keptLayout) cursorSpan(key string) (at, end int, ok bool) {
 	stop, held := k.ix.stopAt[key]
 	if key == "" || !held {
@@ -131,7 +132,7 @@ func (k *keptLayout) cursorSpan(key string) (at, end int, ok bool) {
 	i := k.ix.stops[stop]
 	at = k.keyLine(i)
 	end = at
-	if n := k.nodes[i]; n.kind == nodeRow && len(n.row.Second) > 0 {
+	if n := k.nodes[i]; n.kind == nodeRow && (len(n.row.Second) > 0 || len(n.row.Paragraph) > 0) {
 		end = k.ix.starts[i+1] - k.ix.pinned - 1
 	}
 	return at, end, true
@@ -276,9 +277,13 @@ func titleLines(p painter, columns []Column, widths []int, width int, board Look
 	return lines
 }
 
-// documentLine is one line of a document at its node's column.
+// documentLine is one line of a document at its node's column, beside a Paragraph row's Bar two
+// cells ahead of it.
 func documentLine(p painter, n node, line Line, width int) string {
-	return cut(strings.Repeat(" ", n.column)+p.line(line), width)
+	if n.bar.Text == "" {
+		return cut(strings.Repeat(" ", n.column)+p.line(line), width)
+	}
+	return cut(strings.Repeat(" ", n.column-2)+p.cell(n.bar)+" "+p.line(line), width)
 }
 
 // narrow says r is a glyph this package draws that takes one cell and joins no rune beside it: the

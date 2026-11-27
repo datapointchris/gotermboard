@@ -217,7 +217,8 @@ type Document func(width int) []Line
 
 // Row is one line of the table: Cells on the columns, or Span across them.
 type Row struct {
-	Key    string
+	Key string
+	// Symbol is a glyph ahead of the row's first cell or its Span, such as the mark of a state.
 	Symbol Cell
 	Cells  []Cell
 	Span   Line
@@ -234,6 +235,14 @@ type Row struct {
 	// column, cut at the table's edge. The cursor's row wears its look across both lines. A
 	// row's Under draws after it.
 	Second Line
+	// Paragraph draws the row as prose in place of its cells: wrapped at spaces across the whole
+	// table, from the cell after the chevron's, with a blank line above and below that the cursor
+	// passes over. Two paragraph rows next to each other share one blank. The cursor keeps every
+	// line of it in view, and its Document opens beside Bar under it.
+	Paragraph Line
+	// Bar runs down a Paragraph row's left edge in the chevron's cell, so prose stands apart from
+	// the rows around it. On a row that opens, the chevron takes its place on the first line.
+	Bar Cell
 	// UnderWhereCut draws Under only where the last column is too narrow for the row's cell
 	// there, for a summary that repeats that cell. Only the draw knows the column's width.
 	UnderWhereCut bool
@@ -273,25 +282,30 @@ type Row struct {
 func (r *Row) opens() bool { return len(r.Detail) > 0 || r.Document != nil }
 
 // lead is what the row takes of the first column ahead of its first cell: the indent at its
-// depth, the blank after its chevron, and its Symbol and a space.
-func (r *Row) lead(depth int) int {
+// depth, the blank after its chevron, and its Symbol and a space. symbols is the frame's
+// SymbolWidth.
+func (r *Row) lead(depth, symbols int) int {
 	lead := indentOf(depth) + 1
-	if r.Symbol.Text != "" {
-		lead += textWidth(r.Symbol.Text) + 1
+	if w := r.symbolWidth(symbols); w > 0 {
+		lead += w + 1
 	}
 	return lead
 }
 
+// symbolWidth is how wide the row's Symbol draws: as wide as its glyph, or as the frame's
+// SymbolWidth where that is wider.
+func (r *Row) symbolWidth(symbols int) int { return max(textWidth(r.Symbol.Text), symbols) }
+
 // cellRoom is the width the draw gives the row's cell in column at.
-func (r *Row) cellRoom(depth, at int, widths []int) int {
+func (r *Row) cellRoom(depth, at int, widths []int, symbols int) int {
 	if at > 0 {
 		return widths[at]
 	}
-	return max(widths[0]-r.lead(depth), 1)
+	return max(widths[0]-r.lead(depth, symbols), 1)
 }
 
 // showsUnder says the row at depth has a summary to draw at these column widths.
-func (r *Row) showsUnder(depth int, widths []int) bool {
+func (r *Row) showsUnder(depth int, widths []int, symbols int) bool {
 	if r.Under.Text == "" {
 		return false
 	}
@@ -300,7 +314,7 @@ func (r *Row) showsUnder(depth int, widths []int) bool {
 	}
 	last := len(widths) - 1
 	return last >= 0 && len(r.WrapLast) == 0 && len(r.Cells) > last &&
-		textWidth(r.Cells[last].Text) > r.cellRoom(depth, last, widths)
+		textWidth(r.Cells[last].Text) > r.cellRoom(depth, last, widths, symbols)
 }
 
 // panelSource is the row's own text for the side panel: its Panel or else its Document, and
@@ -435,6 +449,11 @@ type Frame struct {
 	Charts  func(width, height int) []Line
 	Columns []Column
 	Groups  []Group
+	// SymbolWidth reserves this many cells for each row's Symbol, so a row with none, or with a
+	// narrower one, starts its first cell where the rest do. A board whose Symbol marks only some
+	// rows, such as the failed ones, sets it to its glyph's width. Zero keeps each row's own. It
+	// counts toward Revision, as Columns and Groups do.
+	SymbolWidth int
 	// StartAt is the key the cursor starts on. Until that key shows, as on a frame drawn while
 	// its reads land, the cursor waits on the first line holding cells, or the last on a
 	// TailBoard, past any group with no panel text. With no such line it waits on the first
@@ -511,6 +530,10 @@ type node struct {
 	locked bool
 	// fold is the fold a row node draws, and nil for a row of the frame's own.
 	fold *rowFold
+	// symbols is the frame's SymbolWidth, which a row's first cell starts past.
+	symbols int
+	// bar is a Paragraph row's Bar, which its open document draws beside each line.
+	bar Cell
 }
 
 func (n node) selectable() bool {
@@ -693,6 +716,9 @@ func (d display) matches(r *Row) bool {
 func rowText(r *Row) string {
 	var b strings.Builder
 	b.WriteString(r.Span.Text() + " " + r.Under.Text + " " + r.Text)
+	if len(r.Paragraph) > 0 {
+		b.WriteString(" " + r.Paragraph.Text())
+	}
 	if len(r.CutLast) > 0 {
 		b.WriteString(" " + r.CutLast.Text())
 	}
@@ -821,14 +847,14 @@ func (d display) isRowOpen(r *Row) bool {
 
 // anyUnder says whether any group, row or fold's row, folded or not, has a summary to draw at these
 // column widths. A folded row has no node, so this reads the groups rather than the nodes. folds is
-// each group's folds as the board draws them.
-func anyUnder(groups []Group, widths []int, depth int, folds func(*Group) []rowFold) bool {
+// each group's folds as the board draws them, and symbols the frame's SymbolWidth.
+func anyUnder(groups []Group, widths []int, depth int, folds func(*Group) []rowFold, symbols int) bool {
 	for i := range groups {
 		g := &groups[i]
-		hasUnder := func(r Row) bool { return r.showsUnder(depth+1, widths) }
+		hasUnder := func(r Row) bool { return r.showsUnder(depth+1, widths, symbols) }
 		foldHasUnder := func(f rowFold) bool { return hasUnder(f.row) }
 		if g.Under.Text != "" || slices.ContainsFunc(g.Rows, hasUnder) || slices.ContainsFunc(folds(g), foldHasUnder) ||
-			anyUnder(g.Groups, widths, depth+1, folds) {
+			anyUnder(g.Groups, widths, depth+1, folds, symbols) {
 			return true
 		}
 	}
@@ -838,8 +864,11 @@ func anyUnder(groups []Group, widths []int, depth int, folds func(*Group) []rowF
 // nodes is what shows of groups on a table this wide, the columns with the gaps the layout
 // leaves ahead of them, and the width each column takes for it. Each node is marked with
 // whether it stays on screen and whether it names what sits inside it.
-func (d display) nodes(groups []Group, columns []Column, width int, look Look, hint int) ([]node, []Column, []int) {
+func (d display) nodes(groups []Group, columns []Column, width int, look Look, symbols, hint int) ([]node, []Column, []int) {
 	nodes := d.walk(groups, 0, -1, false, make([]node, 0, hint))
+	for i := range nodes {
+		nodes[i].symbols = symbols
+	}
 	columns, widths := layout(columns, nodes, width, look)
 	nodes = withoutHiddenUnders(nodes, widths)
 	pinned := true
@@ -856,7 +885,9 @@ func (d display) nodes(groups []Group, columns []Column, width int, look Look, h
 // withoutHiddenUnders drops each row's Under line that has no summary to draw at these widths.
 // No node sits inside an Under line, so a parent never drops, and the nodes after one move up.
 func withoutHiddenUnders(nodes []node, widths []int) []node {
-	hidden := func(n node) bool { return n.kind == nodeUnder && n.row != nil && !n.row.showsUnder(n.depth, widths) }
+	hidden := func(n node) bool {
+		return n.kind == nodeUnder && n.row != nil && !n.row.showsUnder(n.depth, widths, n.symbols)
+	}
 	if !slices.ContainsFunc(nodes, hidden) {
 		return nodes
 	}
@@ -864,7 +895,7 @@ func withoutHiddenUnders(nodes []node, widths []int) []node {
 	at := make([]int, len(nodes))
 	for i, n := range nodes {
 		at[i] = len(kept)
-		if n.kind == nodeUnder && n.row != nil && !n.row.showsUnder(n.depth, widths) {
+		if hidden(n) {
 			continue
 		}
 		if n.parent >= 0 {
@@ -955,9 +986,22 @@ func (w *groupRows) ruled(parent int, out []node) []node {
 	return out
 }
 
-// row is a row's node, its summary, and what opens under it.
+// row is a row's node, its summary, and what opens under it. A Paragraph row sits between blank
+// lines, sharing the one above with a paragraph row just before it.
 func (w *groupRows) row(r *Row, depth, parent int, out []node) []node {
 	out = w.ruled(parent, out)
+	paragraph := len(r.Paragraph) > 0
+	if paragraph && (len(out) == 0 || out[len(out)-1].kind != nodeBlank) {
+		out = append(out, node{kind: nodeBlank, parent: parent})
+	}
+	out = w.rowAndWhatOpens(r, depth, parent, out)
+	if paragraph {
+		out = append(out, node{kind: nodeBlank, parent: parent})
+	}
+	return out
+}
+
+func (w *groupRows) rowAndWhatOpens(r *Row, depth, parent int, out []node) []node {
 	open := w.d.isRowOpen(r)
 	self := len(out)
 	out = append(out, node{kind: nodeRow, key: r.Key, depth: depth, row: r, open: open, toggles: r.opens(), parent: parent, locked: w.d.namesLock(r)})
@@ -968,7 +1012,11 @@ func (w *groupRows) row(r *Row, depth, parent int, out []node) []node {
 		return out
 	}
 	if r.Document != nil {
-		return append(out, node{kind: nodeDocument, depth: depth + 1, document: r.Document, column: indentOf(depth + 1), parent: self})
+		document := node{kind: nodeDocument, depth: depth + 1, document: r.Document, column: indentOf(depth + 1), parent: self}
+		if len(r.Paragraph) > 0 {
+			document.column, document.bar = paragraphColumn(depth), r.Bar
+		}
+		return append(out, document)
 	}
 	for _, c := range r.Detail {
 		out = append(out, node{kind: nodeDetail, depth: depth + 1, cell: c, parent: self})
@@ -1008,6 +1056,10 @@ func indentOf(depth int) int { return 1 + 2*depth }
 // rowUnderColumn is where the summary under a row at depth starts, so its └─ sits under the
 // row's first cell, past the blank after the chevron.
 func rowUnderColumn(depth int) int { return indentOf(depth) + 1 + underMarkWidth }
+
+// paragraphColumn is where a Paragraph row at depth starts its prose: past its Bar in the
+// chevron's cell and the blank after it, where a row's Symbol would sit.
+func paragraphColumn(depth int) int { return indentOf(depth) + 1 }
 
 // spanColumn is where a Span group's Span starts, and zero for a group with none.
 func spanColumn(depth int, g *Group) int {
@@ -1051,12 +1103,12 @@ func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []i
 			for i, c := range n.row.Cells {
 				w := textWidth(c.Text)
 				if i == 0 {
-					w += n.row.lead(n.depth)
+					w += n.row.lead(n.depth, n.symbols)
 				}
 				widths[i] = max(widths[i], w)
 			}
 			if len(n.row.Second) > 0 {
-				widths[0] = max(widths[0], n.row.lead(n.depth)+textWidth(n.row.Second[0].Text))
+				widths[0] = max(widths[0], n.row.lead(n.depth, n.symbols)+textWidth(n.row.Second[0].Text))
 			}
 		}
 	}
@@ -1297,6 +1349,9 @@ func drawNodeBody(p painter, n node, parts nodeParts, columns []Column, widths [
 		}
 		text = pointer + drawGroup(p, n, columns, widths, wantsTitles)
 	case nodeRow:
+		if len(n.row.Paragraph) > 0 {
+			return wear(paragraphLines(p, n, parts, pointer, selected, look))
+		}
 		text = pointer + drawRow(p, n, columns, widths)
 	case nodeUnder:
 		return underLines(p, n, parts, width)
@@ -1336,8 +1391,8 @@ func drawNodeBody(p painter, n node, parts nodeParts, columns []Column, widths [
 // sits, then the rest from the second column's start.
 func secondLine(p painter, n node, columns []Column, widths []int) string {
 	second := n.row.Second
-	lead := strings.Repeat(" ", n.row.lead(n.depth)-1)
-	text := lead + p.cell(second[0].withText(fit(second[0].Text, n.row.cellRoom(n.depth, 0, widths), false)))
+	lead := strings.Repeat(" ", n.row.lead(n.depth, n.symbols)-1)
+	text := lead + p.cell(second[0].withText(fit(second[0].Text, n.row.cellRoom(n.depth, 0, widths, n.symbols), false)))
 	if len(second) == 1 {
 		return text
 	}
@@ -1558,14 +1613,64 @@ func drawGroup(p painter, n node, columns []Column, widths []int, titles bool) s
 // from its parent's, so the nesting shows, and a blank follows it, as one follows a group's. A
 // font that draws the chevron wider than its cell then draws it over the blank, not the text.
 func rowIndent(p painter, n node) string {
-	mark := " "
+	return strings.Repeat(" ", indentOf(n.depth)-3) + rowMark(p, n) + n.foldMark() + " "
+}
+
+// rowSymbol is a row's Symbol and the blank after it, padded to the frame's SymbolWidth, and
+// nothing where neither sets one.
+func rowSymbol(p painter, n node) string {
+	w := n.row.symbolWidth(n.symbols)
+	if w == 0 {
+		return ""
+	}
+	symbol := strings.Repeat(" ", w-textWidth(n.row.Symbol.Text)) + " "
+	if n.row.Symbol.Text != "" {
+		symbol = p.cell(n.row.Symbol) + symbol
+	}
+	return symbol
+}
+
+// rowMark is the cell before a row's chevron: LockGlyph, MarkGlyph or a blank.
+func rowMark(p painter, n node) string {
 	switch {
 	case n.locked:
-		mark = p.cell(C(LockGlyph, LockCode))
+		return p.cell(C(LockGlyph, LockCode))
 	case n.row.Marked:
-		mark = p.cell(C(MarkGlyph, MarkCode))
+		return p.cell(C(MarkGlyph, MarkCode))
 	}
-	return strings.Repeat(" ", indentOf(n.depth)-3) + mark + n.foldMark() + " "
+	return " "
+}
+
+// paragraphLines is a Paragraph row: its prose wrapped beside Bar, which the chevron replaces on
+// the first line of a row that opens. Every line past the first continues the row, so the cursor
+// keeps them in view with it.
+func paragraphLines(p painter, n node, parts nodeParts, pointer string, selected bool, look cursorLook) []drawn {
+	r := n.row
+	indent := strings.Repeat(" ", indentOf(n.depth)-3)
+	bar := " "
+	if r.Bar.Text != "" {
+		bar = p.cell(r.Bar)
+	}
+	lines := make([]drawn, 0, len(parts.paragraph))
+	for i, piece := range parts.paragraph {
+		if r.changed {
+			piece = piece.emboldened()
+		}
+		if i == 0 {
+			edge := bar
+			if n.toggles && !n.unmarked {
+				edge = n.foldMark()
+			}
+			lines = append(lines, drawn{text: pointer + indent + rowMark(p, n) + edge + " " + p.line(piece), key: selectableKey(n)})
+			continue
+		}
+		lead := " "
+		if selected {
+			lead = look.pointer()
+		}
+		lines = append(lines, drawn{text: lead + indent + " " + bar + " " + p.line(piece), continues: true})
+	}
+	return lines
 }
 
 func drawRow(p painter, n node, columns []Column, widths []int) string {
@@ -1576,13 +1681,10 @@ func drawRow(p painter, n node, columns []Column, widths []int) string {
 		if r.changed {
 			span = span.emboldened()
 		}
-		return indent + p.line(span)
+		return indent + rowSymbol(p, n) + p.line(span)
 	}
-	symbol := ""
-	if cell := r.Symbol; cell.Text != "" {
-		symbol = p.cell(cell) + " "
-	}
-	first := r.Cells[0].withText(fit(r.Cells[0].Text, r.cellRoom(n.depth, 0, widths), false))
+	symbol := rowSymbol(p, n)
+	first := r.Cells[0].withText(fit(r.Cells[0].Text, r.cellRoom(n.depth, 0, widths, n.symbols), false))
 	if r.Marked {
 		first.Code, first.Role = MarkCode, ""
 	}

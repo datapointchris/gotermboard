@@ -1102,6 +1102,82 @@ func TestAChevronDrawsOnlyOnWhatOpensAndLeavesABulletItsCell(t *testing.T) {
 	}
 }
 
+func TestASymbolWidthStartsEveryRowsTextInOneColumnAndASpanRowDrawsItsSymbol(t *testing.T) {
+	frame := Frame{SymbolWidth: 1, Columns: []Column{{Title: ""}, {Title: "STATE"}}, Groups: []Group{
+		{Key: "g", Title: Line{C("G", "")}, Rows: []Row{
+			{Key: "failed", Symbol: C("✗", Red), Cells: []Cell{C("failed", ""), C("x", "")}},
+			{Key: "plain", Cells: []Cell{C("plain", ""), C("x", "")}},
+			{Key: "pending", Symbol: C("…", Yellow), Span: Line{C("pending", "")}},
+			{Key: "spanned", Span: Line{C("spanned", "")}},
+		}},
+	}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+	screen := m.screen()
+	lines := strings.Split(screen, "\n")
+	startOf := func(name string) int {
+		line := lines[slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, name) })]
+		before, _, _ := strings.Cut(line, name)
+		return ansi.StringWidth(before)
+	}
+	if !strings.Contains(screen, "… pending") {
+		t.Errorf("a Span row should draw its Symbol:\n%s", screen)
+	}
+	for _, name := range []string{"plain", "pending", "spanned"} {
+		if startOf(name) != startOf("failed") {
+			t.Errorf("%s started apart from a row with a Symbol:\n%s", name, screen)
+		}
+	}
+}
+
+func TestAParagraphRowWrapsBesideItsBarBetweenBlanksItsNeighborShares(t *testing.T) {
+	long := strings.Repeat("word ", 20)
+	frame := Frame{Columns: []Column{{Title: ""}, {Title: "WHAT"}}, Groups: []Group{
+		{Key: "g", Title: Line{C("G", "")}, Rows: []Row{
+			{Key: "call", Cells: []Cell{C("call", ""), C("x", "")}, Detail: []Cell{C("input", "")}},
+			{Key: "first", Paragraph: Line{C(long, "")}, Bar: C("┃", Green)},
+			{Key: "second", Paragraph: Line{C("short", "")}, Bar: C("┃", Green)},
+			{Key: "after", Cells: []Cell{C("after", ""), C("y", "")}},
+		}},
+	}}
+	m := NewModel(fixedBoard{frame}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+	screen := m.screen()
+	lines := strings.Split(screen, "\n")
+	at := func(text string) int {
+		return slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, text) })
+	}
+	call, first, second, after := at("▸ call"), at("┃ word"), at("┃ short"), at("after")
+	columnOf := func(line, glyph string) int {
+		before, _, _ := strings.Cut(line, glyph)
+		return ansi.StringWidth(before)
+	}
+	if columnOf(lines[first], "┃") != columnOf(lines[call], "▸") {
+		t.Errorf("the bar should sit in the chevron's column:\n%s", screen)
+	}
+	barred := 0
+	for _, line := range lines[first:second] {
+		if strings.Contains(line, "┃ word") {
+			barred++
+		}
+	}
+	if barred < 2 {
+		t.Errorf("a paragraph wider than the table should wrap beside its bar:\n%s", screen)
+	}
+	for _, blank := range []int{first - 1, second - 1, after - 1} {
+		if strings.TrimSpace(lines[blank]) != "" {
+			t.Errorf("line %d should be blank:\n%s", blank, screen)
+		}
+	}
+	if strings.TrimSpace(lines[second-2]) == "" {
+		t.Errorf("two paragraphs in a row should share one blank:\n%s", screen)
+	}
+	m.Update(downKey)
+	if m.cursor != "first" {
+		t.Errorf("down from the call should land on the paragraph past the blank, not %q", m.cursor)
+	}
+}
+
 func TestAnOpenRowAndItsGroupsHoldTheTopWhileItsTextScrollsUnderThem(t *testing.T) {
 	text := func(name string) Document {
 		return func(int) []Line {

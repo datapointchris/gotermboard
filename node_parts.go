@@ -13,6 +13,8 @@ type nodeParts struct {
 	continued []Line
 	// second is a row's Second, on a line of its own.
 	second bool
+	// paragraph is a Paragraph row's prose, wrapped.
+	paragraph []Line
 	// below is what a group keeps under its header.
 	below []Line
 	// pieces is a detail's text or a wrapping summary's, wrapped.
@@ -21,7 +23,7 @@ type nodeParts struct {
 }
 
 func (p nodeParts) lines() int {
-	n := len(p.span) + len(p.continued) + len(p.below) + len(p.pieces) + len(p.document)
+	n := len(p.span) + len(p.continued) + len(p.below) + len(p.pieces) + len(p.document) + len(p.paragraph)
 	for _, drawn := range [...]bool{p.overline, p.head, p.second, p.underline} {
 		if drawn {
 			n++
@@ -46,6 +48,9 @@ func partsOf(n node, widths []int, width int) nodeParts {
 		}
 		return parts
 	case nodeRow:
+		if len(n.row.Paragraph) > 0 {
+			return nodeParts{paragraph: wrapWords(n.row.Paragraph, paragraphRoom(n, width))}
+		}
 		return nodeParts{head: true, continued: continuedPieces(n.row.WrapLast, widths), second: len(n.row.Second) > 0}
 	case nodeUnder:
 		if n.wraps {
@@ -75,6 +80,9 @@ func continuedPieces(wrapped Line, widths []int) []Line {
 func spanRoom(n node, width int) int     { return max(width-spanColumn(n.depth, n.group), 20) }
 func detailRoom(n node, width int) int   { return max(width-indentOf(n.depth), 20) }
 func documentRoom(n node, width int) int { return max(width-n.column, 20) }
+func paragraphRoom(n node, width int) int {
+	return max(width-paragraphColumn(n.depth), 20)
+}
 
 func underRoom(n node, width int) int {
 	lead := indentOf(n.depth) + underMarkWidth

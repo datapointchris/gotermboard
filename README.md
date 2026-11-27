@@ -275,6 +275,14 @@ ahead of them in the first column. `Column.Min` holds that column wide enough to
 A group's `Summary` draws past its `Span` while the group is folded, and wraps with it. An
 open group with rows under it draws none, as a group without a `Span` does.
 
+`Paragraph` draws a row as prose among the table's rows, such as a reply in a log of tool calls.
+It wraps across the whole table from the cell after the chevron's, beside `Bar` in the chevron's
+cell, so the bar lines up with the chevrons of the rows around it. Blank lines sit above and below
+it, and the cursor passes over them. Two paragraph rows next to each other share one blank. A
+paragraph row that opens draws its chevron in place of the bar on its first line, and its
+`Document` under it beside the bar, so the rest of the prose continues as one block. The cursor
+keeps every line of it in view, and the filter reads it.
+
 ## A board can draw its rows as blocks ruled apart, spread across a margined screen
 
 Every piece of this is off in its zero value, so a board that sets none draws the default
@@ -357,7 +365,11 @@ on that line. A filter holds every group open, so a group draws no mark while on
 A row's chevron sits one cell in from its parent's, and a blank cell follows it before `Symbol` or
 the first cell, as one follows a group's. Some fonts draw `▸` and `▾` two cells wide, Iosevka's
 non-Term builds among them, and the blank takes the overflow rather than the text. `MarkGlyph`
-sits in the cell before the chevron. No column moves for either. A board
+sits in the cell before the chevron. No column moves for either. A `Span` row draws its `Symbol`
+ahead of the span, as a row of cells draws it ahead of its first cell. Where `Symbol` marks only
+some rows, such as the failed ones, `Frame.SymbolWidth` keeps that many cells for it on every row.
+A row with none then starts its text where the rest do. Without it, a symbol pushes only its own
+row's text right. A board
 whose every row opens can blank the row chevrons with `Look.NoRowChevrons`, because there a
 chevron tells no row apart. The cell stays, so no column moves for that either. A fold's row keeps
 its chevron, because it is what tells the fold from the rows beside it.
