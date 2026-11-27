@@ -721,6 +721,37 @@ func TestALastRowBoardHearsWhetherTheCursorSitsOnTheLastRowTheFilterLeaves(t *te
 	}
 }
 
+func TestShownRowsLeavesOutTheRowsThatTheFilterAndAFoldHide(t *testing.T) {
+	var groups []Group
+	for _, g := range []string{"a", "b"} {
+		var rows []Row
+		for i := range 10 {
+			key := g + "-" + strconv.Itoa(i)
+			rows = append(rows, Row{Key: key, Cells: []Cell{C(key, "")}})
+		}
+		groups = append(groups, Group{Key: "group-" + g, Rows: rows})
+	}
+	m := NewModel(fixedBoard{Frame{Columns: []Column{{Title: ""}}, Groups: groups}}, gotermstyle.NewPalette(false))
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	if got := m.ShownRows(); len(got) != 20 || got[0] != "a-0" || got[19] != "b-9" {
+		t.Fatalf("unfiltered, ShownRows answers %v, want all 20 rows in order, scrolled off or not", got)
+	}
+	for _, key := range []tea.KeyPressMsg{typedKey("/"), typedKey("3"), enterKey} {
+		m.Update(key)
+	}
+	if got := m.ShownRows(); !slices.Equal(got, []string{"a-3", "b-3"}) {
+		t.Errorf("filtered to 3, ShownRows answers %v, want a-3 and b-3", got)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if !m.MoveCursorTo("group-b") {
+		t.Fatal("the second group does not show")
+	}
+	m.FoldUnderCursor()
+	if got := m.ShownRows(); len(got) != 10 || got[0] != "a-0" || got[9] != "a-9" {
+		t.Errorf("with the filter cleared and the second group folded, ShownRows answers %v, want the first group's 10 rows", got)
+	}
+}
+
 type askingBoard struct {
 	fixedBoard
 	answers *[]string

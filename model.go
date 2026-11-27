@@ -795,6 +795,20 @@ func (m *Model) MoveCursorTo(key string) bool {
 	return true
 }
 
+// ShownRows answers, in order, the key of every row on the table now, for a board that records
+// where a row stood among those in the reader's sight. A row in a folded group or a closed fold,
+// or one the filter hides, is not among them. A row scrolled off the screen is.
+func (m *Model) ShownRows() []string {
+	k := m.kept()
+	var keys []string
+	for stop, i := range k.ix.stops {
+		if n := k.nodes[i]; n.kind == nodeRow && n.key != "" && k.ix.stopAt[n.key] == stop {
+			keys = append(keys, n.key)
+		}
+	}
+	return keys
+}
+
 // CloseInPlace closes the text open under the cursor's row, or the rows open under a fold, as the
 // table's space does, and says whether any was open. A board that binds space to a row verb, such
 // as a mark, calls it first, so space still closes a row open in place.

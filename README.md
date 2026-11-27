@@ -665,6 +665,11 @@ as a merge moves to the next row in its group. It says whether the key shows, so
 the next candidate where the filter or a fold hides one. A key that changed what the board holds
 calls `Rebuild` first, so the key is looked for in the new frame.
 
+`Model.ShownRows` answers the key of every row on the table, in order, for a key that records
+where its row stood among the rows in the reader's sight. It leaves out a row that the filter
+hides or that sits in a folded group or a closed fold. A filter holds every group open, so a fold
+hides nothing while one stands. A row scrolled off the screen stays among them.
+
 `Model.HoldLine` keeps the cursor on its line when its row next moves, for a key whose write sorts
 the row elsewhere once a later read lands, as marking a mail read moves it out of the unread. The
 row that takes the line is under the cursor then, as in a mail client. Otherwise the cursor follows
