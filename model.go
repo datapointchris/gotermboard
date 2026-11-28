@@ -65,8 +65,7 @@ type Look struct {
 	// Spread fills the table's width with its columns at their own widths, dealing what they
 	// leave out between them from the left, rather than the last column taking it. A column
 	// with no title continues the one before it and takes none of the spread. A table whose
-	// rows or groups set WrapLast, CutLast or Cut keeps the slack in the column where the text
-	// wraps or is cut.
+	// rows or groups set WrapLast, CutLast or Cut keeps the slack in its last column instead.
 	Spread bool
 	// Rules puts the column titles on a line of their own with a rule under it, and a rule
 	// above the footer.
@@ -1259,9 +1258,12 @@ func (r Row) title() string {
 	if len(r.Paragraph) > 0 {
 		return r.Paragraph.Text()
 	}
-	texts := make([]string, 0, len(r.Cells))
+	texts := make([]string, 0, len(r.Cells)+1)
 	for _, cell := range r.Cells {
 		texts = append(texts, cell.Text)
+	}
+	if len(r.Cut) > 0 {
+		texts = append(texts, r.Cut.Text())
 	}
 	return strings.Join(texts, "  ")
 }

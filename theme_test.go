@@ -99,13 +99,13 @@ func TestARoleOnEveryCellABoardDrawsTakesTheThemeFileAndRecolorsOnAReload(t *tes
 		StartAt: "plain",
 		Strip:   []Line{{role("strip")}},
 		Charts:  func(int, int) []Line { return []Line{{role("chart")}} },
-		Columns: []Column{{Title: "NAME"}, {Title: "STATE"}, {Title: "NOTE", Min: len("wrapped")}},
+		Columns: []Column{{Title: "NAME"}, {Title: "STATE"}, {Title: "CUT", Cut: true}, {Title: "NOTE"}},
 		Groups: []Group{
 			{Key: "g", Title: Line{role("label")}, Counted: true, Count: 2, Below: []Line{{role("below")}}, Rows: []Row{
 				{Key: "plain", Cells: []Cell{C("the cursor's row stands here", "")}},
 				{Key: "cells", Symbol: role("sym"), Cells: []Cell{role("first"), role("middle"), role("last")}, Second: Line{role("second"), role("rest")}},
 				{Key: "wraps", Cells: []Cell{C("w", ""), C("w", "")}, WrapLast: Line{role("wrapped")}},
-				{Key: "cuts", Cells: []Cell{C("c", ""), C("c", "")}, Cut: Line{role("cut")}, CutColumn: 1},
+				{Key: "cuts", Cells: []Cell{C("c", ""), C("c", "")}, Cut: Line{role("cut")}},
 				{Key: "opens", Cells: []Cell{C("o", "")}, Detail: []Cell{role("detail")}, StartsOpen: true},
 			}},
 			{Key: "folded", Title: Line{C("folded", "")}, Folded: true, Summary: Line{role("summary")}, Rows: []Row{{Key: "hidden", Cells: []Cell{C("hidden", "")}}}},

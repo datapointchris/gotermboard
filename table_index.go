@@ -48,7 +48,7 @@ func (ix *lineIndex) nodeAt(line int) int {
 func (k *keptLayout) index(groups []Group, folds func(*Group) []rowFold) *lineIndex {
 	ix := &lineIndex{
 		starts: make([]int, len(k.nodes)+1), owners: make([]int32, len(k.nodes)), titlesAt: -1,
-		stopAt: make(map[string]int, len(k.nodes)), anyUnder: anyUnder(groups, k.widths, 0, folds, k.symbols),
+		stopAt: make(map[string]int, len(k.nodes)), anyUnder: anyUnder(groups, k.widths, 0, folds, k.symbols, cutColumn(k.columns)),
 	}
 	titled := false
 	if len(k.columns) > 0 && (k.look.Rules || titlesTakeOwnLine(k.nodes)) {

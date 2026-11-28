@@ -258,18 +258,21 @@ color still shows which units are done. Under way, blocked and the rest differ b
 text in its colors, so a command that prints rather than runs a board draws the same bar.
 `CutLast` on a `Row` is the last column in several colors that never wraps. The screen's
 edge cuts it with an ellipsis, as it cuts a cell. The cut takes the end, so a title goes
-after the short flags beside it. `Cut` is such a line in the column that `CutColumn` names,
-counting the first as zero, so a title can sit before other columns. `Cells` fill the columns
-around it in order. Its column takes what the other columns leave. Every column after it keeps
-its width, so the screen's edge cuts the title rather than them. A `CutColumn` of zero or past
-the last column draws `Cut` in the last, as `CutLast`.
+after the short flags beside it.
+
+`Cut` on a `Row` is such a line in the column marked `Column.Cut`, so a title can sit before
+other columns. Every row's and group's `Cells` fill the columns around that column. The column
+is as wide as its widest `Cut`, within what the other columns leave. The last column takes the
+rest, so the columns after a short title stay beside it. On a narrow screen, the edge cuts the
+title first, down to 24 cells. Every column after it keeps its width. Where the table marks no
+column, `Cut` draws in the last, in `CutLast`'s place.
 
 ```go
-gotermboard.Row{
- Key:       key,
- Cells:     []gotermboard.Cell{channel, why, verdict, age},
- Cut:       gotermboard.Line{gotermboard.C(title, "")},
- CutColumn: 1,
+columns := []gotermboard.Column{{Title: "CHANNEL"}, {Title: "TITLE", Cut: true}, {Title: "WHY"}, {Title: "AGE"}}
+row := gotermboard.Row{
+ Key:   key,
+ Cells: []gotermboard.Cell{channel, why, age},
+ Cut:   gotermboard.Line{gotermboard.C(title, "")},
 }
 ```
 
@@ -313,7 +316,7 @@ look.
   columns out at their own widths and deals what they leave out between them from the left,
   so the table ends on its edge. A column with no title continues the one before it and
   takes none of the spread, so a group of untitled counts stays together. Where rows set
-  `WrapLast`, `CutLast` or `Cut`, the column wrapping or cutting them keeps the slack instead. `Rules` puts the
+  `WrapLast`, `CutLast` or `Cut`, the last column keeps the slack instead. `Rules` puts the
   column titles on a line of their own with a rule under it, and a rule over the footer.
   Both rules span the table's width. `BoldCursor` draws the cursor's row bold over the
   theme's selection, across every line the row draws. `NoRowChevrons` leaves each row's
