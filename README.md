@@ -260,6 +260,22 @@ text in its colors, so a command that prints rather than runs a board draws the 
 edge cuts it with an ellipsis, as it cuts a cell. The cut takes the end, so a title goes
 after the short flags beside it.
 
+`Cut` on a `Row` is such a line in the column marked `Column.Cut`, so a title can sit before
+other columns. Every row's and group's `Cells` fill the columns around that column. The column
+is as wide as its widest `Cut`, within what the other columns leave. The last column takes the
+rest, so the columns after a short title stay beside it. On a narrow screen, the edge cuts the
+title first, down to 24 cells. Every column after it keeps its width. Where the table marks no
+column, `Cut` draws in the last, in `CutLast`'s place.
+
+```go
+columns := []gotermboard.Column{{Title: "CHANNEL"}, {Title: "TITLE", Cut: true}, {Title: "WHY"}, {Title: "AGE"}}
+row := gotermboard.Row{
+ Key:   key,
+ Cells: []gotermboard.Cell{channel, why, age},
+ Cut:   gotermboard.Line{gotermboard.C(title, "")},
+}
+```
+
 `Items` makes a line of `Below` or `Beside` that the draw cuts to the items that fit,
 ending in `+N`, because only the draw knows the width and it moves with the side panel.
 `Under` is a summary on a `└─` line while `f` has them on: a row's under the row, and a
@@ -299,8 +315,8 @@ look.
   `Ends` are a margin of blank columns and lines around the whole screen. `Spread` lays the
   columns out at their own widths and deals what they leave out between them from the left,
   so the table ends on its edge. A column with no title continues the one before it and
-  takes none of the spread, so a group of untitled counts stays together. A table whose rows
-  set their last column with `WrapLast` or `CutLast` keeps the slack in it instead. `Rules` puts the
+  takes none of the spread, so a group of untitled counts stays together. Where rows set
+  `WrapLast`, `CutLast` or `Cut`, the last column keeps the slack instead. `Rules` puts the
   column titles on a line of their own with a rule under it, and a rule over the footer.
   Both rules span the table's width. `BoldCursor` draws the cursor's row bold over the
   theme's selection, across every line the row draws. `NoRowChevrons` leaves each row's

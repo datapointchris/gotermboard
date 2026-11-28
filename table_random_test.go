@@ -137,6 +137,10 @@ func (b *randomBoard) row(key string, columns int) Row {
 	if b.often(5) && len(r.Cells) > 0 {
 		r.WrapLast = TallyBar(b.rng.IntN(40), b.rng.IntN(40), b.rng.IntN(5), b.rng.IntN(60))
 	}
+	if b.often(5) && len(r.Cells) > 0 {
+		r.Cut = b.line(1 + b.rng.IntN(3))
+		r.Cells = r.Cells[:b.rng.IntN(len(r.Cells))+1]
+	}
 	if b.often(2) {
 		r.Under = C(b.words()+" "+b.words(), b.code())
 		r.UnderWhereCut = b.often(4)
@@ -250,7 +254,7 @@ func (b *randomBoard) build() []string {
 	columns := 1 + b.rng.IntN(4)
 	frame := Frame{}
 	for i := range columns {
-		frame.Columns = append(frame.Columns, Column{Title: []string{"NAME", "STATE", "", "WHAT"}[i], Right: b.often(5), Max: []int{0, 0, 30}[b.rng.IntN(3)]})
+		frame.Columns = append(frame.Columns, Column{Title: []string{"NAME", "STATE", "", "WHAT"}[i], Right: b.often(5), Max: []int{0, 0, 30}[b.rng.IntN(3)], Cut: b.often(4)})
 	}
 	var keys []string
 	for i := range 1 + b.rng.IntN(7) {

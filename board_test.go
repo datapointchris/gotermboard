@@ -318,6 +318,53 @@ func TestCutLastDrawsOneLineEndingInAnEllipsis(t *testing.T) {
 	}
 }
 
+func TestACutColumnTakesItsWidestCutAndANarrowScreenCutsItBeforeTheColumnsAfterIt(t *testing.T) {
+	title := Line{C("recurred  ", Red), C(strings.Repeat("a title too long for the screen ", 10), "")}
+	frame := Frame{
+		Columns: []Column{{Title: ""}, {Title: "TITLE", Cut: true}, {Title: "WHY"}, {Title: "AGE"}},
+		Groups: []Group{{Key: "g", Title: Line{C("G", Bold)}, Rows: []Row{
+			{Key: "long", Cells: []Cell{C("open", ""), C("held", ""), C("3d", "")}, Cut: title},
+			{Key: "short", Cells: []Cell{C("shut", ""), C("passed by hand", ""), C("12d", "")}, Cut: Line{C("short", "")}},
+			{Key: "none", Cells: []Cell{C("idle", ""), C("waits", ""), C("1d", "")}},
+		}}},
+	}
+	// The columns after the cut are WHY, as wide as "passed by hand", the gap and AGE.
+	const after = len("passed by hand") + 2 + len("AGE")
+	whys := map[int]int{}
+	for _, width := range []int{80, 120, 400} {
+		screen := ansi.Strip(Once(fixedBoard{frame}, gotermstyle.NewPalette(false), width, 10))
+		starts := map[string]int{}
+		var cutTitle string
+		for line := range strings.SplitSeq(screen, "\n") {
+			for _, word := range []string{"WHY", "held", "passed by hand", "waits", "recurred"} {
+				if i := strings.Index(line, word); i >= 0 {
+					starts[word] = ansi.StringWidth(line[:i])
+				}
+			}
+			if i, held := strings.Index(line, "recurred"), strings.Index(line, "held"); i >= 0 && held > i {
+				cutTitle = strings.TrimRight(line[i:held], " ")
+			}
+		}
+		why := starts["WHY"]
+		if starts["held"] != why || starts["passed by hand"] != why || starts["waits"] != why {
+			t.Fatalf("at %d wide, every row's WHY, one with no Cut included, should start under the title's, at %v:\n%s", width, starts, screen)
+		}
+		whys[width] = why
+		if width == 400 {
+			if cutTitle != title.Text()[:len(title.Text())-1] || why != starts["recurred"]+title.width()+2 {
+				t.Fatalf("at %d wide, the column should be as wide as the whole title, with WHY after it:\n%s", width, screen)
+			}
+			continue
+		}
+		if width-why != after || !strings.HasPrefix(cutTitle, "recurred  a title") || !strings.HasSuffix(cutTitle, "…") {
+			t.Fatalf("at %d wide, the title should end in an ellipsis with WHY %d from the edge:\n%s", width, after, screen)
+		}
+	}
+	if whys[120]-whys[80] != 40 {
+		t.Errorf("the cut column should take the 40 cells a wider screen adds, WHY started at %v", whys)
+	}
+}
+
 // countedBoard draws what its one source last read, and counts every read it makes.
 type countedBoard struct {
 	source *Source[string]
