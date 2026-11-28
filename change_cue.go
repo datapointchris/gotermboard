@@ -117,6 +117,7 @@ func (c *changeCue) rowPrint(r *Row) uint64 {
 	c.printCells(r.Span)
 	c.printCells(r.WrapLast)
 	c.printCells(r.CutLast)
+	c.printCells(r.Cut)
 	c.printCells(r.Paragraph)
 	return c.print.Sum64()
 }

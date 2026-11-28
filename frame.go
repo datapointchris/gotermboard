@@ -180,8 +180,9 @@ func (l Line) emboldened() Line {
 	return out
 }
 
-// Column is one column of the table. The last is unpadded, so the screen's edge
-// cuts it first. Max caps its width, where one long value must not take the row.
+// Column is one column of the table. The last is unpadded, so the screen's edge cuts it
+// first, unless a row's Cut names another. Max caps its width, where one long value must not
+// take the row.
 type Column struct {
 	Title string
 	// Min holds the column at least this wide, for what a group's Beside fits into.
@@ -228,6 +229,13 @@ type Row struct {
 	// CutLast is the last column as cells of their own colors, cut at the screen's edge
 	// with an ellipsis as a cell in Cells is. The cut takes its end, so what must show leads.
 	CutLast Line
+	// Cut is the column CutColumn names, as cells of their own colors cut as CutLast is, so a
+	// title can sit before other columns. Cells fill the columns around it in order. Its column
+	// takes what the other columns leave, so every column after it keeps its width.
+	Cut Line
+	// CutColumn names where Cut draws, counting the first column as zero. The first column holds
+	// the row's indent, so zero, like a number past the last column, draws Cut in the last.
+	CutColumn int
 	// Under is the row's summary, drawn on a └─ row while those are on.
 	Under Cell
 	// Second is a line the row draws under its first, always. Its first cell sits in the first
@@ -313,8 +321,35 @@ func (r *Row) showsUnder(depth int, widths []int, symbols int) bool {
 		return true
 	}
 	last := len(widths) - 1
-	return last >= 0 && len(r.WrapLast) == 0 && len(r.Cells) > last &&
-		textWidth(r.Cells[last].Text) > r.cellRoom(depth, last, widths, symbols)
+	at := last
+	if r.cellColumn(last-1, last) == last {
+		at = last - 1
+	}
+	return last >= 0 && len(r.WrapLast) == 0 && len(r.Cells) > at &&
+		textWidth(r.Cells[at].Text) > r.cellRoom(depth, last, widths, symbols)
+}
+
+// cutLine is the line the row cuts at the screen's edge and the column it draws in, where last is
+// the table's last column: Cut where it is set, and otherwise CutLast.
+func (r *Row) cutLine(last int) (Line, int) {
+	if len(r.Cut) == 0 {
+		return r.CutLast, last
+	}
+	if r.CutColumn < 1 || r.CutColumn > last {
+		return r.Cut, last
+	}
+	return r.Cut, r.CutColumn
+}
+
+// cellColumn is the column the row's cell at i draws in: i itself, or the next one where Cut takes
+// a column at or before it.
+func (r *Row) cellColumn(i, last int) int {
+	if len(r.Cut) > 0 {
+		if _, at := r.cutLine(last); i >= at {
+			return i + 1
+		}
+	}
+	return i
 }
 
 // panelSource is the row's own text for the side panel: its Panel or else its Document, and
@@ -722,6 +757,9 @@ func rowText(r *Row) string {
 	if len(r.CutLast) > 0 {
 		b.WriteString(" " + r.CutLast.Text())
 	}
+	if len(r.Cut) > 0 {
+		b.WriteString(" " + r.Cut.Text())
+	}
 	if len(r.Second) > 0 {
 		b.WriteString(" " + r.Second.Text())
 	}
@@ -1079,10 +1117,12 @@ func (n node) spanLine() Line {
 }
 
 // layout is the width each column takes for what shows, within width, and the columns with
-// the gaps ahead of them. The last column takes what is left and is never padded, unless
-// look spreads the columns and no row or group wraps its last column under itself.
+// the gaps ahead of them. Where a row's Cut names a column, that column takes what is left, and
+// otherwise the last does, which is never padded. Look spreads the columns instead only where no
+// row or group wraps or cuts a column.
 func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []int) {
 	widths := make([]int, len(columns))
+	last := len(widths) - 1
 	for i, c := range columns {
 		widths[i] = textWidth(c.Title)
 	}
@@ -1101,11 +1141,15 @@ func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []i
 			widths[0] = max(widths[0], indentOf(0)+2+groupLabel(n.group).width())
 		case n.kind == nodeRow && len(n.row.Cells) > 0:
 			for i, c := range n.row.Cells {
+				at := n.row.cellColumn(i, last)
+				if at > last {
+					break
+				}
 				w := textWidth(c.Text)
 				if i == 0 {
 					w += n.row.lead(n.depth, n.symbols)
 				}
-				widths[i] = max(widths[i], w)
+				widths[at] = max(widths[at], w)
 			}
 			if len(n.row.Second) > 0 {
 				widths[0] = max(widths[0], n.row.lead(n.depth, n.symbols)+textWidth(n.row.Second[0].Text))
@@ -1118,14 +1162,28 @@ func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []i
 			widths[i] = min(widths[i], c.Max)
 		}
 	}
-	lastHoldsLines := slices.ContainsFunc(nodes, func(n node) bool {
-		return n.kind == nodeRow && (len(n.row.WrapLast) > 0 || len(n.row.CutLast) > 0) ||
-			n.kind == nodeGroup && len(n.group.WrapLast) > 0
-	})
-	if look.Spread && !lastHoldsLines {
+	rest, holdsLines := restColumn(nodes, last)
+	if look.Spread && !holdsLines {
 		return spread(columns, widths, width)
 	}
-	return columns, squeeze(widths, width)
+	return columns, squeeze(widths, width, rest)
+}
+
+// restColumn is the column that takes what the others leave: the one the first row setting Cut
+// names, and otherwise last. holdsLines says a row or group wraps or cuts a column, which then
+// keeps the slack that Look.Spread would deal out.
+func restColumn(nodes []node, last int) (rest int, holdsLines bool) {
+	for _, n := range nodes {
+		switch {
+		case n.kind == nodeRow && len(n.row.Cut) > 0:
+			_, at := n.row.cutLine(last)
+			return at, true
+		case n.kind == nodeRow && (len(n.row.WrapLast) > 0 || len(n.row.CutLast) > 0),
+			n.kind == nodeGroup && len(n.group.WrapLast) > 0:
+			holdsLines = true
+		}
+	}
+	return last, holdsLines
 }
 
 // spread fills width with the columns at their own widths, dealing what they leave out
@@ -1136,7 +1194,7 @@ func layout(columns []Column, nodes []node, width int, look Look) ([]Column, []i
 func spread(columns []Column, widths []int, width int) ([]Column, []int) {
 	last := len(widths) - 1
 	if last < 1 {
-		return columns, squeeze(widths, width)
+		return columns, squeeze(widths, width, last)
 	}
 	used := func() int {
 		sum := len(columnGap) * last
@@ -1145,7 +1203,7 @@ func spread(columns []Column, widths []int, width int) ([]Column, []int) {
 		}
 		return sum
 	}
-	narrowWidest(widths, len(widths), func() bool { return used() > width })
+	narrowWidest(widths, -1, func() bool { return used() > width })
 	slack := width - used()
 	if slack <= 0 {
 		widths[last] = max(widths[last]+slack, 0)
@@ -1171,42 +1229,44 @@ func spread(columns []Column, widths []int, width int) ([]Column, []int) {
 	return columns, widths
 }
 
-// lastColumnFloor is what the last column keeps before the screen's edge cuts
+// restColumnFloor is what the column taking what is left keeps before the screen's edge cuts
 // the rest.
-const lastColumnFloor = 24
+const restColumnFloor = 24
 
-// squeeze takes columns from the widest until the last keeps its floor.
-func squeeze(widths []int, width int) []int {
-	last := len(widths) - 1
-	if last < 0 {
+// squeeze takes columns from the widest until the column at rest keeps its floor, then gives
+// that column what the others leave.
+func squeeze(widths []int, width, rest int) []int {
+	if len(widths) == 0 {
 		return widths
 	}
-	fixed := func() int {
-		sum := 0
-		for _, w := range widths[:last] {
-			sum += w + len(columnGap)
+	others := func() int {
+		sum := len(columnGap) * (len(widths) - 1)
+		for i, w := range widths {
+			if i != rest {
+				sum += w
+			}
 		}
 		return sum
 	}
-	narrowWidest(widths, last, func() bool { return fixed()+lastColumnFloor > width })
-	widths[last] = max(width-fixed(), 0)
+	narrowWidest(widths, rest, func() bool { return others()+restColumnFloor > width })
+	widths[rest] = max(width-others(), 0)
 	return widths
 }
 
 // narrowestColumn is as far as narrowWidest takes a column.
 const narrowestColumn = 6
 
-// narrowWidest takes a column at a time from the widest of widths[:among] while over holds,
-// stopping once the widest is down to narrowestColumn.
-func narrowWidest(widths []int, among int, over func() bool) {
+// narrowWidest takes a column at a time from the widest of widths but the one at kept, which
+// is -1 to narrow any, while over holds. It stops once the widest is down to narrowestColumn.
+func narrowWidest(widths []int, kept int, over func() bool) {
 	for over() {
-		widest := 0
-		for i, w := range widths[:among] {
-			if w > widths[widest] {
+		widest := -1
+		for i, w := range widths {
+			if i != kept && (widest < 0 || w > widths[widest]) {
 				widest = i
 			}
 		}
-		if widths[widest] <= narrowestColumn {
+		if widest < 0 || widths[widest] <= narrowestColumn {
 			return
 		}
 		widths[widest]--
@@ -1443,42 +1503,42 @@ func columnTitles(p painter, columns []Column, widths []int) string {
 	return b.String()
 }
 
-// columnCells draws cells on the columns from one on. own takes the last column where it is
-// set, already fitted to it by lastColumn.
-func columnCells(p painter, cells []Cell, from int, own Line, columns []Column, widths []int) string {
+// columnCells draws cells on the columns from one on, around the column at ownAt where own is
+// set. ownColumn has fitted own to that column, and a column after it pads own to its width.
+func columnCells(p painter, cells []Cell, from int, own Line, ownAt int, columns []Column, widths []int) string {
 	last := len(widths) - 1
 	var b strings.Builder
-	at := from
-	for _, c := range cells {
-		if at > last || (at == last && len(own) > 0) {
-			break
+	for at := from; at <= last; at++ {
+		switch {
+		case len(own) > 0 && at == ownAt:
+			b.WriteString(columns[at].spacer() + p.line(own))
+			if at < last {
+				b.WriteString(strings.Repeat(" ", max(widths[at]-own.width(), 0)))
+			}
+		case len(cells) > 0 && at == last:
+			b.WriteString(columns[at].spacer() + p.cell(cells[0].withText(cut(cells[0].Text, widths[at]))))
+			cells = cells[1:]
+		case len(cells) > 0:
+			b.WriteString(columns[at].spacer() + p.cell(cells[0].withText(fit(cells[0].Text, widths[at], columns[at].Right))))
+			cells = cells[1:]
+		case len(own) > 0 && at < ownAt:
+			b.WriteString(columns[at].spacer() + strings.Repeat(" ", widths[at]))
+		default:
+			return b.String()
 		}
-		if at == last {
-			b.WriteString(columns[at].spacer() + p.cell(c.withText(cut(c.Text, widths[at]))))
-		} else {
-			b.WriteString(columns[at].spacer() + p.cell(c.withText(fit(c.Text, widths[at], columns[at].Right))))
-		}
-		at++
 	}
-	if len(own) == 0 {
-		return b.String()
-	}
-	for ; at < last; at++ {
-		b.WriteString(columns[at].spacer() + strings.Repeat(" ", widths[at]))
-	}
-	b.WriteString(columns[last].spacer() + p.line(own))
 	return b.String()
 }
 
-// lastColumn is what a row's or group's last column draws on its own line: cutting cut to
-// the column with an ellipsis, or the first line wrapped breaks into there.
-func lastColumn(wrapped, cutting Line, widths []int) Line {
+// ownColumn is what a row's or group's own column draws on its first line: cutting cut to the
+// column at with an ellipsis, or the first line wrapped breaks into the last column.
+func ownColumn(wrapped, cutting Line, at int, widths []int) Line {
 	if len(widths) == 0 {
 		return nil
 	}
 	room := widths[len(widths)-1]
 	if len(cutting) > 0 {
-		return cutting.cut(room)
+		return cutting.cut(widths[at])
 	}
 	if pieces := wrapLine(wrapped, room); len(pieces) > 0 {
 		return pieces[0]
@@ -1575,7 +1635,7 @@ func spanLines(p painter, n node, parts nodeParts, pointer string, columns []Col
 	beside := n.group.Beside.elided(room)
 	first := strings.Repeat(" ", min(column, widths[0])) + ansi.Truncate(p.line(beside), room, "…")
 	first += strings.Repeat(" ", max(widths[0]-ansi.StringWidth(first), 0))
-	text := first + columnCells(p, n.group.Cells, 1, lastColumn(n.group.WrapLast, nil, widths), columns, widths)
+	text := first + columnCells(p, n.group.Cells, 1, ownColumn(n.group.WrapLast, nil, len(widths)-1, widths), len(widths)-1, columns, widths)
 	lines = append(lines, drawn{text: ansi.Truncate(text, width, "…")})
 	return append(lines, continuedLines(p, parts.continued, columns, widths)...)
 }
@@ -1586,7 +1646,7 @@ func drawGroup(p painter, n node, columns []Column, widths []int, titles bool) s
 		room := max(widths[0]-1-ansi.StringWidth(head), 1)
 		painted := ansi.Truncate(p.line(label), room, "…")
 		out := head + painted + strings.Repeat(" ", max(room-ansi.StringWidth(painted), 0))
-		return out + columnCells(p, n.group.Cells, 1, lastColumn(n.group.WrapLast, nil, widths), columns, widths)
+		return out + columnCells(p, n.group.Cells, 1, ownColumn(n.group.WrapLast, nil, len(widths)-1, widths), len(widths)-1, columns, widths)
 	}
 	if n.depth > 0 {
 		out := head + p.line(label)
@@ -1691,7 +1751,8 @@ func drawRow(p painter, n node, columns []Column, widths []int) string {
 	if r.changed {
 		first.Code = emboldened(first.Code)
 	}
-	return indent + symbol + p.cell(first) + columnCells(p, r.Cells[1:], 1, lastColumn(r.WrapLast, r.CutLast, widths), columns, widths)
+	cutting, at := r.cutLine(len(widths) - 1)
+	return indent + symbol + p.cell(first) + columnCells(p, r.Cells[1:], 1, ownColumn(r.WrapLast, cutting, at, widths), at, columns, widths)
 }
 
 // wrapWords breaks a line at its line breaks, then at spaces to width, each cell keeping its

@@ -137,6 +137,10 @@ func (b *randomBoard) row(key string, columns int) Row {
 	if b.often(5) && len(r.Cells) > 0 {
 		r.WrapLast = TallyBar(b.rng.IntN(40), b.rng.IntN(40), b.rng.IntN(5), b.rng.IntN(60))
 	}
+	if b.often(5) && len(r.Cells) > 0 {
+		r.Cut, r.CutColumn = b.line(1+b.rng.IntN(3)), b.rng.IntN(columns+1)
+		r.Cells = r.Cells[:b.rng.IntN(len(r.Cells))+1]
+	}
 	if b.often(2) {
 		r.Under = C(b.words()+" "+b.words(), b.code())
 		r.UnderWhereCut = b.often(4)

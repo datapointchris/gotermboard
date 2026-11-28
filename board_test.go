@@ -318,6 +318,46 @@ func TestCutLastDrawsOneLineEndingInAnEllipsis(t *testing.T) {
 	}
 }
 
+func TestCutDrawsInTheColumnItNamesAndTheColumnsAfterItKeepTheirWidths(t *testing.T) {
+	long := strings.Repeat("a title too long for the screen ", 10)
+	frame := Frame{
+		Columns: []Column{{Title: ""}, {Title: "TITLE"}, {Title: "WHY"}, {Title: "AGE"}},
+		Groups: []Group{{Key: "g", Title: Line{C("G", Bold)}, Rows: []Row{
+			{Key: "long", Cells: []Cell{C("open", ""), C("held", ""), C("3d", "")}, Cut: Line{C("recurred  ", Red), C(long, "")}, CutColumn: 1},
+			{Key: "short", Cells: []Cell{C("shut", ""), C("passed by hand", ""), C("12d", "")}, Cut: Line{C("short", "")}, CutColumn: 1},
+		}}},
+	}
+	// The columns after the cut are WHY, as wide as "passed by hand", the gap and AGE.
+	const after = len("passed by hand") + 2 + len("AGE")
+	shown := map[int]int{}
+	for _, width := range []int{80, 120} {
+		screen := ansi.Strip(Once(fixedBoard{frame}, gotermstyle.NewPalette(false), width, 10))
+		starts := map[string]int{}
+		var title, end string
+		for line := range strings.SplitSeq(screen, "\n") {
+			for _, word := range []string{"WHY", "held", "passed by hand"} {
+				if i := strings.Index(line, word); i >= 0 {
+					starts[word] = ansi.StringWidth(line[:i])
+				}
+			}
+			if i := strings.Index(line, "held"); i >= 0 {
+				title, end = strings.TrimRight(line[:i], " "), line[i:]
+			}
+		}
+		why := starts["WHY"]
+		if starts["held"] != why || starts["passed by hand"] != why || width-why != after {
+			t.Fatalf("at %d wide, WHY should start %d from the edge on every line, at %v:\n%s", width, after, starts, screen)
+		}
+		if !strings.Contains(title, "recurred  a title") || !strings.HasSuffix(title, "…") || !strings.HasPrefix(strings.TrimRight(end, " "), "held") {
+			t.Fatalf("at %d wide, the title should sit before WHY, cut to an ellipsis:\n%s", width, screen)
+		}
+		shown[width] = ansi.StringWidth(title)
+	}
+	if shown[120]-shown[80] != 40 {
+		t.Errorf("the cut column should take the 40 cells a wider screen adds, drew %v", shown)
+	}
+}
+
 // countedBoard draws what its one source last read, and counts every read it makes.
 type countedBoard struct {
 	source *Source[string]

@@ -99,12 +99,13 @@ func TestARoleOnEveryCellABoardDrawsTakesTheThemeFileAndRecolorsOnAReload(t *tes
 		StartAt: "plain",
 		Strip:   []Line{{role("strip")}},
 		Charts:  func(int, int) []Line { return []Line{{role("chart")}} },
-		Columns: []Column{{Title: "NAME"}, {Title: "STATE"}, {Title: "NOTE"}},
+		Columns: []Column{{Title: "NAME"}, {Title: "STATE"}, {Title: "NOTE", Min: len("wrapped")}},
 		Groups: []Group{
 			{Key: "g", Title: Line{role("label")}, Counted: true, Count: 2, Below: []Line{{role("below")}}, Rows: []Row{
 				{Key: "plain", Cells: []Cell{C("the cursor's row stands here", "")}},
 				{Key: "cells", Symbol: role("sym"), Cells: []Cell{role("first"), role("middle"), role("last")}, Second: Line{role("second"), role("rest")}},
 				{Key: "wraps", Cells: []Cell{C("w", ""), C("w", "")}, WrapLast: Line{role("wrapped")}},
+				{Key: "cuts", Cells: []Cell{C("c", ""), C("c", "")}, Cut: Line{role("cut")}, CutColumn: 1},
 				{Key: "opens", Cells: []Cell{C("o", "")}, Detail: []Cell{role("detail")}, StartsOpen: true},
 			}},
 			{Key: "folded", Title: Line{C("folded", "")}, Folded: true, Summary: Line{role("summary")}, Rows: []Row{{Key: "hidden", Cells: []Cell{C("hidden", "")}}}},
@@ -115,7 +116,7 @@ func TestARoleOnEveryCellABoardDrawsTakesTheThemeFileAndRecolorsOnAReload(t *tes
 	wears := func(code string) {
 		t.Helper()
 		screen := m.screen()
-		for _, text := range []string{"strip", "chart", "label", " · 2", "below", "sym", "first", "middle", "last", "second", "rest", "wrapped", "detail", "summary", "span", "beside"} {
+		for _, text := range []string{"strip", "chart", "label", " · 2", "below", "sym", "first", "middle", "last", "second", "rest", "wrapped", "cut", "detail", "summary", "span", "beside"} {
 			if !strings.Contains(screen, code+text) {
 				t.Errorf("%q should draw in %q:\n%q", text, code, screen)
 			}
