@@ -365,6 +365,39 @@ func TestACutColumnTakesItsWidestCutAndANarrowScreenCutsItBeforeTheColumnsAfterI
 	}
 }
 
+func TestTitlesTakeALineOfTheirOwnWhereTheFirstGroupsLabelIsWiderThanItsColumn(t *testing.T) {
+	const label = "a channel whose label runs long"
+	frame := Frame{
+		Columns: []Column{{Title: "NAME"}, {Title: "STATE"}, {Title: "AGE"}},
+		Groups: []Group{
+			{Key: "long", Title: Line{C(label, Bold)}, Rows: []Row{{Key: "r", Cells: []Cell{C("x", ""), C("open", ""), C("3d", "")}}}},
+			{Key: "short", Title: Line{C("b", Bold)}, Rows: []Row{{Key: "s", Cells: []Cell{C("y", ""), C("shut", ""), C("9d", "")}}}},
+		},
+	}
+	for _, c := range []struct {
+		width   int
+		ownLine bool
+	}{{50, true}, {100, false}} {
+		screen := ansi.Strip(Once(fixedBoard{frame}, gotermstyle.NewPalette(false), c.width, 12))
+		lines := strings.Split(screen, "\n")
+		titles := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "STATE") })
+		header := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, label[:10]) })
+		row := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "open") })
+		if titles < 0 || header < 0 || row < 0 || (titles < header) != c.ownLine || (titles == header) == c.ownLine {
+			t.Fatalf("at %d wide, the titles should sit on a line of their own: %v:\n%s", c.width, c.ownLine, screen)
+		}
+		column := func(line, word string) int {
+			before, _, _ := strings.Cut(line, word)
+			return ansi.StringWidth(before)
+		}
+		for title, cell := range map[string]string{"STATE": "open", "AGE": "3d"} {
+			if at, under := column(lines[titles], title), column(lines[row], cell); at != under {
+				t.Errorf("at %d wide, %s starts at %d and its cell %q at %d:\n%s", c.width, title, at, cell, under, screen)
+			}
+		}
+	}
+}
+
 // countedBoard draws what its one source last read, and counts every read it makes.
 type countedBoard struct {
 	source *Source[string]

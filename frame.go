@@ -1673,7 +1673,7 @@ func drawGroup(p painter, n node, columns []Column, widths []int, titles bool) s
 		}
 		return out
 	}
-	pad := strings.Repeat(" ", max(widths[0]-1-ansi.StringWidth(head)-label.width(), 0))
+	pad := strings.Repeat(" ", max(labelRoom(n, widths), 0))
 	out := head + p.line(label) + pad
 	switch {
 	case titles:
@@ -1684,6 +1684,13 @@ func drawGroup(p painter, n node, columns []Column, widths []int, titles bool) s
 		}
 	}
 	return out
+}
+
+// labelRoom is the room left in the first column after a group's label. It is below zero where
+// the label is wider than the column.
+func labelRoom(n node, widths []int) int {
+	head, label := groupHead(n)
+	return widths[0] - 1 - ansi.StringWidth(head) - label.width()
 }
 
 // rowIndent is the cells ahead of a row's symbol. MarkGlyph and the chevron each take a cell

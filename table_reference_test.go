@@ -45,12 +45,17 @@ func stickyBand(lines []drawn, top, height int) []string {
 
 // draw lays the nodes out to width. The first group holding rows and left open
 // carries the one header row, so every group shares its columns. A group with cells
-// of its own has no room for the titles, so they take a line of their own at the top. A
-// board's Look.Rules puts them there too, and adds a rule under them.
+// of its own has no room for the titles, so they take a line of their own at the top. So
+// does a first such group whose label is wider than the first column. A board's Look.Rules
+// puts them there too, and adds a rule under them.
 func draw(p painter, columns []Column, nodes []node, widths []int, width int, cursor string, look cursorLook, board Look) []drawn {
 	titled := false
 	lines := make([]drawn, 0, len(nodes))
 	ownLine := board.Rules || slices.ContainsFunc(nodes, func(n node) bool { return n.kind == nodeGroup && len(n.group.Cells) > 0 })
+	if first := slices.IndexFunc(nodes, func(n node) bool { return n.kind == nodeGroup && n.depth == 0 && n.open && n.drawsRows }); first >= 0 {
+		head, label := groupHead(nodes[first])
+		ownLine = ownLine || ansi.StringWidth(head)+label.width() > widths[0]-1
+	}
 	if ownLine && len(columns) > 0 {
 		titled = true
 		first := p.bold(fit(columns[0].Title, max(widths[0]-1, 0), false))

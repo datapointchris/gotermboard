@@ -51,7 +51,7 @@ func (k *keptLayout) index(groups []Group, folds func(*Group) []rowFold) *lineIn
 		stopAt: make(map[string]int, len(k.nodes)), anyUnder: anyUnder(groups, k.widths, 0, folds, k.symbols, cutColumn(k.columns)),
 	}
 	titled := false
-	if len(k.columns) > 0 && (k.look.Rules || titlesTakeOwnLine(k.nodes)) {
+	if len(k.columns) > 0 && (k.look.Rules || titlesTakeOwnLine(k.nodes, k.widths)) {
 		titled = true
 		ix.head = 1
 		if k.look.Rules {
@@ -62,7 +62,7 @@ func (k *keptLayout) index(groups []Group, folds func(*Group) []rowFold) *lineIn
 	ix.pinned = ix.head
 	for i := range k.nodes {
 		n := &k.nodes[i]
-		if !titled && n.kind == nodeGroup && n.depth == 0 && n.open && n.drawsRows {
+		if !titled && carriesTitles(n) {
 			titled, ix.titlesAt = true, i
 		}
 		if n.parent >= 0 {
@@ -88,15 +88,24 @@ func (k *keptLayout) index(groups []Group, folds func(*Group) []rowFold) *lineIn
 	return ix
 }
 
-// titlesTakeOwnLine says a group has cells of its own, which leave its header no room for the
-// column titles.
-func titlesTakeOwnLine(nodes []node) bool {
+// titlesTakeOwnLine says the group headers leave the column titles no room. A group has cells of
+// its own, or the first group to carry the titles has a label wider than the first column.
+func titlesTakeOwnLine(nodes []node, widths []int) bool {
+	carrier := -1
 	for i := range nodes {
 		if nodes[i].kind == nodeGroup && len(nodes[i].group.Cells) > 0 {
 			return true
 		}
+		if carrier < 0 && carriesTitles(&nodes[i]) {
+			carrier = i
+		}
 	}
-	return false
+	return carrier >= 0 && labelRoom(nodes[carrier], widths) < 0
+}
+
+// carriesTitles says the column titles can sit on the node's header: a top group open on its rows.
+func carriesTitles(n *node) bool {
+	return n.kind == nodeGroup && n.depth == 0 && n.open && n.drawsRows
 }
 
 // height is how many lines drawNode gives node i, from the parts it paints. It keeps an open

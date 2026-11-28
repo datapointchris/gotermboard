@@ -248,7 +248,9 @@ read, a tab's return and a new grouping mark nothing.
 ## Group rows share the columns
 
 A `Group` with `Cells` draws them on the columns past the first, which holds its title,
-and the column titles then take a line of their own at the top. `Below` holds lines
+and the column titles then take a line of their own at the top. Otherwise the titles sit
+on the first open group's header, after its title. Where that title is wider than a
+narrowed first column, they take the line at the top instead. `Below` holds lines
 drawn under the header whether it is folded or not, which the cursor moves past as one
 node. `WrapLast` on a `Row` or a `Group` is the last column as cells of their own colors,
 continuing on further lines at that column, so a bar wider than the row keeps every cell.
